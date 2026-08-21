@@ -26,13 +26,22 @@ const UNLABELLED: u32 = 0;
 pub struct ComponentFilter {
     /// Components with fewer foreground pixels than this are discarded.
     pub min_area: u64,
-    /// Components covering more than this fraction of the image, in percent, are discarded.
+    /// Components covering more than this fraction of the image, in percent, are candidates for
+    /// being a background rather than a glyph — but only if they are also solid, see below.
     pub max_coverage_percent: u32,
+    /// How densely filled a component must be, in percent of its own bounding box, before covering
+    /// most of the image counts against it.
+    ///
+    /// Coverage alone is the wrong test and caused a real bug: a PGS object is cropped tightly
+    /// around its text, so a cue holding a single character is one component covering essentially
+    /// the whole image, and a coverage-only filter silently dropped it. What separates a background
+    /// box from a glyph is density — a box is solid, a letter is mostly holes.
+    pub max_fill_percent: u32,
 }
 
 impl Default for ComponentFilter {
     fn default() -> Self {
-        Self { min_area: 4, max_coverage_percent: 50 }
+        Self { min_area: 4, max_coverage_percent: 50, max_fill_percent: 90 }
     }
 }
 
@@ -40,7 +49,7 @@ impl ComponentFilter {
     /// A filter that keeps everything, for callers doing their own culling.
     #[must_use]
     pub const fn permissive() -> Self {
-        Self { min_area: 0, max_coverage_percent: 100 }
+        Self { min_area: 0, max_coverage_percent: 100, max_fill_percent: 100 }
     }
 
     /// Whether a component of the given bounds and pixel count survives the filter.
@@ -49,10 +58,16 @@ impl ComponentFilter {
         if pixels < self.min_area {
             return false;
         }
-        if image_area == 0 {
+        if image_area == 0 || bounds.area() == 0 {
             return true;
         }
-        bounds.area() * 100 / image_area <= u64::from(self.max_coverage_percent)
+
+        let dominates = bounds.area() * 100 / image_area > u64::from(self.max_coverage_percent);
+        let solid = pixels * 100 / bounds.area() >= u64::from(self.max_fill_percent);
+
+        // Both, not either. A big sparse component is a glyph on a tightly cropped object; a big
+        // solid one is a background.
+        !(dominates && solid)
     }
 }
 
@@ -348,7 +363,7 @@ mod tests {
             2
         );
 
-        let filter = ComponentFilter { min_area: 4, max_coverage_percent: 100 };
+        let filter = ComponentFilter { min_area: 4, ..ComponentFilter::permissive() };
         let kept = label(&mask(&rows), filter).unwrap();
         assert_eq!(
             kept.len(),
@@ -359,13 +374,25 @@ mod tests {
     }
 
     #[test]
-    fn the_coverage_filter_drops_a_background_box() {
+    fn a_solid_box_filling_the_image_is_dropped_as_a_background() {
         let rows = ["####", "####", "####", "####"];
-        let filter = ComponentFilter { min_area: 0, max_coverage_percent: 50 };
         assert!(
-            label(&mask(&rows), filter).unwrap().is_empty(),
-            "a component covering the whole image is a background, not a glyph"
+            label(&mask(&rows), ComponentFilter::default())
+                .unwrap()
+                .is_empty(),
+            "a solid component covering the whole image is a background, not a glyph"
         );
+    }
+
+    #[test]
+    fn a_sparse_glyph_filling_the_image_is_kept() {
+        // The bug coverage-only filtering caused. A PGS object is cropped tightly around its
+        // text, so a cue holding one character is a single component spanning the whole image.
+        // Judged on coverage alone it looks exactly like a background and was silently dropped.
+        let rows = ["#..#", "####", "#..#", "#..#"];
+        let kept = label(&mask(&rows), ComponentFilter::default()).unwrap();
+        assert_eq!(kept.len(), 1, "a letter shape is mostly holes and must survive");
+        assert_eq!(kept[0].bounds, Rect::new(0, 0, 4, 4));
     }
 
     #[test]
@@ -442,8 +469,12 @@ mod tests {
             "a glyph-sized box is"
         );
         assert!(
-            !filter.accepts(Rect::new(0, 0, 40, 25), 900, image_area),
-            "a box covering the whole image is a background, not a glyph"
+            !filter.accepts(Rect::new(0, 0, 40, 25), 1_000, image_area),
+            "a solid box covering the whole image is a background"
+        );
+        assert!(
+            filter.accepts(Rect::new(0, 0, 40, 25), 300, image_area),
+            "but a sparse one covering the whole image is a glyph on a tight crop"
         );
     }
 }

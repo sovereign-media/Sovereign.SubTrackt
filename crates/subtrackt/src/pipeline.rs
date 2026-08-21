@@ -84,7 +84,7 @@ impl Pipeline {
         let mut decoder = subtrackt_decode::decoder_for(stream.codec.ffmpeg_name())?;
         let mut matcher = HammingMatcher::new(reference::embedded(), self.config.matching)?;
         let segmenter = ImageSegmenter::new(Binarizer::new(self.config.binarize));
-        let assembler = SpatialAssembler::new(self.config.layout);
+        let assembler = SpatialAssembler::new(self.config.layout_rules());
 
         let mut report = Report {
             reference_set: matcher.references().name().to_owned(),

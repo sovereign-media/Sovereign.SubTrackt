@@ -74,6 +74,21 @@ pub struct Config {
     pub post_correct: bool,
 }
 
+impl Config {
+    /// The layout rules with the ambiguity margin taken from the matching thresholds.
+    ///
+    /// One source of truth: the confidence tally and the matcher must not be able to disagree
+    /// about what counts as a close call, or a cue could be reported clean while post-correction
+    /// thinks it is not.
+    #[must_use]
+    pub fn layout_rules(&self) -> LayoutRules {
+        LayoutRules {
+            ambiguity_margin: self.matching.ambiguity_margin(),
+            ..self.layout
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +125,16 @@ mod tests {
         assert!(!policy.rejects(CLEAN));
         assert!(!policy.rejects(ONE_BAD), "99% read should pass a 98% floor");
         assert!(policy.rejects(HALF_BAD));
+    }
+
+    #[test]
+    fn the_layout_rules_take_their_ambiguity_margin_from_the_matcher() {
+        let config = Config::default();
+        assert_eq!(
+            config.layout_rules().ambiguity_margin,
+            config.matching.ambiguity_margin(),
+            "the tally and the matcher must agree on what a close call is"
+        );
     }
 
     #[test]
