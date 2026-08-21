@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
- #4 (+.sup) #2 #3       #5          #5 #6        #7        #9 #10       #11 #12    (done)
+ #4 (+.sup) done/#3   (done)        #5 #6        #7        #9 #10       #11 #12    (done)
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -52,7 +52,13 @@ Complete and tested:
 
 - Domain types, timestamp arithmetic, palette conversion, geometry.
 - `Error`, including `Unsupported { issue }` — every stub names the issue that will replace it.
-- PGS `.sup` segment reading, and PGS segment framing with malformed-packet detection.
+- PGS `.sup` segment reading.
+- **PGS decoding, complete**: segment framing and body parsing, ODS reassembly across fragments,
+  run-length coding both ways, incremental palette updates, object cropping, forced-subtitle flags,
+  and display-set timing. Multiple composition objects composite into one image, because a top and
+  bottom window belong to the same line of dialogue. Repeated compositions of identical pixels
+  extend the open cue instead of emitting a new one, so a fade authored as twenty palette updates
+  stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
 - `FeatureVector`: 256-bit vectors, Hamming distance, cache keys.
@@ -61,9 +67,12 @@ Complete and tested:
 - SRT and WebVTT writers.
 - The pipeline wiring, end to end.
 
-Stubbed, each returning `Error::Unsupported` naming its issue: PGS RLE and composition (#2), all of
-VOBSUB decoding (#3), container demuxing (#4), connected components (#5), diacritic grouping (#6),
-feature vectoring (#7), reference data (#9), text layout (#11).
+Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3),
+container demuxing (#4), connected components (#5), diacritic grouping (#6), feature vectoring (#7),
+reference data (#9), text layout (#11).
+
+Running the CLI over a `.sup` now reaches #5 and stops there, which is the honest measure of how far
+the pipeline gets.
 
 The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
 unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
