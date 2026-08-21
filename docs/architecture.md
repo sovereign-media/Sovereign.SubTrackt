@@ -184,10 +184,10 @@ These are the §4 questions from #1, with where they live in the code.
 | Question | Where | Issue |
 | :--- | :--- | :--- |
 | ~~Which typefaces the reference set covers~~ | **answered** — see [library-survey.md](library-survey.md) | #8 |
-| Whether one vector per character survives bold/italic/outline | `FEATURE_GRID`, `reference::Style` | #14 |
+| ~~Whether one vector per character survives bold/italic/outline~~ | **answered: it does not** — see [glyph-stability.md](glyph-stability.md) | #14 |
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
 | What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
-| Session cache scope: stream, file or library | `subtrackt-glyph::cache` | #10 |
+| Session cache scope, and the redesign it now needs | `subtrackt-glyph::cache` | #10 |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |
 
 ### The accuracy gate
