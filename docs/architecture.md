@@ -183,7 +183,7 @@ These are the §4 questions from #1, with where they live in the code.
 
 | Question | Where | Issue |
 | :--- | :--- | :--- |
-| Which typefaces the reference set covers | `subtrackt-glyph::reference` | #8 |
+| ~~Which typefaces the reference set covers~~ | **answered** — see [library-survey.md](library-survey.md) | #8 |
 | Whether one vector per character survives bold/italic/outline | `FEATURE_GRID`, `reference::Style` | #14 |
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
 | What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
