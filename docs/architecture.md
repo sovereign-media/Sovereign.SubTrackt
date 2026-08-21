@@ -125,12 +125,16 @@ What is in place:
   binary nobody runs is the most expensive thing in the pipeline; `cargo check --target` still
   catches everything target-specific. Real builds happen on main and on tags.
 - **`concurrency` cancellation.** Superseded commits stop building.
+- **`sccache`.** The piece that actually closes the gap above: it keys each compilation unit by
+  content, so workspace-own crates survive across runs too. Measured at a **100% hit rate on every
+  job** for an unchanged commit. Cold it costs a little setup; warm it took the main job from 42s to
+  30s and the aarch64 job from 34s to 23s. Hit rates are printed per job, so if it stops earning its
+  keep that is visible rather than assumed.
 
 Deliberately not done yet, with the trigger for revisiting:
 
 | Tool | Why not yet | When to add |
 | :--- | :--- | :--- |
-| `sccache` | The only thing that would cache workspace-own crates across CI runs, but a 6s clean build makes it pure overhead | Clean CI build passes roughly a minute |
 | `cargo-nextest` | 116 tests execute in milliseconds; the runner is not the bottleneck | Test *execution* becomes visible against compile time, or flaky-test retries are wanted |
 | `lld` / `mold` | Linking is not dominant with this little code and no C dependencies | A demuxer backend (#4) brings in native libraries |
 | A separate `dist` profile | `release` should keep meaning "what we ship" | Release-build time on main becomes an obstacle |

@@ -16,20 +16,30 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   # Incremental artifacts are dead weight in CI: every run starts from a fresh checkout, so nothing
-  # is ever reused, and they roughly double what the cache has to carry.
+  # is ever reused, and they roughly double what the cache has to carry. sccache also refuses to
+  # cache anything compiled with incremental enabled, so this is load-bearing for the below.
   CARGO_INCREMENTAL: 0
+  # rust-cache handles ~/.cargo and dependency artifacts but deliberately drops workspace-own
+  # crates, since serving a stale one would be worse than rebuilding. sccache closes that gap: it
+  # keys each compilation unit by content, so our own crates survive across runs too. That is the
+  # half of the build that grows as the project does.
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   check:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -55,14 +65,21 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
 
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
+
   msrv:
     name: minimum supported Rust version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # rust-toolchain.toml pins contributors to stable and would override the pin below.
       - run: rm -f rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@1.85.0
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -79,10 +96,13 @@ jobs:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -105,3 +125,7 @@ jobs:
       - name: Build release binary
         if: github.event_name != 'pull_request'
         run: cargo build --release --target ${{ matrix.target }} -p subtrackt-cli --locked
+
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats

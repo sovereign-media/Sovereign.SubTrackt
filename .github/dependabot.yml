@@ -1,0 +1,26 @@
+version: 2
+
+updates:
+  # Action versions drift silently and only surface as deprecation warnings on a runner, which is
+  # easy to scroll past. Let Dependabot raise them as reviewable pull requests instead.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      # The library crates have no dependencies at all, so everything here belongs to the CLI.
+      # One grouped pull request a month is proportionate.
+      cargo:
+        patterns: ['*']
+    commit-message:
+      prefix: "deps"
