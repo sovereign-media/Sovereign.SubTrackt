@@ -10,6 +10,8 @@
 //! $ cargo run -p xtask -- gen-reference C:/Windows/Fonts/arial.ttf arial.subtref --name arial
 //! ```
 
+mod accuracy;
+mod fixture;
 mod stability;
 
 use std::path::PathBuf;
@@ -67,7 +69,7 @@ fn vector_for(font: &Font, ch: char) -> Option<subtrackt_core::FeatureVector> {
     vectorize(&mask, Rect::new(0, 0, width, height), AspectPolicy::Letterbox).ok()
 }
 
-fn gen_reference(args: &[String]) -> anyhow::Result<()> {
+pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
     let font_path = args
         .first()
         .context("usage: gen-reference <font.ttf> <out> [--name N]")?;
@@ -122,10 +124,14 @@ fn main() -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("gen-reference") => return gen_reference(&args[1..]),
         Some("measure-stability") => return stability::measure(&args[1..]),
+        Some("make-fixture") => return fixture::make(&args[1..]),
+        Some("accuracy") => return accuracy::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
     eprintln!("  xtask gen-reference <font.ttf> <out.subtref> [--name NAME]");
     eprintln!("  xtask measure-stability <regular.ttf> [bold] [italic] [bold-italic]");
+    eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
+    eprintln!("  xtask accuracy [font.ttf]");
     std::process::exit(2);
 }

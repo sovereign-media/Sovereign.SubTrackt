@@ -76,6 +76,13 @@ pub struct ExtractArgs {
     /// Print the extraction summary to stderr.
     #[arg(long)]
     pub report: bool,
+
+    /// Reference glyph set to match against, as written by `xtask gen-reference`.
+    ///
+    /// The embedded set is empty until #9 has one worth shipping, so without this every glyph
+    /// comes back unmatched.
+    #[arg(long)]
+    pub reference: Option<PathBuf>,
 }
 
 /// Reject a ratio outside `0.0..=1.0` at parse time rather than silently clamping later.
