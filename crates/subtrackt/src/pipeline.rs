@@ -243,7 +243,9 @@ mod tests {
     fn segmentation_stops_at_the_first_unimplemented_stage_and_names_its_issue() {
         let segmenter = ImageSegmenter::new(Binarizer::default());
         let err = segmenter.segment(&image()).unwrap_err();
-        assert!(matches!(err, Error::Unsupported { issue: 5, .. }), "got {err:?}");
+        // Binarization and connected components are done, so the wall has moved to line
+        // assignment. This number is the honest measure of how far the pipeline reaches.
+        assert!(matches!(err, Error::Unsupported { issue: 6, .. }), "got {err:?}");
     }
 
     #[test]
