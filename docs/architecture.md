@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
- #4 (+.sup) done/#3   (done)      (done)       #7        #9 #10       #11 #12    (done)
+ #4 (+.sup) done/#3   (done)      (done)     (done)      #9 (done)    #11 #12    (done)
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -61,6 +61,9 @@ Complete and tested:
   stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
+- **Glyph normalization, complete**: each glyph is cropped to its component box, letterboxed onto
+  the 16-cell grid preserving aspect ratio, and thresholded at 50% area coverage. Coverage rather
+  than point sampling, which is a deliberate departure from the architecture document — see below.
 - **Line assignment and diacritic grouping, complete**: text lines from the mask row projection,
   marks attached to bodies above or below them, and stacked punctuation clustered on its own. What
   separates a diaeresis from a colon is not the marks — those are geometrically identical — but
@@ -75,14 +78,29 @@ Complete and tested:
 - The pipeline wiring, end to end.
 
 Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3),
-container demuxing (#4), feature vectoring (#7), reference data (#9), text layout (#11).
+container demuxing (#4), reference data (#9), text layout (#11).
 
-Running the CLI over a `.sup` now reaches #7 and stops there, which is the honest measure of how far
+Running the CLI over a `.sup` now reaches #11 and stops there, which is the honest measure of how far
 the pipeline gets.
 
 The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
 unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
 belongs in it.
+
+### Area coverage, not bilinear interpolation
+
+The architecture document specifies bilinear interpolation for normalising a glyph onto the grid.
+The implementation uses area coverage instead, and the reason is the direction of the resampling.
+
+Bilinear is the right tool for magnifying. Here the usual case is the reverse — a 40px glyph
+collapsing onto a 16-cell grid, a 2.5x reduction — and point-sampling a binary mask at that ratio
+aliases, so whether a thin stroke survives depends on where the sample points happen to land. Each
+cell instead measures the fraction of its source rectangle that is foreground, weighting partial
+pixels. Area is preserved under scaling; stroke hits are not.
+
+That is what makes the acceptance criterion hold: the same character rendered at 480p and at 1080p
+lands within a tenth of the vector of itself, while two different characters stay several times
+further apart. Both are asserted.
 
 ## Decisions still open
 
@@ -92,7 +110,7 @@ These are the §4 questions from #1, with where they live in the code.
 | :--- | :--- | :--- |
 | Which typefaces the reference set covers | `subtrackt-glyph::reference` | #8 |
 | Whether one vector per character survives bold/italic/outline | `FEATURE_GRID`, `reference::Style` | #14 |
-| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 |
+| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
 | What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
 | Session cache scope: stream, file or library | `subtrackt-glyph::cache` | #10 |
 | Demuxer backend | `subtrackt-demux::container` | #4 |

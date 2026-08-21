@@ -249,12 +249,16 @@ mod tests {
     }
 
     #[test]
-    fn segmentation_stops_at_the_first_unimplemented_stage_and_names_its_issue() {
+    fn segmentation_carries_a_component_through_to_a_feature_vector() {
         let segmenter = ImageSegmenter::new(Binarizer::default());
-        let err = segmenter.segment(&image()).unwrap_err();
-        // Binarization, components and grouping are done, so the wall has moved to feature
-        // vectoring. This number is the honest measure of how far the pipeline reaches.
-        assert!(matches!(err, Error::Unsupported { issue: 7, .. }), "got {err:?}");
+        // Segmentation is complete now, so this no longer fails at all. What the test still
+        // pins is that a glyph-sized component makes it all the way to a feature vector.
+        let glyphs = segmenter.segment(&image()).unwrap();
+        assert_eq!(glyphs.len(), 1, "the 4x4 block is one glyph");
+        assert!(
+            glyphs[0].features.popcount() > 0,
+            "and it vectorizes to something non-empty"
+        );
     }
 
     #[test]
