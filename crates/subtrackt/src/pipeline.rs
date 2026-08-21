@@ -220,13 +220,20 @@ mod tests {
     use super::*;
     use subtrackt_core::{IndexedBitmap, Palette, PaletteEntry, Rect, TimeSpan, Timestamp};
 
+    /// An 8x8 image holding one 4x4 block: big enough to survive the component area filter, and
+    /// small enough relative to the image to survive the coverage filter.
     fn image() -> SubtitleImage {
         let mut palette = Palette::transparent(2);
         palette.set(1, PaletteEntry { y: 235, cb: 128, cr: 128, alpha: 255 });
+
+        let pixels: Vec<u8> = (0..8)
+            .flat_map(|y| (0..8).map(move |x| u8::from((2..6).contains(&x) && (2..6).contains(&y))))
+            .collect();
+
         SubtitleImage {
             span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(1_000)),
-            position: Rect::new(0, 0, 4, 2),
-            bitmap: IndexedBitmap::new(4, 2, vec![0, 1, 1, 0, 0, 1, 0, 0]).unwrap(),
+            position: Rect::new(0, 0, 8, 8),
+            bitmap: IndexedBitmap::new(8, 8, pixels).unwrap(),
             palette,
             forced: false,
         }
@@ -236,16 +243,18 @@ mod tests {
     fn the_binarizer_runs_end_to_end_inside_the_segmenter() {
         let segmenter = ImageSegmenter::new(Binarizer::default());
         let bitmap = segmenter.binarize(&image()).unwrap();
-        assert_eq!(bitmap.pixels(), &[0, 1, 1, 0, 0, 1, 0, 0]);
+        assert_eq!(bitmap.width(), 8);
+        assert_eq!(bitmap.get(3, 3), Some(1), "inside the block is foreground");
+        assert_eq!(bitmap.get(0, 0), Some(0), "outside it is not");
     }
 
     #[test]
     fn segmentation_stops_at_the_first_unimplemented_stage_and_names_its_issue() {
         let segmenter = ImageSegmenter::new(Binarizer::default());
         let err = segmenter.segment(&image()).unwrap_err();
-        // Binarization and connected components are done, so the wall has moved to line
-        // assignment. This number is the honest measure of how far the pipeline reaches.
-        assert!(matches!(err, Error::Unsupported { issue: 6, .. }), "got {err:?}");
+        // Binarization, components and grouping are done, so the wall has moved to feature
+        // vectoring. This number is the honest measure of how far the pipeline reaches.
+        assert!(matches!(err, Error::Unsupported { issue: 7, .. }), "got {err:?}");
     }
 
     #[test]
