@@ -92,12 +92,59 @@ This corroborates the library measurement in [library-survey.md](library-survey.
 independent direction: a fitted Arial set covered 46% of real glyph instances, and this explains
 why.
 
+## Attempting to fix it at the binarizer, and failing
+
+The table above makes edge sensitivity look like the obvious thing to attack: at 30 cells it is the
+largest term that is not inherent to the source material, and unlike weight and slant it is an
+artefact of *our* thresholding. Two ways of attacking it were implemented and measured against six
+real titles, using distinct shapes per glyph as the variance proxy — fewer distinct shapes for the
+same glyphs means the same character is landing on the same vector more often.
+
+**Palette-adaptive thresholding.** Instead of a fixed luma of 128, split the palette at the widest
+gap between its drawn entries, so the threshold sits in the empty space between the outline cluster
+and the fill cluster on every stream regardless of how it was authored.
+
+| | Distinct shapes |
+| :--- | ---: |
+| Fixed threshold | 1,270 |
+| Adaptive | 1,319 (**+3.9%**) |
+
+Neutral on four titles, worse on two. The reason is visible once measured: subtitle palettes put
+fill near luma 235 and outline near 16, so a fixed 128 is *already* comfortably in the gap. The
+adaptive split sometimes picks a different gap — between two anti-aliasing entries — and does worse.
+
+**Hysteresis.** Decide borderline pixels by connectivity instead: ink above the high threshold
+outright, ink between the low and high thresholds only when touching ink, so an edge follows the
+stroke it belongs to rather than the exact place the threshold falls.
+
+| | Distinct shapes |
+| :--- | ---: |
+| Hard threshold | 1,270 |
+| Hysteresis | 1,290 (**+1.6%**) |
+
+Better on one title, worse on two, unchanged on three.
+
+**Neither shipped.** A knob that measures worse is worse than no knob.
+
+### What the failure says
+
+The variance is not caused by *where* the threshold sits. It is caused by there being a threshold at
+all. Two renderings of the same glyph differ in their anti-aliasing ramp, and any binary decision
+turns that difference into a different set of pixels — moving the decision point, or making it
+context-sensitive, just moves which pixels flip.
+
+That points somewhere specific. `vectorize` already computes per-cell *area coverage* and only then
+thresholds each cell at 50%. If the mask handed to it carried grey coverage instead of a binary
+decision, the per-cell figure would vary smoothly with the ramp rather than in steps, and the 50%
+decision would be correspondingly more stable. That is a change to the feature representation in #7,
+not to binarization — and it is the experiment worth running next.
+
 ## What follows
 
 - **#10 needs redesigning, not implementing.** It is written as per-glyph matching against a fixed
   set. It should become: cluster a stream's shapes, then match centroids.
 - **#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds labels;
   it will not carry the load alone.
-- **Reducing edge sensitivity in binarization is the highest-value single change available.** At
-  p50 30 it is the largest cheap-to-attack term, and unlike weight and slant it is an artefact of
-  *our* thresholding rather than of the source material.
+- ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two
+  approaches measured neutral-to-worse. The lever is the binary mask itself, not the threshold
+  placement, which makes it a #7 question about carrying grey coverage into the feature vector.
