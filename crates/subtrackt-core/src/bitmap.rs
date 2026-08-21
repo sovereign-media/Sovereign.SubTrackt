@@ -63,6 +63,25 @@ impl PaletteEntry {
     }
 }
 
+impl PaletteEntry {
+    /// Build an entry from RGB, for codecs whose palettes are authored that way.
+    ///
+    /// VOBSUB is the reason this exists: its palette arrives as `RRGGBB` hex in a `.idx` sidecar or
+    /// a Matroska `CodecPrivate`, while everything downstream expects the YCbCr that PGS uses.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn from_rgb(r: u8, g: u8, b: u8, alpha: u8) -> Self {
+        let (r, g, b) = (f32::from(r), f32::from(g), f32::from(b));
+        let clamp = |v: f32| v.round().clamp(0.0, 255.0) as u8;
+        Self {
+            y: clamp(0.256_788 * r + 0.504_129 * g + 0.097_906 * b + 16.0),
+            cb: clamp(-0.148_223 * r - 0.290_993 * g + 0.439_216 * b + 128.0),
+            cr: clamp(0.439_216 * r - 0.367_788 * g - 0.071_427 * b + 128.0),
+            alpha,
+        }
+    }
+}
+
 /// A codec palette. PGS palettes hold up to 256 entries; VOBSUB uses 16 with a 4-entry
 /// per-subpicture selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +278,25 @@ mod tests {
         assert_eq!(palette.len(), 10);
         assert_eq!(palette.get(9), entry);
         assert_eq!(palette.get(200).alpha, 0);
+    }
+
+    #[test]
+    fn rgb_round_trips_back_through_the_ycbcr_conversion() {
+        // The two matrices are inverses, so a colour survives the trip within rounding.
+        for (r, g, b) in [
+            (255u8, 0u8, 0u8),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 255),
+            (0, 0, 0),
+        ] {
+            let back = PaletteEntry::from_rgb(r, g, b, 255).to_rgba();
+            let close = |a: u8, b: u8| i32::from(a).abs_diff(i32::from(b)) <= 2;
+            assert!(
+                close(back.r, r) && close(back.g, g) && close(back.b, b),
+                "({r},{g},{b}) came back as {back:?}"
+            );
+        }
     }
 
     #[test]

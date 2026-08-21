@@ -38,6 +38,7 @@ const TRACK_TYPE: u32 = 0x0083;
 const CODEC_ID: u32 = 0x0086;
 const LANGUAGE: u32 = 0x0022_B59C;
 const NAME: u32 = 0x536E;
+const CODEC_PRIVATE: u32 = 0x63A2;
 const VIDEO: u32 = 0x00E0;
 const PIXEL_WIDTH: u32 = 0x00B0;
 const PIXEL_HEIGHT: u32 = 0x00BA;
@@ -476,6 +477,7 @@ fn read_track_entry<R: Read + Seek>(
     let mut language = None;
     let mut name = None;
     let mut compression = Compression::None;
+    let mut codec_private = Vec::new();
 
     while cursor < end {
         reader.seek_to(cursor)?;
@@ -489,6 +491,9 @@ fn read_track_entry<R: Read + Seek>(
             LANGUAGE => language = Some(reader.read_string(&child)?),
             NAME => name = Some(reader.read_string(&child)?),
             CONTENT_ENCODINGS => compression = read_compression(reader, &child)?,
+            CODEC_PRIVATE => {
+                codec_private = reader.read_exact(usize::try_from(child.size).unwrap_or(0))?;
+            }
             _ => {}
         }
         match child.body_end() {
@@ -512,6 +517,7 @@ fn read_track_entry<R: Read + Seek>(
         title: name,
         plane_width: 0,
         plane_height: 0,
+        codec_private,
     };
     *index += 1;
     Ok(Some(Track { number, info, compression }))
