@@ -42,6 +42,12 @@ pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 
+[profile.dev]
+# Full debug info is the single largest contributor to link time and to target/ size, and almost
+# none of it is used day to day. Line tables keep backtraces pointing at real file:line locations,
+# which is what anyone actually reads, at a fraction of the cost.
+debug = "line-tables-only"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

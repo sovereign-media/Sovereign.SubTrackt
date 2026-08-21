@@ -3,18 +3,28 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+
+# A superseded commit is not worth building. Cancels in-flight runs for the same branch or PR,
+# except on main, where every commit should get a recorded result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Incremental artifacts are dead weight in CI: every run starts from a fresh checkout, so nothing
+  # is ever reused, and they roughly double what the cache has to carry.
+  CARGO_INCREMENTAL: 0
 
 jobs:
   check:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -22,35 +32,44 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Only main writes to the cache. Without this every PR branch saves its own copy, and
+          # the repository's 10 GB budget evicts the one branch whose cache everything else
+          # actually restores from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Formatting
         run: cargo fmt --all -- --check
 
+      # --locked so a Cargo.lock that drifted out of sync fails here rather than being silently
+      # rewritten, which would make the cache key wrong for everyone downstream.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features --locked
 
       - name: Tests
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features --locked
 
       - name: Docs
         # Broken intra-doc links are how a rename quietly rots the architecture notes.
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps --locked
 
   msrv:
     name: minimum supported Rust version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # rust-toolchain.toml pins contributors to stable and would override the pin below.
       - run: rm -f rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check --workspace --all-targets --locked
 
   cross:
-    name: build ${{ matrix.target }}
+    name: ${{ matrix.target }}
     runs-on: ubuntu-latest
     # Both architectures Sovereign ships, per the distribution discussion in #16.
     strategy:
@@ -60,15 +79,29 @@ jobs:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # On a pull request, type-check only. That catches everything target-specific — cfg gates,
+      # pointer width, endianness — without paying for a fully optimised link of a binary nobody
+      # will run. The real thing still gets built on main and on tags.
+      - name: Check
+        if: github.event_name == 'pull_request'
+        run: cargo check --workspace --all-targets --target ${{ matrix.target }} --locked
+
       - name: Install cross linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: github.event_name != 'pull_request' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-      - run: cargo build --release --target ${{ matrix.target }} -p subtrackt-cli
+
+      - name: Build release binary
+        if: github.event_name != 'pull_request'
+        run: cargo build --release --target ${{ matrix.target }} -p subtrackt-cli --locked

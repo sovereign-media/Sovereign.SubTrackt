@@ -96,6 +96,48 @@ open half of #13.
 Both a per-cue and a track-level check exist, because "one unread glyph in a feature" and "40% of
 the track unread" deserve different answers and only the second is visible at track level.
 
+## Build times
+
+Measured on the scaffold (~4k lines, 7 crates): clean workspace build 5.7s, no-op 0.03s,
+rebuild after touching a leaf crate 1.4s, after touching `subtrackt-core` 1.8s.
+
+The shape of the problem here is unusual and worth knowing before reaching for the standard advice.
+The usual Rust CI caching guidance exists to avoid recompiling *dependencies* — but every library
+crate in this workspace has none, and all 49 third-party crates in the lockfile are pulled in by
+`subtrackt-cli` alone. `Swatinem/rust-cache` deliberately does not cache workspace-own crates, since
+a stale one is worse than a slow build. So as this grows, the thing that grows is precisely the
+thing dependency caching does not help with.
+
+What is in place:
+
+- **The crate split itself.** It is the biggest lever and it is already pulled: editing
+  `subtrackt-text` does not rebuild `subtrackt-decode`. Keeping `subtrackt-core` small matters —
+  everything depends on it, so a change there is the worst case.
+- **`debug = "line-tables-only"`** in the dev profile. Full debug info was 36% of `target/debug`
+  (259 MB down to 167 MB) and most of the link time, for information nobody reads. Backtraces still
+  resolve to file and line.
+- **`CARGO_INCREMENTAL: 0` in CI.** Incremental artifacts are never reused across fresh checkouts
+  and roughly double what the cache carries.
+- **`save-if` on main only.** Without it every PR branch writes its own cache and the repository's
+  10 GB budget evicts the one branch everything restores from. This is the mistake that makes CI
+  caching quietly stop working.
+- **Type-check rather than release-build on pull requests.** A fully optimised cross-link of a
+  binary nobody runs is the most expensive thing in the pipeline; `cargo check --target` still
+  catches everything target-specific. Real builds happen on main and on tags.
+- **`concurrency` cancellation.** Superseded commits stop building.
+
+Deliberately not done yet, with the trigger for revisiting:
+
+| Tool | Why not yet | When to add |
+| :--- | :--- | :--- |
+| `sccache` | The only thing that would cache workspace-own crates across CI runs, but a 6s clean build makes it pure overhead | Clean CI build passes roughly a minute |
+| `cargo-nextest` | 116 tests execute in milliseconds; the runner is not the bottleneck | Test *execution* becomes visible against compile time, or flaky-test retries are wanted |
+| `lld` / `mold` | Linking is not dominant with this little code and no C dependencies | A demuxer backend (#4) brings in native libraries |
+| A separate `dist` profile | `release` should keep meaning "what we ship" | Release-build time on main becomes an obstacle |
+
+The one to watch is `sccache`: if #4 lands `ffmpeg-next`, dependency build time stops being
+negligible and the calculus changes.
+
 ## Conventions
 
 - Every stub returns `Error::Unsupported { issue }` rather than `todo!()`. A panic in a media
