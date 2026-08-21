@@ -21,11 +21,20 @@ impl<'a> Reader<'a> {
     }
 
     fn short(&self, needed: usize) -> Error {
+        // The body goes into the message. A malformed segment is rare enough that finding one in
+        // the wild is most of the work, and without the bytes the report is unactionable.
+        use std::fmt::Write as _;
+        let mut preview = String::new();
+        for byte in self.data.iter().take(48) {
+            let _ = write!(preview, "{byte:02x}");
+        }
+        let elided = if self.data.len() > 48 { "..." } else { "" };
+
         Error::MalformedPacket {
             codec: "pgs",
             pts: self.pts,
             reason: format!(
-                "{} needs {needed} more bytes at offset {} but the segment holds {}",
+                "{} needs {needed} more bytes at offset {} but the segment holds {}: {preview}{elided}",
                 self.what,
                 self.pos,
                 self.data.len()
@@ -132,9 +141,11 @@ pub fn composition(body: &[u8], pts: u64) -> Result<Composition> {
         let x = u32::from(r.u16()?);
         let y = u32::from(r.u16()?);
 
-        // Bit 7 marks forced subtitles, bit 6 marks a cropped object.
-        let forced = flags & 0x80 != 0;
-        let crop = if flags & 0x40 == 0 {
+        // Bit 7 is object_cropped_flag, bit 6 is forced_on_flag. These were the wrong way round
+        // and it cost 6.6% of the library: a forced-subtitle object was read as a cropped one, so
+        // the parser went looking for eight bytes of cropping rectangle that were never there.
+        let forced = flags & 0x40 != 0;
+        let crop = if flags & 0x80 == 0 {
             None
         } else {
             let cx = u32::from(r.u16()?);
@@ -303,7 +314,7 @@ mod tests {
         for (id, window, x, y) in objects {
             b.extend_from_slice(&id.to_be_bytes());
             b.push(*window);
-            b.push(if forced { 0x80 } else { 0x00 });
+            b.push(if forced { 0x40 } else { 0x00 });
             b.extend_from_slice(&u16::try_from(*x).unwrap().to_be_bytes());
             b.extend_from_slice(&u16::try_from(*y).unwrap().to_be_bytes());
         }
@@ -340,7 +351,7 @@ mod tests {
         let mut body = composition_body(&[(3, 0, 10, 20)], false);
         // Set the cropped flag and append the crop rectangle. The flags byte sits at offset 14:
         // 11 bytes of composition header, then the object id (2) and window id (1).
-        body[14] = 0x40;
+        body[14] = 0x80;
         body.extend_from_slice(&2u16.to_be_bytes());
         body.extend_from_slice(&4u16.to_be_bytes());
         body.extend_from_slice(&8u16.to_be_bytes());
@@ -348,6 +359,52 @@ mod tests {
 
         let c = composition(&body, 0).unwrap();
         assert_eq!(c.objects[0].crop, Some(Rect::new(2, 4, 8, 16)));
+    }
+
+    /// Real bytes from *Ford v Ferrari* (2019), which this parser used to reject outright.
+    const REAL_FORCED_PCS: &str = "078004381000008000000100000040027c031e";
+
+    #[test]
+    fn a_forced_object_is_not_mistaken_for_a_cropped_one() {
+        // The #26 regression. 19 bytes is exactly an 11-byte header plus one uncropped object, so
+        // reading 0x40 as "cropped" sent the parser looking for a rectangle that is not there and
+        // failed 6.6% of the library.
+        let body: Vec<u8> = (0..REAL_FORCED_PCS.len() / 2)
+            .map(|i| u8::from_str_radix(&REAL_FORCED_PCS[i * 2..i * 2 + 2], 16).unwrap())
+            .collect();
+
+        let c = composition(&body, 156_966_840).unwrap();
+        assert_eq!((c.plane_width, c.plane_height), (1920, 1080));
+        assert_eq!(c.objects.len(), 1);
+        assert!(c.objects[0].forced, "0x40 is forced_on_flag");
+        assert_eq!(c.objects[0].crop, None, "and says nothing about cropping");
+        assert_eq!((c.objects[0].x, c.objects[0].y), (636, 798));
+    }
+
+    #[test]
+    fn a_cropped_object_consumes_exactly_eight_more_bytes() {
+        // The other half of the same confusion: 0x80 really does mean a rectangle follows, and
+        // getting that wrong would place a bitmap at the wrong size rather than fail loudly.
+        let mut body = composition_body(&[(1, 0, 0, 0)], false);
+        body[14] = 0x80;
+        let before = body.len();
+        body.extend_from_slice(&[0, 1, 0, 2, 0, 3, 0, 4]);
+        assert_eq!(body.len(), before + 8);
+
+        let c = composition(&body, 0).unwrap();
+        assert_eq!(c.objects[0].crop, Some(Rect::new(1, 2, 3, 4)));
+        assert!(!c.objects[0].forced);
+    }
+
+    #[test]
+    fn an_object_can_be_both_forced_and_cropped() {
+        let mut body = composition_body(&[(1, 0, 0, 0)], false);
+        body[14] = 0xC0;
+        body.extend_from_slice(&[0, 1, 0, 2, 0, 3, 0, 4]);
+
+        let c = composition(&body, 0).unwrap();
+        assert!(c.objects[0].forced);
+        assert_eq!(c.objects[0].crop, Some(Rect::new(1, 2, 3, 4)));
     }
 
     #[test]

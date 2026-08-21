@@ -34,9 +34,12 @@ Two gaps, both of which limit what this can claim:
 - **All twelve VOBSUB samples failed**, because #3 is unimplemented. The DVD-era half of the library
   is entirely unsurveyed. It is only 4% of titles but it is the part most likely to differ, being
   lower resolution and older. **This survey is about PGS only.**
-- **Four PGS titles failed to parse** with a malformed composition segment, tracked as [#26][issue-26].
-  That is 6.6% of the PGS files attempted, so even the PGS result is over files we can currently
-  read.
+- **Four PGS titles failed to parse** with a malformed composition segment — 6.6% of the PGS files
+  attempted — so the numbers below are over the files readable at the time. That was [#26][issue-26]
+  and is now fixed: the composition object's cropped and forced flag bits were the wrong way round.
+  All four are forced-subtitle tracks, which is why they were the ones that broke. Re-running the
+  survey would now include them; the headline figures are unlikely to move, since four titles
+  against fifty-six is within the noise, but they have not been re-measured.
 
 ## Is there a dominant glyph set?
 

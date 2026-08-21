@@ -396,7 +396,7 @@ mod tests {
         for (id, x, y) in objects {
             b.extend_from_slice(&id.to_be_bytes());
             b.push(0);
-            b.push(if forced { 0x80 } else { 0x00 });
+            b.push(if forced { 0x40 } else { 0x00 });
             b.extend_from_slice(&u16::try_from(*x).unwrap().to_be_bytes());
             b.extend_from_slice(&u16::try_from(*y).unwrap().to_be_bytes());
         }
