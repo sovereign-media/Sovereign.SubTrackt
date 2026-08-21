@@ -10,6 +10,8 @@
 //! $ cargo run -p xtask -- gen-reference C:/Windows/Fonts/arial.ttf arial.subtref --name arial
 //! ```
 
+mod stability;
+
 use std::path::PathBuf;
 
 use anyhow::{Context as _, bail};
@@ -117,9 +119,13 @@ fn gen_reference(args: &[String]) -> anyhow::Result<()> {
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("gen-reference") {
-        return gen_reference(&args[1..]);
+    match args.first().map(String::as_str) {
+        Some("gen-reference") => return gen_reference(&args[1..]),
+        Some("measure-stability") => return stability::measure(&args[1..]),
+        _ => {}
     }
-    eprintln!("usage: xtask gen-reference <font.ttf> <out.subtref> [--name NAME]");
+    eprintln!("usage:");
+    eprintln!("  xtask gen-reference <font.ttf> <out.subtref> [--name NAME]");
+    eprintln!("  xtask measure-stability <regular.ttf> [bold] [italic] [bold-italic]");
     std::process::exit(2);
 }
