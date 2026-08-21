@@ -116,6 +116,52 @@ The reference set ships **empty**, deliberately. A guessed set is worse than non
 unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
 belongs in it.
 
+### A hand-rolled Matroska reader, not symphonia
+
+`symphonia-format-mkv` was proposed as a replacement for the reader in `subtrackt-demux::matroska`,
+and the reasoning behind the proposal was sound: the hand-rolled parser shipped two serious bugs,
+one of them a hang that meant a file never finished opening. A maintained demuxer has seen far more
+files than 600 lines written here ever will.
+
+It was evaluated at version 0.6.1 against real media from the library. Version 0.5 is not a
+candidate at all — it has no subtitle codec IDs, so a PGS track is invisible to it.
+
+**Where it agrees with us.** Track discovery is correct: `SubtitleCodecId(770)` is `HDMV_PGS`, with
+the language attached. Packet count matched exactly — 2,222 on the test file, the same number our
+reader and an independent Python walk both found. Timestamps matched to the millisecond.
+
+**Why it was not adopted.**
+
+| Finding | Consequence |
+| :--- | :--- |
+| `ContentCompAlgo` appears in its schema table but is never acted on; there is no inflate anywhere in the crate | 83% of PGS tracks in the library are zlib-compressed, so we would still write and own that code — which is where two of the three bugs actually were |
+| `Track` does not expose the compression declaration | We would have to sniff the `0x78` zlib magic instead of reading what the file says |
+| `Track` has no name field | Loses the track titles that make one of up to 70 tracks pickable |
+| `next_packet()` returns every packet of every track | Materialises gigabytes of video into buffers that are immediately discarded |
+
+The last point is the substantive one. Measured cold, on files neither tool had touched:
+
+| | Work performed | Throughput |
+| :--- | :--- | ---: |
+| This reader | demux, inflate, PGS decode, segment, vectorize, match, write | **177 MB/s** (8.82 GB in 51s) |
+| `symphonia-format-mkv` | demux only | **77 MB/s** (3.97 GB in 53s) |
+
+Warm, both finish in about a second; the cold numbers are the ones that matter, since extraction is
+a one-shot pass over a file nothing else has read. Measure cold or not at all — an early comparison
+here was wrong by 50x because the page cache was holding the file.
+
+`next_packet()` returning everything is the wrong shape of API for pulling one subtitle track out of
+a large file. It is the same mistake `take_block` made before it was fixed to read a block's track
+number before its payload.
+
+**Revisit this if** the compression gap closes upstream, or if the reader starts failing on files
+this library does not contain — that would be evidence the 600 lines are undercovering the format,
+which is exactly the risk the proposal identified.
+
+**Still on the table:** symphonia as a `dev-dependency` only, behind an opt-in ignored test that
+cross-checks track discovery, packet counts and timestamps against real files. That buys an
+independent oracle for demuxer regressions at no runtime cost, and does not require adopting it.
+
 ### Area coverage, not bilinear interpolation
 
 The architecture document specifies bilinear interpolation for normalising a glyph onto the grid.

@@ -5,6 +5,13 @@
 //! of the library, and the `ffmpeg-next` dependency #4 weighed against it buys 0.2%. That is what
 //! keeps the library crates dependency-free and cross-compilation to `linux/arm64` uneventful.
 //!
+//! Hand-rolled rather than delegated to `symphonia-format-mkv`, which was evaluated against real
+//! media and rejected on measurement: it does not decompress `ContentCompression` at all, and 83%
+//! of this library's PGS tracks are zlib-compressed, so the code that caused most of the bugs here
+//! would still have to be written. Its `next_packet()` also returns every packet of every track,
+//! which ran at 77 MB/s against 177 MB/s for this reader doing the whole pipeline. The full
+//! comparison and the conditions for revisiting it are in `docs/architecture.md`.
+//!
 //! Everything streams. A film is several gigabytes; the subtitle track is a rounding error inside
 //! it. The parser reads the track headers up front, then walks clusters seeking past every block
 //! that is not the track it was asked for.
