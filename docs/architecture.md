@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
- #4 (+.sup) done/#3   (done)      (done)     (done)      #9 (done)    #11 #12    (done)
+ #4 (+.sup) done/#3   (done)      (done)     (done)      #9 (done)  (done) #12  (done)
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -61,6 +61,9 @@ Complete and tested:
   stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
+- **Text reconstruction, complete**: glyphs ordered by position within their line, word spacing
+  derived per line from the median observed gap, unmatched glyphs rendered as a placeholder and
+  counted. A leading dash keeps its space so a speaker marker does not read as a hyphen.
 - **Glyph normalization, complete**: each glyph is cropped to its component box, letterboxed onto
   the 16-cell grid preserving aspect ratio, and thresholded at 50% area coverage. Coverage rather
   than point sampling, which is a deliberate departure from the architecture document — see below.
@@ -78,10 +81,13 @@ Complete and tested:
 - The pipeline wiring, end to end.
 
 Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3),
-container demuxing (#4), reference data (#9), text layout (#11).
+container demuxing (#4) and reference data (#9).
 
-Running the CLI over a `.sup` now reaches #11 and stops there, which is the honest measure of how far
-the pipeline gets.
+**The pipeline is connected end to end.** Running the CLI over a `.sup` produces timed cues with a
+confidence tally. Because the reference set ships empty, every glyph comes back unmatched, so the
+default `FailTrack` policy refuses the track — which is the designed behaviour, not a failure.
+`--on-unmatched placeholder` shows the cues and their timings. What stands between this and real
+text is #9, and #9 waits on #8.
 
 The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
 unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
