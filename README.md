@@ -3,10 +3,20 @@
 Extract plain text from bitmap image-based subtitle streams — Blu-ray PGS and DVD VOBSUB — without
 human intervention, and without a general OCR engine.
 
-**Status: scaffold.** The pipeline is wired end to end and the plumbing is tested, but the decode,
-segmentation and matching stages are stubs that return an error naming the issue tracking them.
-Nothing extracts real text yet. See [issue #1][issue-1] for the design and
-[`docs/architecture.md`](docs/architecture.md) for how it is laid out.
+**Status: reads real media end to end; cannot yet name the characters it finds.**
+
+Point it at a Blu-ray rip and it demuxes the Matroska, decodes the PGS, segments the bitmaps into
+glyphs and emits timed cues with a confidence tally — 1,111 cues from a 5.5 GB film in 22 seconds.
+What it cannot do yet is say which character each glyph *is*, because that needs a reference set and
+the measurements below changed what one has to look like.
+
+```console
+$ subtrackt extract 'Dr. No (1962).mkv' --format vtt --on-unmatched placeholder --report
+1111 cues from 1111 images (2222 packets); glyphs 0 matched / 35516 unmatched; cache 99%
+```
+
+See [issue #1][issue-1] for the original design, [`docs/architecture.md`](docs/architecture.md) for
+how it is laid out, and the two measurement write-ups below for where the design has moved.
 
 [issue-1]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/1
 
@@ -24,6 +34,29 @@ caller can act on by falling back to burn-in rather than shipping invented text.
 That property is the whole argument, and it is why `Confidence` counts glyphs rather than estimating
 probabilities.
 
+## What the measurements found
+
+Three things were measured against a real 1,328-title library rather than assumed. Each changed the
+design.
+
+**[`docs/library-survey.md`](docs/library-survey.md)** — 56 titles, 1950s–2020s, 149,604 glyphs.
+A dominant glyph family runs through the library and one cluster covers 43 of 56 titles across
+seventy years, so a fixed reference set is worth having. Fitting rendered fonts against it
+identifies the typeface as **Arial or very close**: the most frequent extracted shapes land on
+`i` at distance 0, `t` at 6, `a` at 10, `o` at 13. But a fixed set covers only **46%** of glyph
+instances.
+
+**[`docs/glyph-stability.md`](docs/glyph-stability.md)** — why. Two renderings of the *same*
+character are typically further apart (median 46 cells) than two *different* characters are
+(median 31). A one-pixel shift in where the binarization threshold falls costs 30 cells, as much as
+character identity itself. Rendering size and anti-aliasing, by contrast, cost 11 and 8 — the axes
+the normalisation was built to absorb, and it absorbs them.
+
+**The consequence.** One reference vector per character cannot work, and enumerating styles does not
+rescue it. The session cache stops being an optimisation and becomes the mechanism: the expensive
+axes are constant *within* a stream, so clustering a title's own repeated shapes cancels exactly the
+variation that defeats a fixed set. That is the second of the two outcomes §4 of #1 anticipated.
+
 ## Usage
 
 ```console
@@ -34,8 +67,12 @@ $ subtrackt list movie.mkv
 $ subtrackt extract movie.sup --format vtt --output movie.en.vtt --report
 ```
 
-Input can be a container, a raw PGS `.sup` dump, or a VOBSUB `.idx`/`.sub` pair. Output is SubRip or
-WebVTT.
+Input can be a Matroska container, a raw PGS `.sup` dump, or a VOBSUB `.idx`/`.sub` pair. Output is
+SubRip or WebVTT.
+
+There is also `subtrackt glyphs <file>`, which dumps normalised glyph shapes without trying to read
+them. Feature vectors are comparable across titles even with no reference set, which is what made
+the two measurement write-ups possible.
 
 The flag worth knowing about is `--on-unmatched`, which decides what happens when a glyph cannot be
 identified:
@@ -58,9 +95,15 @@ $ cargo build --release
 $ cargo test --workspace
 ```
 
-Rust 1.85 or newer. No system dependencies, and none planned for the library crates — every crate
-except the CLI depends only on the standard library. That is what keeps the single-static-binary
-option in [#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) open.
+Rust 1.85 or newer, and no system dependencies. The library crates take exactly one third-party
+crate between them — `miniz_oxide`, because 83% of the PGS tracks in a real library are stored
+zlib-compressed inside Matroska and refusing it meant failing on most of the library. Everything
+else is the standard library, which is what keeps the single-static-binary option in
+[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) open and cross-compilation
+to `linux/arm64` uneventful.
+
+Run `scripts/check.sh` before pushing: it runs what CI runs, including clippy at pedantic and the
+1.85 MSRV build, which are the two gates that catch the most.
 
 ## As a library
 
@@ -91,20 +134,28 @@ print!("{}", outcome.render(&config)?);
 | [`subtrackt-text`](crates/subtrackt-text) | Characters in, SRT or WebVTT out |
 | [`subtrackt`](crates/subtrackt) | The pipeline, the accuracy gate and the report |
 | [`subtrackt-cli`](crates/subtrackt-cli) | The `subtrackt` binary |
+| [`xtask`](xtask) | Development tooling: renders fonts into reference sets, measures glyph stability. Not shipped |
 
 ## Contributing
 
-Work is tracked as sub-issues of [#1][issue-1]. Two of them gate much of the rest and are worth
-reading before picking anything up:
+Work is tracked as sub-issues of [#1][issue-1], and [`CLAUDE.md`](CLAUDE.md) records the conventions
+the project runs on — most of them written down because something broke when they were not followed.
 
-- [#8](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/8) — the typeface survey. Issue
-  #1 calls typeface coverage "the whole risk", and the answer decides whether the fixed reference
-  set in the design works at all.
-- [#14](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/14) — whether one reference
-  vector per character survives bold, italic, anti-aliasing and outline variation. If it does not,
-  the session cache stops being an optimisation and becomes the mechanism.
+The two issues that gated everything else, #8 and #14, are both answered; their write-ups are in
+`docs/` and are the reason the remaining work looks different from the original plan. What is left,
+roughly in order of leverage:
 
-Neither needs the pipeline finished to answer.
+- **[#10](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/10)** needs *redesigning*,
+  not implementing. It is written as per-glyph matching against a fixed set, and the measurements
+  say that cannot work. It should become: cluster a stream's own shapes, then match cluster
+  centroids against the reference.
+- **Reducing edge sensitivity in binarization.** At 30 cells it is the largest term that is cheap to
+  attack, and unlike weight and slant it is an artefact of our own thresholding.
+- **[#3](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/3)** — VOBSUB. Only 4% of
+  titles, but the entire DVD-era half of the library is unmeasured without it.
+- **[#15](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/15)** — ground truth.
+  Everything measured so far is coverage, not correctness, and nothing can tell the difference
+  until this exists.
 
 ## Licence
 

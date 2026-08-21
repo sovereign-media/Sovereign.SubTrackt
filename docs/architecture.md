@@ -11,7 +11,11 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
-  (done)   done/#3   (done)      (done)     (done)      #9 (done)  (done) #12  (done)
+  (done)   done/#3     (done)      (done)      (done)      #9/#10    (done)/#12   (done)
+
+Everything but matching is built. The pipeline reads a Blu-ray rip end to end and emits timed cues
+with a confidence tally; what it cannot do is name the characters, because #9 has no reference set
+worth embedding and #10 needs redesigning — see "What the measurements changed" below.
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -177,14 +181,38 @@ That is what makes the acceptance criterion hold: the same character rendered at
 lands within a tenth of the vector of itself, while two different characters stay several times
 further apart. Both are asserted.
 
+## What the measurements changed
+
+Three questions §4 of #1 left open were measured against the real library rather than reasoned
+about. Two are answered and both moved the design.
+
+**[Typeface coverage](library-survey.md) (#8), which #1 calls "the whole risk".** A dominant glyph
+family runs through the library — one cluster covers 43 of 56 sampled titles from 1950 to 2025 — so
+the fixed reference set §2D wants is worth having. Fitting rendered fonts against the measured
+shapes identifies the typeface as Arial or very close (`i` at distance 0, `t` at 6, `a` at 10). But
+a fixed set covers only 46% of glyph instances.
+
+**[Glyph stability](glyph-stability.md) (#14), which #1 calls "the first thing to measure".** The
+reason for that 46%. Two renderings of the same character are typically further apart (median 46
+cells) than two different characters are (median 31), and a one-pixel shift in the binarization edge
+costs 30 cells on its own — as much as character identity. Rendering size and anti-aliasing cost 11
+and 8, which independently confirms the normalisation in #7 absorbs the axes it was built for.
+
+**The consequence for §2D.** One reference vector per character cannot work, and per-variant entries
+do not rescue it. The session cache becomes the mechanism rather than an optimisation — the second
+of the two outcomes §4 anticipated. It works because the expensive axes are constant *within* a
+stream: one encoder, one palette, one typeface, so a title's own glyphs vary only along the cheap
+axes and clustering them cancels exactly what defeats a fixed set.
+
+That makes #10 a redesign rather than an implementation, and makes reducing edge sensitivity in
+binarization the largest cheap-to-attack term left.
+
 ## Decisions still open
 
 These are the §4 questions from #1, with where they live in the code.
 
 | Question | Where | Issue |
 | :--- | :--- | :--- |
-| ~~Which typefaces the reference set covers~~ | **answered** — see [library-survey.md](library-survey.md) | #8 |
-| ~~Whether one vector per character survives bold/italic/outline~~ | **answered: it does not** — see [glyph-stability.md](glyph-stability.md) | #14 |
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
 | What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
 | Session cache scope, and the redesign it now needs | `subtrackt-glyph::cache` | #10 |
