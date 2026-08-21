@@ -30,6 +30,13 @@ pub enum Command {
 
     /// Extract a subtitle stream to text.
     Extract(ExtractArgs),
+
+    /// Dump raw glyph shapes, without trying to read them.
+    ///
+    /// One tab-separated row per glyph: cue, line, x, y, width, height, and the 256-bit feature
+    /// vector as hex. Feature vectors are comparable across files, so this is what the typeface
+    /// survey and the reference-set generator both work from.
+    Glyphs(GlyphsArgs),
 }
 
 /// Arguments for `subtrackt extract`.
@@ -80,6 +87,42 @@ fn parse_ratio(raw: &str) -> Result<f32, String> {
         Ok(value)
     } else {
         Err(format!("`{raw}` is outside 0.0..=1.0"))
+    }
+}
+
+/// Arguments for `subtrackt glyphs`.
+#[derive(Debug, Args)]
+pub struct GlyphsArgs {
+    /// Input file.
+    pub input: PathBuf,
+
+    /// Which subtitle stream to read. Defaults to the first bitmap stream.
+    #[arg(short, long)]
+    pub stream: Option<u32>,
+
+    /// Stop after this many cues.
+    ///
+    /// Cues are spread evenly through a film, so a few hundred touches only that fraction of a
+    /// multi-gigabyte file. A typeface does not change halfway through.
+    #[arg(short, long)]
+    pub limit: Option<usize>,
+
+    /// Include the glyph outline in the foreground mask as well as the fill.
+    #[arg(long)]
+    pub include_outline: bool,
+
+    /// Print a one-line summary to stderr instead of per-glyph rows.
+    #[arg(long)]
+    pub summary: bool,
+}
+
+impl GlyphsArgs {
+    /// The pipeline configuration these arguments describe.
+    #[must_use]
+    pub fn to_config(&self) -> Config {
+        let mut config = Config { stream: self.stream, ..Config::default() };
+        config.binarize.include_outline = self.include_outline;
+        config
     }
 }
 
@@ -154,7 +197,7 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         match cli.command {
             Command::Extract(args) => args,
-            Command::List { .. } => panic!("expected extract"),
+            other => panic!("expected extract, got {other:?}"),
         }
     }
 
@@ -217,6 +260,19 @@ mod tests {
         assert_eq!(config.format, SubtitleFormat::Vtt);
         assert_eq!(config.stream, Some(2));
         assert_eq!(args.output_path(), Some(PathBuf::from("out.vtt")));
+    }
+
+    #[test]
+    fn glyphs_takes_a_cue_limit() {
+        let cli =
+            Cli::try_parse_from(["subtrackt", "glyphs", "movie.mkv", "--limit", "150"]).unwrap();
+        match cli.command {
+            Command::Glyphs(args) => {
+                assert_eq!(args.limit, Some(150));
+                assert_eq!(args.to_config().stream, None);
+            }
+            other => panic!("expected glyphs, got {other:?}"),
+        }
     }
 
     #[test]

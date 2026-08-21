@@ -12,7 +12,7 @@ use anyhow::Context as _;
 use clap::Parser as _;
 use subtrackt::Pipeline;
 
-use crate::args::{Cli, Command, ExtractArgs};
+use crate::args::{Cli, Command, ExtractArgs, GlyphsArgs};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -21,6 +21,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::List { input } => list(&input),
         Command::Extract(args) => extract(&args),
+        Command::Glyphs(args) => glyphs(&args),
     }
 }
 
@@ -78,6 +79,45 @@ fn extract(args: &ExtractArgs) -> anyhow::Result<()> {
         eprintln!("{}", outcome.report);
     }
     Ok(())
+}
+
+/// Dump glyph shapes as tab-separated rows.
+fn glyphs(args: &GlyphsArgs) -> anyhow::Result<()> {
+    let survey = Pipeline::new(args.to_config())
+        .survey(&args.input, args.limit)
+        .with_context(|| format!("surveying glyphs in {}", args.input.display()))?;
+
+    eprintln!(
+        "{}	{}	lang={}	{}x{}	cues={}	glyphs={}	shapes={}",
+        args.input.display(),
+        survey.stream.codec.ffmpeg_name(),
+        survey.stream.language.as_deref().unwrap_or("-"),
+        survey.stream.plane_width,
+        survey.stream.plane_height,
+        survey.cues,
+        survey.glyphs.len(),
+        survey.distinct_shapes(),
+    );
+    if args.summary {
+        return Ok(());
+    }
+
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    for glyph in &survey.glyphs {
+        writeln!(
+            out,
+            "{}	{}	{}	{}	{}	{}	{}",
+            glyph.cue,
+            glyph.line,
+            glyph.bounds.x,
+            glyph.bounds.y,
+            glyph.bounds.width,
+            glyph.bounds.height,
+            subtrackt::survey::vector_hex(&glyph.features),
+        )
+        .context("writing glyph rows")?;
+    }
+    out.flush().context("flushing glyph rows")
 }
 
 fn write_output(args: &ExtractArgs, rendered: &str) -> anyhow::Result<()> {

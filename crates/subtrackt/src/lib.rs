@@ -16,10 +16,12 @@
 pub mod config;
 pub mod pipeline;
 pub mod report;
+pub mod survey;
 
 pub use config::{Config, UnmatchedPolicy};
 pub use pipeline::{Outcome, Pipeline};
 pub use report::Report;
+pub use survey::{GlyphRecord, GlyphSurvey};
 
 pub use subtrackt_core as core;
 pub use subtrackt_core::{Error, Result};

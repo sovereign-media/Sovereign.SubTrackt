@@ -112,7 +112,7 @@ impl Pipeline {
     }
 
     /// Pick the configured stream, or the first one.
-    fn choose_stream(&self, source: &dyn SubtitleSource) -> Result<StreamInfo> {
+    pub(crate) fn choose_stream(&self, source: &dyn SubtitleSource) -> Result<StreamInfo> {
         let streams = source.streams();
         match self.config.stream {
             Some(index) => streams
@@ -166,12 +166,12 @@ impl Pipeline {
 }
 
 /// Binarize, label, group and vectorize — the [`Segmenter`] side of `subtrackt-glyph`.
-struct ImageSegmenter {
+pub(crate) struct ImageSegmenter {
     binarizer: Binarizer,
 }
 
 impl ImageSegmenter {
-    const fn new(binarizer: Binarizer) -> Self {
+    pub(crate) const fn new(binarizer: Binarizer) -> Self {
         Self { binarizer }
     }
 
