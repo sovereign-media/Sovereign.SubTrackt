@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v7
       # rust-toolchain.toml pins contributors to stable and would override the pin below.
       - run: rm -f rust-toolchain.toml
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.100.0
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.11
 
