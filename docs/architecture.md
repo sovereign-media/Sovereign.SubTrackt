@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
-  (done)   done/#3     (done)      (done)      (done)      #9/#10    (done)/#12   (done)
+  (done)    (done)     (done)      (done)      (done)      #9/#10    (done)/#12   (done)
 
 Everything but matching is built. The pipeline reads a Blu-ray rip end to end and emits timed cues
 with a confidence tally; what it cannot do is name the characters, because #9 has no reference set
@@ -86,8 +86,8 @@ Complete and tested:
 - SRT and WebVTT writers.
 - The pipeline wiring, end to end.
 
-Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3), MP4 and
-MPEG-TS demuxing (#4, and see below), and reference data (#9).
+Stubbed, each returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#4, and
+see below), and reference data (#9).
 
 ### What the library actually contains
 

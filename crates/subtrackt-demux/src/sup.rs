@@ -69,6 +69,8 @@ impl SupReader {
                 title: None,
                 plane_width,
                 plane_height,
+                // A bare .sup carries no codec configuration.
+                codec_private: Vec::new(),
             }],
         })
     }

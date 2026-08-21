@@ -26,6 +26,17 @@ pub trait BitmapDecoder {
     fn finish(&mut self) -> Result<Vec<SubtitleImage>> {
         Ok(Vec::new())
     }
+
+    /// Supply the codec configuration the container carried, if any.
+    ///
+    /// Called once before the first packet. PGS ignores it; VOBSUB needs it, because its palette
+    /// arrives out of band rather than in the packets.
+    ///
+    /// # Errors
+    /// Returns an error if the configuration is present but unusable.
+    fn configure(&mut self, _codec_private: &[u8]) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Binarizes a subtitle image and cuts it into glyphs.

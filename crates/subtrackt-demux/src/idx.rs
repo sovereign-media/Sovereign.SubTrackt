@@ -141,6 +141,8 @@ impl IdxReader {
             title: None,
             plane_width: index.plane_width,
             plane_height: index.plane_height,
+            // The whole .idx is the codec configuration: the decoder reads its palette line.
+            codec_private: text.into_bytes(),
         }];
 
         Ok(Self { index, sub_path, streams })

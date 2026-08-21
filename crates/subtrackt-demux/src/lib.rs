@@ -53,6 +53,13 @@ pub struct StreamInfo {
     pub plane_width: u32,
     /// Height of the subtitle plane.
     pub plane_height: u32,
+    /// Codec configuration the container carried alongside the track.
+    ///
+    /// VOBSUB needs this: inside Matroska its 16-colour palette lives here as a text blob, in the
+    /// same `palette:` format a `.idx` sidecar uses. There is no sidecar to read, so without this
+    /// a Matroska VOBSUB track cannot be coloured at all — and colour is what alpha thresholding
+    /// depends on.
+    pub codec_private: Vec<u8>,
 }
 
 /// One codec packet with its presentation timestamp.

@@ -77,6 +77,9 @@ impl crate::Pipeline {
         source.select(stream.index)?;
 
         let mut decoder = subtrackt_decode::decoder_for(stream.codec.ffmpeg_name())?;
+        // VOBSUB carries its palette out of band; without this a subpicture has colour indices
+        // and no colours.
+        decoder.configure(&stream.codec_private)?;
         let segmenter = ImageSegmenter::new(Binarizer::new(self.config().binarize));
 
         let mut glyphs = Vec::new();
@@ -186,6 +189,7 @@ mod tests {
                 title: None,
                 plane_width: 1920,
                 plane_height: 1080,
+                codec_private: Vec::new(),
             },
             cues: 1,
             span: None,
