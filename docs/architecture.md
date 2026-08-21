@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
- #4 (+.sup) done/#3   (done)      (done) #6      #7        #9 #10       #11 #12    (done)
+ #4 (+.sup) done/#3   (done)      (done)       #7        #9 #10       #11 #12    (done)
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -61,6 +61,10 @@ Complete and tested:
   stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
+- **Line assignment and diacritic grouping, complete**: text lines from the mask row projection,
+  marks attached to bodies above or below them, and stacked punctuation clustered on its own. What
+  separates a diaeresis from a colon is not the marks — those are geometrically identical — but
+  whether a full-height letter body sits beneath them.
 - **Connected component labelling, complete**: two-pass with a union-find, 8-connected, with area
   and coverage filters. 8-way connectivity is deliberate — a diagonal stroke in a `V` is one pen
   movement, and a 4-connected pass would hand the matcher two half-glyphs.
@@ -71,10 +75,9 @@ Complete and tested:
 - The pipeline wiring, end to end.
 
 Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3),
-container demuxing (#4), diacritic grouping (#6), feature vectoring (#7), reference data (#9), text
-layout (#11).
+container demuxing (#4), feature vectoring (#7), reference data (#9), text layout (#11).
 
-Running the CLI over a `.sup` now reaches #6 and stops there, which is the honest measure of how far
+Running the CLI over a `.sup` now reaches #7 and stops there, which is the honest measure of how far
 the pipeline gets.
 
 The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
