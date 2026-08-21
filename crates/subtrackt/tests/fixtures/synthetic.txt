@@ -1,0 +1,6 @@
+The quick brown fox jumps
+over the lazy dog.
+- Is it 1 or l?
+- Neither: it is I.
+Café, naïve, jalapeño.
+0123456789 O o I l 1

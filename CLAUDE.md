@@ -85,6 +85,17 @@ encoder exists.
 Pin surprising behaviour with a named test so the decision is visible rather than accidental —
 8-connectivity fusing characters that touch at a corner, one display set becoming one cue.
 
+## Accuracy
+
+`cargo run -p xtask -- accuracy` generates a fixture and a reference set from the same font, runs
+the pipeline, and scores the text against known ground truth. It is the only measurement in the
+project that answers whether the *right characters* come out; everything else answers whether shapes
+look alike, and those two diverge.
+
+Treat its number as a ceiling. Fixture and reference share a font, so typeface mismatch is excluded
+by construction and real material can only do worse. A change that improves coverage but worsens CER
+has made things worse.
+
 ## Scope
 
 Stages are traits in `subtrackt-core::stage`. No stage crate depends on another stage crate; the

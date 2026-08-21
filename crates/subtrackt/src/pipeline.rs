@@ -44,13 +44,29 @@ impl Outcome {
 /// Runs the extraction pipeline.
 pub struct Pipeline {
     config: Config,
+    /// Overrides the embedded set. #9 keeps the embedded one empty until a set is worth shipping,
+    /// so supplying one from a file is currently the only way to match anything at all.
+    reference: Option<subtrackt_glyph::ReferenceSet>,
 }
 
 impl Pipeline {
     /// Build a pipeline.
     #[must_use]
     pub const fn new(config: Config) -> Self {
-        Self { config }
+        Self { config, reference: None }
+    }
+
+    /// Use `reference` instead of the embedded set.
+    #[must_use]
+    pub fn with_reference(mut self, reference: subtrackt_glyph::ReferenceSet) -> Self {
+        self.reference = Some(reference);
+        self
+    }
+
+    /// The reference set this pipeline will match against.
+    #[must_use]
+    pub fn reference(&self) -> subtrackt_glyph::ReferenceSet {
+        self.reference.clone().unwrap_or_else(reference::embedded)
     }
 
     /// The configuration in force.
@@ -82,7 +98,7 @@ impl Pipeline {
         source.select(stream.index)?;
 
         let mut decoder = subtrackt_decode::decoder_for(stream.codec.ffmpeg_name())?;
-        let mut matcher = HammingMatcher::new(reference::embedded(), self.config.matching)?;
+        let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?;
         let segmenter = ImageSegmenter::new(Binarizer::new(self.config.binarize));
         let assembler = SpatialAssembler::new(self.config.layout_rules());
 

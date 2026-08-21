@@ -59,6 +59,12 @@ jobs:
       - name: Tests
         run: cargo test --workspace --all-features --locked
 
+      # The correctness gate. Everything else measures whether shapes look alike; this is the only
+      # step that says whether the right characters come out. Ubuntu runners ship DejaVu, which the
+      # harness discovers on its own.
+      - name: Accuracy on generated ground truth
+        run: cargo run -p xtask --release --locked -- accuracy
+
       - name: Docs
         # Broken intra-doc links are how a rename quietly rots the architecture notes.
         env:

@@ -11,6 +11,7 @@ use std::io::Write;
 use anyhow::Context as _;
 use clap::Parser as _;
 use subtrackt::Pipeline;
+use subtrackt_glyph::ReferenceSet;
 
 use crate::args::{Cli, Command, ExtractArgs, GlyphsArgs};
 
@@ -68,7 +69,17 @@ fn list(input: &std::path::Path) -> anyhow::Result<()> {
 fn extract(args: &ExtractArgs) -> anyhow::Result<()> {
     let config = args.to_config();
 
-    let outcome = Pipeline::new(config)
+    let mut pipeline = Pipeline::new(config);
+    if let Some(path) = &args.reference {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("reading reference set {}", path.display()))?;
+        let set = subtrackt::core::Result::from(ReferenceSet::decode(&bytes))
+            .with_context(|| format!("parsing reference set {}", path.display()))?;
+        eprintln!("reference set: {} ({} glyphs)", set.name(), set.len());
+        pipeline = pipeline.with_reference(set);
+    }
+
+    let outcome = pipeline
         .run(&args.input)
         .with_context(|| format!("extracting subtitles from {}", args.input.display()))?;
 

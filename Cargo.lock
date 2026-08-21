@@ -329,6 +329,7 @@ dependencies = [
  "clap",
  "subtrackt",
  "subtrackt-core",
+ "subtrackt-glyph",
  "tracing",
  "tracing-subscriber",
 ]
@@ -506,6 +507,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "fontdue",
+ "subtrackt",
  "subtrackt-core",
+ "subtrackt-decode",
  "subtrackt-glyph",
 ]
