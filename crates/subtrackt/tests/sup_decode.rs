@@ -155,10 +155,10 @@ fn binarizing_a_decoded_image_recovers_the_glyph_shape() {
 
     let mask = subtrackt_glyph::Binarizer::default().mask(&images[0]);
     assert_eq!(mask.width(), 12);
-    assert_eq!(
-        mask.foreground_count(),
-        glyph(12, 16).iter().filter(|p| **p == 1).count()
-    );
+    // Sum rather than count: the fixture is 0/1 valued, and counting the obvious way trips
+    // clippy::naive_bytecount, whose suggested fix is a crate this workspace will not take.
+    let expected: usize = glyph(12, 16).into_iter().map(usize::from).sum();
+    assert_eq!(mask.foreground_count(), expected);
     assert!(mask.get(2, 5), "a stroke pixel is foreground");
     assert!(!mask.get(0, 5), "a background pixel is not");
 

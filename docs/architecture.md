@@ -173,6 +173,20 @@ Deliberately not done yet, with the trigger for revisiting:
 The one to watch is `sccache`: if #4 lands `ffmpeg-next`, dependency build time stops being
 negligible and the calculus changes.
 
+## Checks before pushing
+
+`scripts/check.sh` runs everything CI runs, in the same order: fmt, clippy, tests, docs, MSRV.
+
+Run it. The two gates easiest to skip locally are the two that catch the most. Clippy runs at
+pedantic with warnings denied, and the MSRV build uses a toolchain thirteen releases older than a
+typical development machine — let-chains, for instance, compile happily on stable and are rejected
+outright at 1.85. Both have already caught breakage that a plain `cargo test` waved through.
+
+```console
+$ rustup toolchain install 1.85 --profile minimal   # once
+$ scripts/check.sh
+```
+
 ## Conventions
 
 - Every stub returns `Error::Unsupported { issue }` rather than `todo!()`. A panic in a media
