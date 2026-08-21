@@ -8,6 +8,7 @@ members = [
     "crates/subtrackt-text",
     "crates/subtrackt",
     "crates/subtrackt-cli",
+    "xtask",
 ]
 
 [workspace.package]

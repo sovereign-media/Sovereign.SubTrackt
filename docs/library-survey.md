@@ -98,6 +98,58 @@ Two things this table does *not* say, and both matter:
 - **The reference was pooled from the library itself**, so this is partly measuring self-similarity
   and is optimistic by an unknown amount.
 
+## Fitting a font to the measurement
+
+Recommendation 2 below said to stop naming typefaces and fit one to the evidence instead. That was
+done: `cargo run -p xtask -- gen-reference` renders a font through *the same* normalisation the
+runtime uses, and the result was scored against all 149,604 sampled glyph instances.
+
+**The typeface is Arial or something very close to it.** Taking the most frequent extracted shapes
+from one title and asking which Arial character each is nearest to:
+
+| Extracted shape | Instances | Nearest Arial character | Distance |
+| ---: | ---: | :--- | ---: |
+| 1 | 28 | `i` | **0** |
+| 2 | 39 | `t` | 6 |
+| 3 | 43 | `a` | 10 |
+| 4 | 31 | `r` | 12 |
+| 5 | 36 | `o` | 13 |
+| 6 | 48 | `e` | 16 |
+
+Those are English's most frequent letters, in roughly the order you would expect, one of them an
+exact bit-for-bit match. The pipeline is extracting real letterforms and the reference generator
+produces vectors comparable with them.
+
+**And yet a fixed set is not sufficient on its own.** Scored over every glyph instance rather than
+over the common shapes:
+
+| Match threshold | Arial | Tahoma | Verdana |
+| ---: | ---: | ---: | ---: |
+| ≤ 16 cells | 13.1% | 13.3% | 13.5% |
+| ≤ 32 cells | 24.7% | 27.4% | 26.2% |
+| ≤ 51 cells (current ceiling) | 46.3% | 49.1% | 44.9% |
+| ≤ 64 cells | 58.0% | 56.8% | 55.9% |
+
+Two candidate explanations were tested and rejected:
+
+- **Fused characters.** 71% of extracted glyphs have single-character aspect ratios and the widest
+  is 69px against a 33px line height, so segmentation is not gluing letters together.
+- **Stroke weight.** Extracted glyphs carry median popcount 82 against Arial's 64, so bold faces
+  were tried. Matching the ink weight (Arial Bold at 89, Verdana Bold at 96) made coverage
+  *worse*, not better.
+
+What is left is **intra-character variance**. A character rendered at slightly different subpixel
+offsets, with different anti-aliasing, binarizes to a slightly different mask each time. One title
+of 120 cues produced 143 distinct shapes for perhaps 70 distinct characters, and the long tail of
+those variants sits 51–80 cells from any canonical rendering. §7 measured ~25 cells of movement for
+the same character across resolutions using synthetic renders; real material is considerably worse
+than that, which is a finding in its own right and squarely what #14 exists to quantify.
+
+**So #9 cannot be finished by embedding a font.** The fixed set identifies the typeface and labels
+roughly half the glyph instances outright. Reaching the rest needs recommendation 4 below — cluster
+a title's *own* repeated shapes, then match cluster centroids against the reference — which turns
+the session cache from an optimisation into the mechanism. It is no longer optional.
+
 ## Recommendations
 
 **1. Keep the fixed reference set. Do not abandon it.** A dominant glyph family covers most of the

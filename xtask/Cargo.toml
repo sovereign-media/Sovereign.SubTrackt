@@ -1,0 +1,23 @@
+[package]
+name = "xtask"
+description = "Development tooling: renders fonts into reference glyph sets."
+version.workspace = true
+edition.workspace = true
+# Deliberately above the workspace MSRV. This is developer tooling that nobody downstream
+# builds, so it is free to use a newer toolchain than the shipped crates are held to; fontdue
+# requires 1.87. The MSRV job excludes it for the same reason.
+rust-version = "1.87"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+subtrackt-core.workspace = true
+subtrackt-glyph.workspace = true
+
+anyhow.workspace = true
+fontdue = "0.9"
+
+[lints]
+workspace = true
