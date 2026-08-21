@@ -1,0 +1,19 @@
+[package]
+name = "subtrackt"
+description = "Extract plain text from bitmap image-based subtitle streams."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+subtrackt-core.workspace = true
+subtrackt-decode.workspace = true
+subtrackt-demux.workspace = true
+subtrackt-glyph.workspace = true
+subtrackt-text.workspace = true
+
+[lints]
+workspace = true

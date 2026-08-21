@@ -1,0 +1,15 @@
+[package]
+name = "subtrackt-decode"
+description = "PGS and VOBSUB packet decoders producing palette-indexed subtitle bitmaps."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+subtrackt-core.workspace = true
+
+[lints]
+workspace = true

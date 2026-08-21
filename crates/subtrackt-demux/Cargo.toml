@@ -1,0 +1,15 @@
+[package]
+name = "subtrackt-demux"
+description = "Container and sidecar readers that yield raw bitmap subtitle packets."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+subtrackt-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "subtrackt-text"
+description = "Text reconstruction, post-correction and SRT/WebVTT output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+subtrackt-core.workspace = true
+
+[lints]
+workspace = true

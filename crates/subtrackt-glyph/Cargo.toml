@@ -1,0 +1,15 @@
+[package]
+name = "subtrackt-glyph"
+description = "Binarization, glyph segmentation, feature vectoring and the reference matcher."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+subtrackt-core.workspace = true
+
+[lints]
+workspace = true

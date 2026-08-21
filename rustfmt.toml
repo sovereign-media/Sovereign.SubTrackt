@@ -1,0 +1,8 @@
+edition = "2024"
+max_width = 100
+newline_style = "Unix"
+
+# rustfmt defaults to 18, which explodes even a three-field literal across five lines. Test
+# fixtures in this workspace are mostly small struct literals and read far better on one line.
+struct_lit_width = 64
+fn_call_width = 72

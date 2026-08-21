@@ -1,0 +1,136 @@
+//! What an extraction run has to say for itself.
+//!
+//! §4 of the architecture document notes that per-cue confidence has nowhere to live in Sovereign's
+//! `ExtractedSubtitle`. Whatever the answer to that turns out to be (#13), the extractor has to
+//! produce the numbers before anything can store them.
+
+use std::fmt;
+
+use subtrackt_core::Confidence;
+
+use crate::config::UnmatchedPolicy;
+
+/// Counters and the gate decision for one extracted track.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Report {
+    /// Codec packets read.
+    pub packets: u64,
+    /// Subtitle images decoded.
+    pub images: u64,
+    /// Glyphs segmented.
+    pub glyphs: u64,
+    /// Glyphs identified within threshold.
+    pub matched: u64,
+    /// Glyphs with no reference within threshold.
+    pub unmatched: u64,
+    /// Glyphs matched but with a runner-up too close to call.
+    pub ambiguous: u64,
+    /// Glyphs answered from the session cache.
+    pub cache_hits: u64,
+    /// Cues written.
+    pub cues: u64,
+    /// Cues dropped under [`UnmatchedPolicy::Drop`].
+    pub cues_dropped: u64,
+    /// Corrections applied by post-correction.
+    pub corrections: u64,
+    /// Name of the reference set used, so a bad extraction can be traced to its data.
+    pub reference_set: String,
+}
+
+impl Report {
+    /// Fold a cue's tally into the totals.
+    pub fn record(&mut self, confidence: Confidence) {
+        self.glyphs += u64::from(confidence.total());
+        self.matched += u64::from(confidence.matched);
+        self.unmatched += u64::from(confidence.unmatched);
+        self.ambiguous += u64::from(confidence.ambiguous);
+    }
+
+    /// The track-level tally, saturating at [`u32::MAX`] for a track longer than any real film.
+    #[must_use]
+    pub fn confidence(&self) -> Confidence {
+        let cast = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
+        Confidence {
+            matched: cast(self.matched),
+            unmatched: cast(self.unmatched),
+            ambiguous: cast(self.ambiguous),
+        }
+    }
+
+    /// Whether the configured policy abandons this track.
+    #[must_use]
+    pub fn is_rejected_by(&self, policy: UnmatchedPolicy) -> bool {
+        policy.rejects(self.confidence())
+    }
+
+    /// Session cache hit rate in `0.0..=1.0`.
+    #[must_use]
+    pub fn cache_hit_rate(&self) -> f32 {
+        if self.glyphs == 0 {
+            return 0.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.cache_hits as f32 / self.glyphs as f32
+        }
+    }
+}
+
+impl fmt::Display for Report {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous; \
+             cache {:.0}%",
+            self.cues,
+            self.images,
+            self.packets,
+            self.matched,
+            self.unmatched,
+            self.ambiguous,
+            self.cache_hit_rate() * 100.0
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recording_cues_accumulates_the_track_tally() {
+        let mut report = Report::default();
+        report.record(Confidence { matched: 10, unmatched: 1, ambiguous: 2 });
+        report.record(Confidence { matched: 5, unmatched: 0, ambiguous: 0 });
+
+        assert_eq!(report.glyphs, 16);
+        assert_eq!(report.confidence().matched, 15);
+        assert_eq!(report.confidence().unmatched, 1);
+        assert_eq!(report.confidence().ambiguous, 2);
+    }
+
+    #[test]
+    fn the_gate_reads_the_accumulated_tally() {
+        let mut report = Report::default();
+        report.record(Confidence { matched: 99, unmatched: 1, ambiguous: 0 });
+        assert!(report.is_rejected_by(UnmatchedPolicy::FailTrack));
+        assert!(!report.is_rejected_by(UnmatchedPolicy::Threshold { min_ratio: 0.5 }));
+    }
+
+    #[test]
+    fn an_empty_run_reports_a_zero_hit_rate_rather_than_dividing_by_zero() {
+        assert!((Report::default().cache_hit_rate() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_summary_line_names_the_numbers_that_matter() {
+        let mut report = Report { cues: 3, images: 3, packets: 12, ..Report::default() };
+        report.record(Confidence { matched: 40, unmatched: 2, ambiguous: 1 });
+        report.cache_hits = 21;
+
+        let line = report.to_string();
+        assert!(line.contains("3 cues"), "{line}");
+        assert!(line.contains("40 matched / 2 unmatched / 1 ambiguous"), "{line}");
+        assert!(line.contains("cache 50%"), "{line}");
+    }
+}

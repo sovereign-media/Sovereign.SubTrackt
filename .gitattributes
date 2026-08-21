@@ -1,0 +1,6 @@
+# Keep LF in the repository regardless of platform, so `cargo fmt --check` on Linux CI agrees
+# with what a Windows contributor formatted.
+* text=auto eol=lf
+*.png binary
+*.sup binary
+*.sub binary
