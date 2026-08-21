@@ -10,6 +10,11 @@ updates:
     groups:
       actions:
         patterns: ['*']
+    ignore:
+      # dtolnay/rust-toolchain selects a Rust toolchain by ref name, so its "versions" are Rust
+      # releases rather than releases of the action. Dependabot cannot tell the difference and
+      # will happily propose a Rust version that has not shipped.
+      - dependency-name: dtolnay/rust-toolchain
     commit-message:
       prefix: "ci"
 
