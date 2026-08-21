@@ -125,11 +125,33 @@ What is in place:
   binary nobody runs is the most expensive thing in the pipeline; `cargo check --target` still
   catches everything target-specific. Real builds happen on main and on tags.
 - **`concurrency` cancellation.** Superseded commits stop building.
-- **`sccache`.** The piece that actually closes the gap above: it keys each compilation unit by
-  content, so workspace-own crates survive across runs too. Measured at a **100% hit rate on every
-  job** for an unchanged commit. Cold it costs a little setup; warm it took the main job from 42s to
-  30s and the aarch64 job from 34s to 23s. Hit rates are printed per job, so if it stops earning its
-  keep that is visible rather than assumed.
+- **`sccache`.** The piece that closes the gap above: it keys each compilation unit by content, so
+  workspace-own crates survive across runs too. Measured at a 100% hit rate on every job.
+
+### What the CI numbers actually say
+
+Per-job wall clock, before any of this work and after, on an unchanged commit:
+
+| Job | Before | Warm | Cold |
+| :--- | ---: | ---: | ---: |
+| fmt, clippy, test | 40s | 22s | 50s |
+| minimum supported Rust version | 30s | 24s | 38s |
+| x86_64-unknown-linux-gnu | 51s | 35s | 75s |
+| aarch64-unknown-linux-gnu | 65s | 54s | 80s |
+
+Read the cold column before celebrating the warm one. A run that has to populate the cache is
+*slower* than having no cache at all — setup, plus storing every artifact. At this size the warm
+margin is real but modest, and it is fair to say sccache is not yet paying for itself on any single
+run.
+
+The reason to keep it anyway is what it caches rather than how much it saves today. Compilation of
+our own crates is the cost that grows as the project does, and it is precisely the cost `rust-cache`
+declines to cover. Setting this up now means the curve stays flat instead of being noticed at the
+point where it hurts. If the hit rate ever drops — the per-job stats step prints it — that
+assumption has broken and this should be reconsidered.
+
+A cold run happens whenever the cache is empty or invalidated: a dependency change, a toolchain
+bump, or eviction after 7 days idle.
 
 Deliberately not done yet, with the trigger for revisiting:
 
