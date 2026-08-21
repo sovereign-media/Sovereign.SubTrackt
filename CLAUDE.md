@@ -39,7 +39,17 @@ deliverable is a CLI or a `cdylib` behind P/Invoke. A dependency-free core makes
 rather than an audit of a transitive tree. The cost is real and accepted — `Error` implements
 `Display` by hand rather than deriving with `thiserror`.
 
-Adding one to a library crate needs a reason that outweighs the above. So far none has.
+Adding one to a library crate needs a reason that outweighs the above.
+
+**One has.** `subtrackt-demux` takes `miniz_oxide` for zlib. A scan of the library found 83% of PGS
+tracks stored zlib-compressed inside Matroska, so refusing the dependency meant failing on most of
+the library. The alternative considered was hand-rolling inflate; that was the wrong call. DEFLATE
+is not this project's problem domain, a subtle Huffman bug produces garbage bitmaps, and
+`miniz_oxide` is pure Rust with no build script and one tiny dependency — so the single-binary and
+cross-compilation goals the rule exists to protect are all intact.
+
+The lesson worth keeping: the rule is "justify it", not "never". Reach for a crate when the work is
+someone else's problem domain and the crate is pure Rust with a shallow tree.
 
 ## Failing
 

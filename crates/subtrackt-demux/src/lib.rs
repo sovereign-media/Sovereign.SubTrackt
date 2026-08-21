@@ -11,6 +11,7 @@
 
 pub mod container;
 pub mod idx;
+pub mod matroska;
 pub mod sup;
 
 use std::path::{Path, PathBuf};
@@ -97,7 +98,8 @@ pub fn open(path: impl AsRef<Path>) -> Result<Box<dyn SubtitleSource>> {
     match extension.as_str() {
         "sup" => Ok(Box::new(sup::SupReader::open(path)?)),
         "idx" | "sub" => Ok(Box::new(idx::IdxReader::open(path)?)),
-        "mkv" | "mp4" | "m4v" | "ts" | "m2ts" | "mts" => {
+        "mkv" | "mka" | "webm" => Ok(Box::new(matroska::MatroskaReader::open(path)?)),
+        "mp4" | "m4v" | "ts" | "m2ts" | "mts" => {
             Ok(Box::new(container::ContainerReader::open(path)?))
         }
         "" => Err(Error::Demux(format!(

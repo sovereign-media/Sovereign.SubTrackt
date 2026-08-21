@@ -11,7 +11,7 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
- #4 (+.sup) done/#3   (done)      (done)     (done)      #9 (done)  (done) #12  (done)
+  (done)   done/#3   (done)      (done)     (done)      #9 (done)  (done) #12  (done)
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -61,6 +61,8 @@ Complete and tested:
   stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
+- **Matroska demuxing, complete**: native EBML parser, streaming, with zlib-compressed block
+  payloads handled. Reads a 5.5 GB Blu-ray rip in 22 seconds over a network filesystem.
 - **Text reconstruction, complete**: glyphs ordered by position within their line, word spacing
   derived per line from the median observed gap, unmatched glyphs rendered as a placeholder and
   counted. A leading dash keeps its space so a speaker marker does not read as a hyphen.
@@ -80,10 +82,31 @@ Complete and tested:
 - SRT and WebVTT writers.
 - The pipeline wiring, end to end.
 
-Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3),
-container demuxing (#4) and reference data (#9).
+Stubbed, each returning `Error::Unsupported` naming its issue: all of VOBSUB decoding (#3), MP4 and
+MPEG-TS demuxing (#4, and see below), and reference data (#9).
 
-**The pipeline is connected end to end.** Running the CLI over a `.sup` produces timed cues with a
+### What the library actually contains
+
+A survey of the 1,328 titles carrying bitmap subtitles, which settled several open questions:
+
+| Question | Answer |
+| :--- | :--- |
+| Container | **1,326 Matroska**, one `.m2ts`, one `.iso`. A native parser covers 99.8%; `ffmpeg-next` would buy 0.2% |
+| Codec | 1,268 titles PGS, 60 VOBSUB (4%). PGS was the right thing to build first |
+| Compression | **83% of PGS tracks are zlib-compressed** inside Matroska. Not a corner case |
+| Worst-case track count | **70 tracks** in one file, not the 37 #1 assumed. 11 files exceed 37; 6,044 bitmap tracks in total |
+| Era | 1950s–2020s, concentrated 1990s–2010s |
+| Resolution | Overwhelmingly `Bluray-1080p`; 22 at 720p, 8 from DVD |
+
+The track-count figure matters for #16: `MaxConcurrentExtractions` and `TimeoutMinutes` were sized
+against an assumed worst case that is roughly half the real one.
+
+**The pipeline is connected end to end**, and has been run against a real 5.5 GB Blu-ray rip:
+1,111 cues, 35,516 glyphs, a 99% session-cache hit rate, in 22 seconds. Every glyph comes back
+unmatched because the reference set is empty, so the structure is proven and the content is not —
+that is #9, which waits on #8.
+
+ Running the CLI over a `.sup` produces timed cues with a
 confidence tally. Because the reference set ships empty, every glyph comes back unmatched, so the
 default `FailTrack` policy refuses the track — which is the designed behaviour, not a failure.
 `--on-unmatched placeholder` shows the cues and their timings. What stands between this and real
@@ -119,7 +142,6 @@ These are the §4 questions from #1, with where they live in the code.
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
 | What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
 | Session cache scope: stream, file or library | `subtrackt-glyph::cache` | #10 |
-| Demuxer backend | `subtrackt-demux::container` | #4 |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |
 
 ### The accuracy gate

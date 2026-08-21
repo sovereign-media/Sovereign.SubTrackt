@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 subtrackt-core.workspace = true
+miniz_oxide.workspace = true
 
 [lints]
 workspace = true
