@@ -38,7 +38,8 @@ else
   step "msrv ($msrv)"
   if rustup toolchain list | grep -q "^$msrv"; then
     # rust-toolchain.toml pins stable, so the toolchain has to be named explicitly.
-    cargo "+$msrv" check --workspace --all-targets --locked
+    # xtask is dev tooling and is allowed a newer toolchain; see its Cargo.toml.
+    cargo "+$msrv" check --workspace --all-targets --exclude xtask --locked
   else
     echo "toolchain $msrv is not installed; run: rustup toolchain install $msrv --profile minimal"
     exit 1

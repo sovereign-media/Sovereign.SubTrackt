@@ -94,7 +94,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo check --workspace --all-targets --locked
+      # xtask is developer tooling, not shipped, and is deliberately allowed a newer toolchain
+      # than the crates a consumer builds. See its Cargo.toml.
+      - run: cargo check --workspace --all-targets --exclude xtask --locked
 
   cross:
     name: ${{ matrix.target }}
