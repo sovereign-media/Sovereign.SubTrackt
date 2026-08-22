@@ -11,16 +11,15 @@ it did not exist yet. They do now, and they are lopsided enough that the decisio
 
 | | |
 | :--- | ---: |
-| Release binary | **1.56 MB** |
-| Cold start, process spawn to exit | **15.8 ms** |
+| Release binary | **1.32–1.94 MB**, by platform |
+| Cold start, process spawn to exit | **16.3 ms** |
 | Reference set on disk | **6.3 KB** |
 | Extraction, 5.5 GB film, 1,111 cues | **22 s** |
 
-The binary was 1.45 MB when these were taken and grew 114 KB (7.7%) when #80 put a font rasteriser
-in it, which is the only thing that has moved it. Cold start is the mean of three runs of fifty
-`subtrackt --version` invocations, 14.7–16.5 ms across runs. That is a Windows figure, and Windows
-has the slowest process creation of the platforms here, so it is an upper bound on what Linux will
-do rather than an estimate of it.
+Taken from the published `v0.0.1-alpha` artifacts rather than a development build. Cold start is the
+mean of three runs of fifty `subtrackt --version` invocations of the downloaded Windows binary,
+16.1–16.4 ms across runs — Windows has the slowest process creation of the platforms here, so it is
+an upper bound on what Linux will do rather than an estimate of it.
 
 The comparison that matters is against the 37-track file §4 names as the worst case in the queue.
 Thirty-seven spawns cost **0.6 s**. The extraction those spawns exist to start costs on the order of
@@ -73,14 +72,18 @@ build is telling you so.
 
 Four artifacts per tag, from `.github/workflows/release.yml`:
 
-| Platform | Target |
-| :--- | :--- |
-| Linux x86-64 | `x86_64-unknown-linux-musl` |
-| Linux ARM64 | `aarch64-unknown-linux-musl` |
-| Windows x86-64 | `x86_64-pc-windows-msvc` |
-| Windows ARM64 | `aarch64-pc-windows-msvc` |
+| Platform | Target | `v0.0.1-alpha` |
+| :--- | :--- | ---: |
+| Linux x86-64 | `x86_64-unknown-linux-musl` | 1.94 MB |
+| Linux ARM64 | `aarch64-unknown-linux-musl` | 1.63 MB |
+| Windows x86-64 | `x86_64-pc-windows-msvc` | 1.56 MB |
+| Windows ARM64 | `aarch64-pc-windows-msvc` | 1.32 MB |
 
 Plus `SHA256SUMS` covering all four, so `sha256sum -c` verifies the set in one pass.
+
+The two Linux rows are the larger ones, and that difference is the measured price of linking
+statically: musl and the startup files it brings cost roughly 380 KB over the dynamically linked
+Windows build of the same architecture. Against not having a glibc version to match, that is cheap.
 
 No macOS build, because nobody has asked for one. It is a row in the matrix if that changes.
 
@@ -143,12 +146,21 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.sr
 What is still the consumer's to supply is the *fonts* — which is a licensing question rather than a
 distribution one, and the reason it stays theirs is in `reference-set.md`.
 
-## Caveats
+## What the first tag proved
 
-- Every figure was taken on a Windows development machine. The deployment target is Linux
-  containers, where process creation is cheaper and the binary is a different size. The direction of
-  both differences favours the decision, so the conclusion does not depend on re-measuring — but the
-  numbers in the table should be re-taken from a release artifact once one exists.
-- All four targets compile. Only the two that a developer builds locally have been *linked* so far;
-  the first tag is what proves the other two. `fail-fast: false` is set so that a link failure on
-  one platform still yields the other three artifacts.
+`v0.0.1-alpha` was cut on 2026-08-22 and settled the two things this document could previously only
+assert.
+
+**All four targets link, not just compile.** The two ARM64 rows had never been through a linker
+before that tag — they are cross-compiled and CI only type-checks them — so this was the open
+question. `fail-fast: false` remains set, so a future link failure on one platform still yields the
+other three.
+
+**A published artifact does the whole job.** The downloaded Windows binary reports
+`subtrackt 0.0.1-alpha`, generates reference sets from a font directory, and fits them against a
+Blu-ray to the same numbers a development build gives. All four checksums verify against
+`SHA256SUMS`.
+
+The remaining caveat is narrow: cold start is still a Windows measurement, because that is the
+platform available to run one on. Linux process creation is cheaper, so the figure is an upper
+bound, and the argument in *CLI, not `cdylib`* only gets stronger if it is re-taken.
