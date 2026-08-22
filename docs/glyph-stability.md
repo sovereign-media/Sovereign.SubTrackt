@@ -814,6 +814,55 @@ Line metrics move for accented capitals, and correctly: once the accent is part 
 capital's overshoot **or an accented one**"). Nothing regressed — the fixture without the new line
 reads 11.1% before and after.
 
+## A diaeresis straddles its stem, so only its two dots together find it
+
+The second half of #58, and the last of the four grouping faults #48's bench turned up.
+
+A diaeresis is two components either side of the letter they belong to — dots at x84 and x102 over a
+stem at x93 in Arial at 96px. **Neither dot overlaps the stem and neither centre falls on it.** Only
+their union does, and marks are matched to bodies one at a time, so `Ï` and `ï` never grouped.
+
+### The discriminator is not a distance
+
+The issue named the hazard: **the dots of `ii` are also two marks at the same height**, and merging
+those would attach one mark to one stem. A gap threshold would have to separate a diaeresis (dots
+~9px apart) from two `i` dots (~18px), which is two-to-one and font-dependent — the same kind of
+coincidence `ì`'s 53% turned out to be.
+
+There is a better signal available for free. **Only marks that failed to find a body on their own
+are retried in pairs.** Each `i` dot sits directly over its own stem and matches it individually, so
+neither is ever an orphan and the pair never reaches the retry however the threshold is set. Both
+dots of a diaeresis fail individually, and that failure is the signal.
+
+The horizontal gap survives as a secondary guard, together with a test that the two marks share a
+top — an apostrophe beside a hyphen is two bodiless marks side by side, and merging them would make
+one glyph matching nothing, which is worse than the two it replaced.
+
+### What it moves
+
+| | before | after |
+| :--- | ---: | ---: |
+| Marks reaching their body, every size 21–50px | 46 of 51 | **48 of 51** |
+| Accuracy fixture, CER | 10.6% | **9.6%** |
+| Post-correction, on | 8.5% | **7.4%** |
+| `naïve` | `na<?>I<?>ve` | **`naïve`** |
+
+And post-correction drops from seven substitutions to six, because the seventh was rewriting a
+*fragment* of the shattered `ï` rather than a letter. All six that remain are genuine `l`/`I` fixes.
+See `docs/post-correction.md`, where that was recorded as the honest description of a corrector
+working on a line another stage had already broken — the upstream fix is what removed it.
+
+### What did not happen
+
+The prediction said a double quote would become one glyph, since `"` is two marks side by side with
+no body under them. **It does not**, and that is a consequence of the safety rule rather than an
+oversight: a rejoined pair is only kept if it *finds a body*, and `"` has none. So it falls through
+to `cluster_orphans` unchanged and still reads as two single quotes, which `group`'s module doc
+still records as a known limitation.
+
+Merging bodiless marks is what the apostrophe-and-hyphen case argues against, so the conservative
+rule is the right one — but the prediction was wrong about it and the limitation stands.
+
 ## Only unmarked glyphs may say where the cap line is
 
 #75, found within minutes of #57 landing and caused by it becoming reachable.

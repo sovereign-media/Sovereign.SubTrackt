@@ -3,7 +3,7 @@
 Answers [#12][issue-12]. It asks for two things — a corrector for the pairs a binarized glyph cannot
 separate, and a measurement deciding whether it should be on.
 
-**It works, it is measured, and it ships switched off.** 2.1 points of character error rate on the
+**It works, it is measured, and it ships switched off.** 2.2 points of character error rate on the
 ceiling fixture, zero lines made worse — and one generated fixture is not the corpus that should
 decide a default which rewrites what a viewer reads.
 
@@ -85,16 +85,15 @@ plausible wrong answer once, and an aggregate would hide it.
 
 | | off | on |
 | :--- | ---: | ---: |
-| Character error rate | 10.6% | **8.5%** |
-| Word error rate | 35.6% | **30.5%** |
+| Character error rate | 9.6% | **7.4%** |
+| Word error rate | 33.9% | **28.8%** |
 | Lines improved | — | 3 |
 | **Lines made worse** | — | **0** |
 
-Seven substitutions, from 65 glyphs the matcher declined to call. Every one of them:
+Six substitutions, from 64 glyphs the matcher declined to call. Every one of them:
 
 ```
-cue 3 line 0 col  9: 'I' -> 'l' in "na<?>l<?>ve,"
-cue 3 line 0 col 17: 'I' -> 'l' in "jalapeño"
+cue 3 line 0 col 15: 'I' -> 'l' in "jalapeño"
 cue 5 line 0 col  2: 'I' -> 'l' in "Follow"
 cue 5 line 0 col  3: 'I' -> 'l' in "Follow"
 cue 5 line 0 col 13: 'I' -> 'l' in "yellow"
@@ -102,12 +101,15 @@ cue 5 line 0 col 14: 'I' -> 'l' in "yellow"
 cue 6 line 1 col 11: 'I' -> 'l' in "plaît,"
 ```
 
-Six are right. The seventh is neither: `naïve` had already been shattered by segmentation into
-`na<?>I<?>ve`, and the `I` the corrector rewrote was a fragment of the `ï` rather than a letter at
-all. It cost nothing and gained nothing, which is the honest description of a corrector operating
-on a line another stage had already broken. Worth remembering when reading the number: **the
-context post-correction reads is the output of every stage before it**, so an upstream spacing or
-segmentation error arrives here as bad evidence.
+**All six are right**, which they were not until recently. A seventh used to sit at the head of that
+list: `naïve` arrived from segmentation as `na<?>I<?>ve`, and the `I` the corrector rewrote was a
+fragment of the shattered `ï` rather than a letter at all. It cost nothing and gained nothing.
+
+#58 fixed the segmentation — a diaeresis straddles its stem, so neither dot overlapped it and only
+their union did — and the spurious substitution went with it. That is the lesson kept rather than
+the substitution: **the context post-correction reads is the output of every stage before it**, so
+an upstream spacing or segmentation error arrives here as bad evidence, and fixing the upstream
+stage is what removes it.
 
 That is also why `0123456789 O o I l 1` is untouched despite being full of candidates: the spacing
 rule (#40) ran its characters together into `0123456789OoI I 1`, and the merged token gives the
@@ -175,7 +177,7 @@ A stage allowed to rewrite text has to leave a trace of what it rewrote, and a c
 ```console
 $ subtrackt extract synthetic.sup --reference accuracy-fixture.subtref       --on-unmatched placeholder --post-correct --report
 reference set: accuracy-fixture (139 glyphs)
-9 cues from 9 images (54 packets); glyphs 213 matched / 20 unmatched / 64 ambiguous (91.4% read); fit 13.1; cache 100%; corrections 9 (context)
+9 cues from 9 images (54 packets); glyphs 213 matched / 13 unmatched / 64 ambiguous (94.2% read); fit 13.0; cache 100%; corrections 6 (context)
   cue 3 line 0 col 9: 'I' -> 'l' in "na<?>l<?>ve,"
   cue 3 line 0 col 17: 'I' -> 'l' in "jalapeño"
   cue 5 line 0 col 2: 'I' -> 'l' in "Follow"
