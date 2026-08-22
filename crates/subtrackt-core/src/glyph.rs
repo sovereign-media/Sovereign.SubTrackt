@@ -236,8 +236,20 @@ pub struct GlyphMatch {
     pub character: Option<char>,
     /// Hamming distance to the winning reference vector.
     pub distance: u32,
-    /// Distance to the runner-up. A close second is the signal that a read is ambiguous
-    /// (`0` vs `O`, `1` vs `l`) and should be handed to post-correction rather than trusted.
+    /// Distance to the nearest reference for a **different character**. A close second is the
+    /// signal that a read is ambiguous (`0` vs `O`, `1` vs `l`) and should be handed to
+    /// post-correction rather than trusted.
+    ///
+    /// "Different character" rather than "next nearest entry", and the distinction is the whole
+    /// meaning of the field. A reference set may hold several entries for one character — one per
+    /// [`Style`](crate::glyph) once anything populates that byte — and the second-nearest entry is
+    /// then *the same letter in another weight*. Reporting that as a runner-up would say the
+    /// matcher could not decide between `a` and `a`, and every glyph in a track carrying style
+    /// variants would come back ambiguous.
+    ///
+    /// The ambiguity margin exists to flag a glyph the matcher could not call between two
+    /// **characters**. Nothing has ever generated a set with duplicates, so this cost nothing until
+    /// something did.
     pub runner_up_distance: u32,
 }
 

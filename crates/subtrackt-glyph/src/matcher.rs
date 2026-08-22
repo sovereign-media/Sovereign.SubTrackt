@@ -259,22 +259,38 @@ impl HammingMatcher {
         metrics: LineMetrics,
         mark: MarkSlope,
     ) -> GlyphMatch {
+        // The winner, and the nearest entry naming a *different* character. Tracking the second as
+        // a (distance, character) pair rather than a bare minimum is what keeps the runner-up
+        // meaningful when a set holds several entries for one letter: the second-nearest entry is
+        // then the same letter in another style, and reporting it would say the matcher could not
+        // decide between `a` and `a`. See `GlyphMatch::runner_up_distance`.
         let mut best: Option<(u32, char)> = None;
-        let mut runner_up = u32::MAX;
+        let mut runner_up: Option<(u32, char)> = None;
 
         for entry in self.references.entries() {
             let distance = self.thresholds.distance(features, metrics, mark, entry);
             match best {
-                Some((best_distance, _)) if distance >= best_distance => {
-                    runner_up = runner_up.min(distance);
+                None => best = Some((distance, entry.character)),
+                Some((best_distance, winner)) if entry.character == winner => {
+                    // Another rendering of the character already winning — a second style, or a
+                    // second weight. It can improve the winner and can never be its own runner-up.
+                    if distance < best_distance {
+                        best = Some((distance, winner));
+                    }
                 }
-                Some((best_distance, _)) => {
-                    runner_up = runner_up.min(best_distance);
+                Some((best_distance, winner)) if distance < best_distance => {
+                    // A new winner, and the character it displaced is by definition a different one.
+                    runner_up = Some((best_distance, winner));
                     best = Some((distance, entry.character));
                 }
-                None => best = Some((distance, entry.character)),
+                Some(_) => {
+                    if runner_up.is_none_or(|(d, _)| distance < d) {
+                        runner_up = Some((distance, entry.character));
+                    }
+                }
             }
         }
+        let runner_up = runner_up.map_or(u32::MAX, |(distance, _)| distance);
 
         match best {
             Some((distance, character)) if distance <= self.thresholds.max_distance() => {
@@ -606,6 +622,65 @@ mod tests {
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::new(67),
         }
+    }
+
+    #[test]
+    fn a_second_entry_for_the_winning_character_is_not_its_own_runner_up() {
+        // #66. A reference set may hold one entry per style for a character, and the second-nearest
+        // entry is then the same letter in another weight. Reporting it as the runner-up would say
+        // the matcher could not decide between `a` and `a`, and every glyph in a track carrying
+        // style variants would come back ambiguous — which would quietly corrupt the accuracy gate,
+        // post-correction's candidate count, and `xtask separability`'s own predicate.
+        let upright = entry('a', &[1, 2, 3]);
+        let italic = ReferenceEntry {
+            style: Style::Italic,
+            features: vector(&[1, 2, 4]),
+            ..entry('a', &[])
+        };
+        let other = entry('b', &[60, 61, 62, 63]);
+
+        let m = matcher(vec![upright, italic, other]);
+        let result = m.scan(&vector(&[1, 2, 3]));
+
+        assert_eq!(result.character, Some('a'));
+        assert_eq!(result.distance, 0, "the upright entry matches exactly");
+        assert!(
+            result.is_unambiguous(m.ambiguity_margin()),
+            "the runner-up is `b` at distance {}, not the other `a`",
+            result.runner_up_distance
+        );
+    }
+
+    #[test]
+    fn the_closest_entry_wins_whichever_style_it_came_from() {
+        // The other half of the same change: style variants exist so an italic glyph can find an
+        // italic vector. The letterform decides, and the style byte is never read to make it.
+        let upright = entry('a', &[1, 2, 3]);
+        let italic = ReferenceEntry {
+            style: Style::Italic,
+            features: vector(&[40, 41, 42]),
+            ..entry('a', &[])
+        };
+
+        let m = matcher(vec![upright, italic]);
+        assert_eq!(m.scan(&vector(&[40, 41, 42])).distance, 0, "the italic vector matched");
+        assert_eq!(m.scan(&vector(&[1, 2, 3])).distance, 0, "and so did the upright one");
+    }
+
+    #[test]
+    fn a_set_with_one_entry_per_character_is_unaffected_by_the_runner_up_rule() {
+        // Every set ever generated has one entry per character, so the change above is a no-op on
+        // all of them. Pinned because "this changes nothing today" is the claim that made it safe
+        // to land ahead of the thing that needs it.
+        let m = matcher(vec![
+            entry('a', &[1, 2, 3]),
+            entry('b', &[1, 2, 60]),
+            entry('c', &[60, 61, 62]),
+        ]);
+        let result = m.scan(&vector(&[1, 2, 3]));
+        assert_eq!(result.character, Some('a'));
+        assert_eq!(result.distance, 0);
+        assert_eq!(result.runner_up_distance, 2, "`b` differs in two cells");
     }
 
     #[test]
