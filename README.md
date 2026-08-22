@@ -55,7 +55,7 @@ the normalisation was built to absorb, and it absorbs them.
 
 **[`docs/post-correction.md`](docs/post-correction.md)** — what is left once shapes are as good as
 they get. Resolving the pairs a binarized glyph cannot separate (`0`/`O`, `1`/`l`/`I`) from the
-characters around them takes **3.1 points** off the ceiling fixture's character error rate and makes
+characters around them takes **2.1 points** off the ceiling fixture's character error rate and makes
 no line worse. It ships switched off: the corrector refuses more than it accepts by construction,
 but one generated fixture is not a corpus to decide a default that rewrites what a viewer reads.
 
@@ -187,8 +187,8 @@ What is actually left, in order of leverage:
 - **[#40](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40)** — word spacing. The
   largest measured error class left: 3.2 of the remaining 12.8 CER points, and most of the gap
   between the character and word rates.
-- **Punctuation segmentation**, untracked. Six of the eight unmatched glyphs in the ceiling fixture
-  are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
+- **Punctuation segmentation**, untracked. Eleven of the thirteen unmatched glyphs in the ceiling
+  fixture are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
 - **[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)** — distribution. A
   decision more than a build; the throughput numbers already weaken the `cdylib` case.
 

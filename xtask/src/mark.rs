@@ -184,6 +184,10 @@ const MARGIN: u32 = 4;
 /// The body and the mark of one rendering, as boxes into the mask they were labelled in.
 struct Decomposed {
     mask: BinaryMask,
+    /// The subject as `group` handed it over, kept so candidate C can be read by the *shipped*
+    /// `subtrackt_glyph::mark::slope` rather than by a copy of it. A bench that measured one
+    /// implementation while the pipeline ran another would be measuring nothing.
+    glyph: group::GroupedGlyph,
     body: Rect,
     mark: Rect,
 }
@@ -305,55 +309,7 @@ fn decompose(
         .map(|(_, part)| part.bounds)
         .reduce(Rect::union)?;
 
-    Some(Decomposed { mask: plane, body, mark })
-}
-
-/// The normalised second-moment cross term of the ink inside `area`, in percent.
-///
-/// Positive where the ink falls left to right in image coordinates — a grave — and negative where
-/// it rises — an acute. A mark with a vertical axis of symmetry, a circumflex or a diaeresis, sits
-/// near zero and therefore *between* the two, which is what makes one number separate three marks.
-///
-/// Fewer than three ink pixels is reported as zero rather than as a slope: two pixels always lie on
-/// a line, so the number would be a fact about the count and not about the letterform.
-#[allow(clippy::cast_possible_truncation)]
-fn slope(mask: &BinaryMask, area: Rect) -> i32 {
-    let mut count = 0f64;
-    let (mut sum_x, mut sum_y) = (0f64, 0f64);
-    for y in area.y..area.y + area.height {
-        for x in area.x..area.x + area.width {
-            if mask.get(x, y) {
-                count += 1.0;
-                sum_x += f64::from(x);
-                sum_y += f64::from(y);
-            }
-        }
-    }
-    if count < 3.0 {
-        return 0;
-    }
-
-    let (mean_x, mean_y) = (sum_x / count, sum_y / count);
-    let (mut cxx, mut cyy, mut cxy) = (0f64, 0f64, 0f64);
-    for y in area.y..area.y + area.height {
-        for x in area.x..area.x + area.width {
-            if mask.get(x, y) {
-                let (dx, dy) = (f64::from(x) - mean_x, f64::from(y) - mean_y);
-                cxx += dx * dx;
-                cyy += dy * dy;
-                cxy += dx * dy;
-            }
-        }
-    }
-
-    // A mark one pixel tall has no vertical extent to lean within, so the ratio is undefined rather
-    // than zero. Reporting zero is the honest answer: it is what a symmetric mark reports, and an
-    // undecidable case should not be handed a direction.
-    let spread = (cxx * cyy).sqrt();
-    if spread < 1.0 {
-        return 0;
-    }
-    (cxy / spread * 100.0).round() as i32
+    Some(Decomposed { mask: plane, glyph: glyph.clone(), body, mark })
 }
 
 /// All three candidates for one rendering of one character.
@@ -387,7 +343,13 @@ fn features(
     // overlapped its body would not have been labelled a separate component in the first place.
     let shape = vectorize(&split.mask, mark, AspectPolicy::Letterbox).ok()?;
 
-    Some(MarkFeatures { placement, shape, slope: slope(&split.mask, mark) })
+    // Candidate C comes from the shipped implementation, not from a copy of it. Where it reports
+    // no direction the bench records zero, which is what a symmetric mark reports anyway — the
+    // distinction between "no direction" and "no mark" belongs to the matcher, not to a table.
+    let slope = subtrackt_glyph::mark::slope(&split.mask, &split.glyph);
+    let slope = if slope.known { slope.percent } else { 0 };
+
+    Some(MarkFeatures { placement, shape, slope })
 }
 
 /// What one character does across the survey range, under all three candidates.
@@ -874,80 +836,6 @@ pub fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Build a mask from an ASCII picture, `#` for ink.
-    fn mask_of(rows: &[&str]) -> BinaryMask {
-        let height = u32::try_from(rows.len()).unwrap();
-        let width = u32::try_from(rows[0].len()).unwrap();
-        let bits: Vec<bool> = rows
-            .iter()
-            .flat_map(|row| row.chars().map(|c| c == '#'))
-            .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
-    }
-
-    fn whole(mask: &BinaryMask) -> Rect {
-        Rect::new(0, 0, mask.width(), mask.height())
-    }
-
-    #[test]
-    fn a_grave_leans_the_opposite_way_to_an_acute() {
-        // In image coordinates y grows downwards, so a grave — drawn from upper left to lower
-        // right — has ink whose x and y rise together. Getting this backwards would not fail any
-        // measurement in this bench; it would silently swap which letter is which.
-        let grave = mask_of(&["##..", ".##.", "..##"]);
-        let acute = mask_of(&["..##", ".##.", "##.."]);
-        assert!(slope(&grave, whole(&grave)) > 0, "a grave falls left to right");
-        assert!(slope(&acute, whole(&acute)) < 0, "an acute rises left to right");
-    }
-
-    #[test]
-    fn a_symmetric_mark_lands_between_the_two_it_has_to_separate() {
-        // The whole reason one signed number separates three marks: a circumflex is symmetric, so
-        // its cross term cancels and it sits between an acute and a grave rather than beside one.
-        let circumflex = mask_of(&["..##..", ".####.", "##..##"]);
-        let leaning = slope(&mask_of(&["##..", ".##.", "..##"]), Rect::new(0, 0, 4, 3));
-        let symmetric = slope(&circumflex, whole(&circumflex));
-        assert!(
-            symmetric.unsigned_abs() < LEANING_SLOPE,
-            "a circumflex measured {symmetric}, which is a direction rather than the absence of one"
-        );
-        assert!(symmetric.unsigned_abs() * 2 < leaning.unsigned_abs());
-    }
-
-    #[test]
-    fn a_slope_is_the_same_whatever_the_mark_is_scaled_to() {
-        // The feature has to report direction and not size, or it reports rendering resolution
-        // again — the axis `docs/glyph-stability.md` measured as costing 11 cells on its own.
-        let small = mask_of(&["##..", ".##.", "..##"]);
-        let large = mask_of(&[
-            "####....", "####....", "..####..", "..####..", "....####", "....####",
-        ]);
-        let (a, b) = (slope(&small, whole(&small)), slope(&large, whole(&large)));
-        assert!(
-            a.abs_diff(b) < LEANING_SLOPE,
-            "the same stroke at two sizes measured {a} and {b}"
-        );
-    }
-
-    #[test]
-    fn too_few_pixels_reports_no_direction_rather_than_a_guess() {
-        // Two pixels always lie on a line, so any slope read off them is a fact about the count.
-        // Reporting zero is the honest answer; inventing a direction is the thing this project
-        // exists not to do.
-        let two = mask_of(&["#.", ".#"]);
-        assert_eq!(slope(&two, whole(&two)), 0);
-        let empty = mask_of(&["..", ".."]);
-        assert_eq!(slope(&empty, whole(&empty)), 0);
-    }
-
-    #[test]
-    fn a_one_row_mark_has_no_vertical_extent_to_lean_within() {
-        // A macron rasterised to a single row has zero vertical variance, so the normalising
-        // divisor vanishes. That is undefined, not vertical, and it must not divide by zero.
-        let flat = mask_of(&["####"]);
-        assert_eq!(slope(&flat, whole(&flat)), 0);
-    }
 
     #[test]
     fn the_median_of_an_even_count_takes_the_upper_middle() {

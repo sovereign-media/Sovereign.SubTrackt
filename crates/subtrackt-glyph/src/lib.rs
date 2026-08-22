@@ -10,7 +10,9 @@
 //! 1. [`binarize`] — palette alpha to a foreground mask.
 //! 2. [`ccl`] — connected components to bounding boxes.
 //! 3. [`group`] — merge diacritics onto their base glyph, assign glyphs to lines.
-//! 4. [`feature`] — normalise each glyph to a [`subtrackt_core::FeatureVector`].
+//! 4. [`feature`] — normalise each glyph to a [`subtrackt_core::FeatureVector`], and
+//!    [`mark`] — read the direction of its diacritic, which that normalisation would otherwise
+//!    average away.
 //! 5. [`cluster`] — group the stream's own shapes, so a consensus vector is matched
 //!    rather than one instance's accidents.
 //! 6. [`matcher`] — nearest reference vector, with [`cache`] short-circuiting repeats.
@@ -21,6 +23,7 @@ pub mod ccl;
 pub mod cluster;
 pub mod feature;
 pub mod group;
+pub mod mark;
 pub mod matcher;
 pub mod metrics;
 pub mod reference;

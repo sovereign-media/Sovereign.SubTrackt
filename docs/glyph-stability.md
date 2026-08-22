@@ -676,6 +676,76 @@ reference typeface is the material's own. What it establishes is the necessary c
 pays is a CER question, and answering it needs a fixture carrying accented text in more than the one
 line it has today.
 
+## Building it, and finding the sixteen pairs were never the ones going wrong
+
+The necessary condition held, so the mark's slope was built: one signed byte per reference entry, a
+version 3 set, a term in the matcher and the same term in the clustering rules. The fixture gained
+three cues carrying both members of `à`/`á`, `è`/`é`, `ò`/`ó` and `ù`/`ú`, and `xtask mark-sweep`
+swept the weight across eight conditions — two rendering sizes, two typeface conditions, plain and
+varied.
+
+**CER does not move at any setting on any condition.** The best row anywhere is −0.1, which is one
+cell. Above 78 permille it gets worse: +0.8 to +2.1, because the term starts rejecting correct
+characters outright rather than demoting wrong ones.
+
+| Weight | Acute vs grave, in cells | Ambiguous glyphs | CER |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 350 | 20.3% |
+| 20 | 6 | 326 | 20.3% |
+| 39 | 11 | 328 | 20.3% |
+| 78 | 24 | 325 | 20.3% |
+| 156 | 51 | 327 | +0.9 |
+| 293 | 98 | 335 | +1.2 |
+
+*(42px, five renderings, reference typeface a near miss — the most realistic of the eight. The other
+seven have the same shape.)*
+
+The ambiguity tally does fall, consistently, by 12 to 20% across every condition. That is the term
+working exactly as designed: it pushes the wrong-leaning candidate clear of the 3% margin. But it
+falls on glyphs that were **already being read correctly**, so nothing downstream changes.
+
+### The census that explains it
+
+CER cannot see this. A wrong accent is one character in a line of thirty, so flipping every one of
+them moves the number by less than the gap between two conditions. So `xtask mark-sweep` counts the
+accented characters directly — and the reference set's own slopes alongside them, so a null result
+cannot be a disarmed term misread as an absent effect.
+
+```
+  slopes   68 -67  65 -66  66 -65  66 -66   (the reference set's own, so the term is armed)
+  weight    à   á   è   é   ò   ó   ù   ú
+   truth    3   3   1   2   1   1   1   1
+       0    3   0   1   5   1   1   1   1
+     293    3   0   1   5   1   1   1   1
+```
+
+Every `á` is being read as `é`. Not one of them is being read as `à`.
+
+**The accents this pipeline gets wrong are wrong in the base letter, not in the direction of the
+mark.** `á` for `é`, `è` for `ò` — pairs that carry the *same* accent and differ in the letter
+underneath. The slope term cannot separate those by construction, because both members report the
+same slope; it is a term that fires only on the axis where nothing was failing. Turn it up to where
+it would overrule shape and it destroys correct reads: `á` 3 → 0, `ù`/`ú` 1/1 → 0/0.
+
+### What it says
+
+**Shipped off.** `mark_weight_permille` defaults to 0, next to a comment recording why, the way
+`ClusterRules::radius_percent` does. The implementation stays, because it is the instrument that
+answered the question and because turning it on is one number if the conditions ever change — #43
+is the change that would do it, since a reference set fitted to the title is what removes the
+base-letter confusions that dominate here.
+
+The lesson is about the instrument rather than the feature. `xtask separability` measures the
+reference set **against itself**: which pairs sit within the ambiguity margin. #48 read that as
+"accent direction is the dominant residual confusion", and it is not — it is the dominant residual
+*ambiguity*. Those are different claims, and only one of them is about characters coming out wrong.
+Sixteen pairs sitting close together in the reference set tells you nothing about whether any glyph
+ever landed on the wrong one of them. Nothing before this had made the distinction matter, because
+#37's pairs — `o`/`O`, `c`/`C` — were both ambiguous and wrong.
+
+That is the fourth feature measured before building and the second built before being disproved. The
+bench is cheap; running the sweep afterwards is what caught this one.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
@@ -700,10 +770,17 @@ line it has today.
   stable (99%) and portable (1 character in 139), and it separates *none* of the 21 pairs the
   matcher calls ambiguous, because sixteen of those are accent-direction pairs that carry the same
   count by construction. Not built; the harness stays.
-- **Those sixteen pairs have an answer, and it is one byte** — #48, measured before building, see
-  above. The mark's slope separates all sixteen at ten to twenty times its own noise, holds its sign
-  in 100% of renderings, and does not reverse across three typefaces. The mark's own feature vector
-  separates them too, at 1.6 times its noise and 32 bytes an entry, so it is the one that loses.
+- ~~**Those sixteen pairs have an answer, and it is one byte**~~ — **built, swept, and shipped
+  off.** The mark's slope separates all sixteen at ten to twenty times its own noise and takes 12 to
+  20% of glyphs out of the ambiguous bucket, and it moves CER on none of eight conditions. The
+  accents that come out wrong are wrong in the *base letter* — `á` read as `é` — which carries the
+  same mark and is invisible to the term by construction. `mark_weight_permille` defaults to 0 and
+  the machinery stays. Worth re-sweeping after #43, which is what removes the base-letter
+  confusions.
+- **"Ambiguous" and "wrong" are not the same set, and `xtask separability` only sees the first.** It
+  measures the reference set against itself. Every conclusion it produces is a claim about which
+  pairs sit close together, not about which glyphs land on the wrong one — and #48 is the first time
+  those came apart. Any future feature justified by that bench needs a sweep before it is believed.
 - **A mark on a capital never reaches its body in ordinary text** — found while setting the
   measurement above up, and it belongs to #6 rather than #48. `line_bands` cuts a line at any blank
   row and the accent on a capital sits above every letter Arial draws, so `À` segments as an `A` and
