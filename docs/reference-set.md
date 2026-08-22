@@ -279,11 +279,98 @@ Refusing it would throw away a clean extraction to satisfy a definition. **What 
 detect is a bad read, not an absent typeface** — and what is measured above is that mean distance
 cannot detect one.
 
-What has not been tried, and is the cheapest next thing: **agreement between the top candidates'
-output**. Two reference sets that produce the same text are unlikely to be wrong in the same way,
-whereas a set with no real answer should disagree with its runner-up everywhere. That is a
-comparison between two extractions rather than a threshold on one, it costs a second scan of glyphs
-already segmented, and nothing measured so far bears on it either way.
+## Asking whether anything corroborates the winner
+
+The idea left standing when the floor and the margin both failed: stop asking how good the winner's
+score is, and ask whether a second reference set agrees with it. Two sets producing the same text
+are, the argument goes, unlikely to be wrong in the same way. A comparison between two extractions
+rather than a threshold on one, and the same run produces both.
+
+The [prediction is on the issue][43-prediction], and it was not optimistic. If the winner reads at
+2% and the runner-up at 15%, they disagree on about 13% — so disagreement largely measures the
+*runner-up's* error, and high agreement means the two typefaces resemble each other rather than that
+either is right.
+
+[43-prediction]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43#issuecomment-5377936463
+
+### At track level it is worse than uninformative
+
+| material | winner | runner-up | agreement | winner CER |
+| :--- | :--- | :--- | ---: | ---: |
+| tahoma | tahoma | verdana | 99.6% | **2.5%** |
+| verdana | verdana | tahoma | 96.9% | **2.0%** |
+| calibri | calibri | segoeui | **93.0%** | 11.5% |
+| segoeui | segoeui | calibri | **92.9%** | 16.9% |
+| trebuc | trebuc | tahoma | **79.2%** | **2.6%** |
+| georgia | georgia | times | 78.2% | 8.2% |
+| arial | arial | calibri | 74.9% | 11.4% |
+| times | times | georgia | 72.9% | 14.0% |
+
+Trebuchet reads at 2.6% and agrees 79.2%. Calibri reads at 11.5% and agrees 93.0%. The reads under
+5% agree at least 79.2%; the reads over 5% agree at most 93.0% — **overlapping by 13.8 points**, in
+the wrong direction. Verdana and Tahoma agree at 99.6% because they are siblings by the same
+designer, which is a fact about the type foundry.
+
+### Per character it has signal, and the signal points the wrong way where it matters
+
+Line-level agreement is the wrong granularity: three reference sets are almost never byte-identical
+over a whole line, so it flags **701 of 704** lines and measures line length. Aligning the texts and
+asking per character is closer to what a fitter would really have — one segmentation, several sets,
+N answers per *glyph*, aligned by construction.
+
+| material | flagged | wrong given flagged | wrong given agreed | lift |
+| :--- | ---: | ---: | ---: | ---: |
+| **arial** | 32% | **3%** | **15.7%** | **0×** |
+| verdana | 22% | 4% | 1.6% | 2× |
+| tahoma | 13% | 9% | 1.6% | 6× |
+| trebuc | 29% | 6% | 1.5% | 4× |
+| segoeui | 25% | 40% | 8.6% | 5× |
+| calibri | 17% | 42% | 5.3% | 8× |
+| georgia | 46% | 10% | 4.2% | 2× |
+| times | 45% | 18% | 8.9% | 2× |
+
+Overall it flags 29% of characters; the flagged are wrong 15% of the time and the unflagged 5.7%.
+A 2.6× lift, and a character three sets agree on is still wrong once in eighteen.
+
+**And on Arial it inverts.** Characters the committee agreed on are wrong *five times more often*
+than the ones it flagged. Arial is the typeface #8 fitted the library to, so that is the row that
+matters most.
+
+### Why, in one line of diagnostic
+
+What the committee agreed on and got wrong anyway:
+
+```
+    arial        'I' x108  '<?>' x86  'i' x2
+    segoeui      '<?>' x112  '`' x4  ' ' x3
+    times        '<?>' x85  ':' x2  'û' x1
+```
+
+108 characters where all three sets said `I` and the truth was `l`. That is #12's pair, and *every*
+sans-serif resolves it the same way because the letterforms are identical — the correct reference
+set makes the error too. The `<?>` runs are the unmatched punctuation every set fails on alike.
+
+So the failure is structural, and it is the same shape as the one §3 named for mean distance:
+
+> a systematically wrong set is *by construction* a low-distance one
+
+becomes
+
+> a systematically shared confusion is *by construction* an agreed one.
+
+Both times, the thing that makes the answer wrong is the thing that makes the evidence look right.
+Corroboration between candidates cannot see an error every candidate makes, and those are exactly
+the errors that survive to be the residual.
+
+### What is left to try
+
+Nothing in the direction of scoring the winner. Three statistics have now failed — mean distance,
+the winner-versus-runner-up margin, and inter-candidate agreement — and the third failed for a
+reason that would apply to any fourth built out of the candidates themselves.
+
+What that leaves is evidence from **outside** the candidate set: the material's own repetition, a
+language model, or a human. The first is the only one that fits this project's constraints, and it
+is not obviously enough. #43 should not ship a floor until something does.
 
 ## What this means for embedding
 
@@ -357,6 +444,12 @@ issue, and it is the one that unblocks the product.
   the candidate list be refused. Withhold Tahoma and the argmin picks Verdana, which reads that
   material at 1.7%: refusing it would throw away a clean extraction. What a floor has to detect is a
   bad *read*, not an absent typeface.
+- **Corroboration between candidates fails too, and for a reason that generalises.** Agreement
+  between the top two overlaps by 13.8 points; per character it lifts 2.6x overall and *inverts* on
+  Arial, where the committee agrees on `I` for `l` 108 times because every sans-serif makes that
+  error. A shared confusion is an agreed one by construction, so no statistic built out of the
+  candidates themselves can see the errors that survive. Evidence has to come from outside the
+  candidate set.
 - **Style is a level below typeface.** An italic reference set reads italic cues at 10.8% and
   upright at 40.5%; the upright set does the reverse. Whole-track distance cannot see it, so a fit
   that is right about the typeface can still be wrong about a third of a reel. [#14][issue-14] is
