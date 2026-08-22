@@ -119,7 +119,10 @@ fn stem(path: &Path) -> String {
 /// Generating a set is the expensive half of fitting and it does not depend on the material, so a
 /// fitter would cache exactly this. Doing the same here keeps the cost figure at the end honest
 /// about what fitting would actually cost rather than about what this harness happens to repeat.
-fn reference_sets(fonts: &[PathBuf], dir: &Path) -> anyhow::Result<Vec<(String, ReferenceSet)>> {
+pub(crate) fn reference_sets(
+    fonts: &[PathBuf],
+    dir: &Path,
+) -> anyhow::Result<Vec<(String, ReferenceSet)>> {
     let mut out = Vec::new();
     for font in fonts {
         let name = stem(font);

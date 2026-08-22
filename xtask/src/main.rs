@@ -13,6 +13,7 @@ mod accuracy;
 mod disc;
 mod fit;
 mod fixture;
+mod fontid;
 mod mark;
 mod pairs;
 mod select;
@@ -107,6 +108,7 @@ fn main() -> anyhow::Result<()> {
         Some("accuracy") => return accuracy::run(&args[1..]),
         Some("reference-fit") => return fit::run(&args[1..]),
         Some("fit-select") => return select::run(&args[1..]),
+        Some("font-id") => return fontid::run(&args[1..]),
         Some("cluster-sweep") => return sweep::run(&args[1..]),
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("mark-sweep") => return sweep::run_mark(&args[1..]),
@@ -125,6 +127,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
     eprintln!("  xtask fit-select <font.ttf>...");
+    eprintln!("  xtask font-id <font.ttf>... [--continue]");
     eprintln!("  xtask set-pairs <set.subtref>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
