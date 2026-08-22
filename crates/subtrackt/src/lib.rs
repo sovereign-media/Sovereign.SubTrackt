@@ -14,12 +14,14 @@
 //! ```
 
 pub mod config;
+pub mod fit;
 pub mod pipeline;
 pub mod report;
 pub mod score;
 pub mod survey;
 
 pub use config::{Config, UnmatchedPolicy};
+pub use fit::{Fit, rank, score_set};
 pub use pipeline::{Outcome, Pipeline};
 pub use report::Report;
 pub use score::{Score, score_text, score_track};

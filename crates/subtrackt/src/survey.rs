@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use subtrackt_core::{Error, FeatureVector, Rect, Result, TimeSpan};
+use subtrackt_core::{Error, FeatureVector, LineMetrics, MarkSlope, Rect, Result, TimeSpan};
 use subtrackt_demux::StreamInfo;
 
 use crate::pipeline::ImageSegmenter;
@@ -28,6 +28,15 @@ pub struct GlyphRecord {
     pub bounds: Rect,
     /// The normalised shape.
     pub features: FeatureVector,
+    /// Where it stood in its line, which the shape vector cannot express.
+    ///
+    /// Carried so a survey can be *scored* against a reference set and not only counted. Matching
+    /// reads this — see `MatchThresholds::distance` — so a survey that dropped it would rank
+    /// candidate sets on shape alone and rank them differently from the extraction it is meant to
+    /// predict.
+    pub metrics: LineMetrics,
+    /// Which way its diacritic leans, carried for the same reason.
+    pub mark: MarkSlope,
 }
 
 /// Everything one pass over a file turned up.
@@ -101,6 +110,8 @@ impl crate::Pipeline {
                         line: glyph.line,
                         bounds: glyph.bounds,
                         features: glyph.features,
+                        metrics: glyph.metrics,
+                        mark: glyph.mark,
                     });
                 }
                 span = Some(match span {
@@ -186,8 +197,14 @@ mod tests {
     fn distinct_shapes_deduplicates_repeated_glyphs() {
         let mut a = FeatureVector::EMPTY;
         a.set(3);
-        let record =
-            |features| GlyphRecord { cue: 0, line: 0, bounds: Rect::new(0, 0, 4, 8), features };
+        let record = |features| GlyphRecord {
+            cue: 0,
+            line: 0,
+            bounds: Rect::new(0, 0, 4, 8),
+            features,
+            metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
+        };
         let survey = GlyphSurvey {
             stream: StreamInfo {
                 index: 0,
