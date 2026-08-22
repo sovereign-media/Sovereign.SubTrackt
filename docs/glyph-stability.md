@@ -958,6 +958,119 @@ The fixture gained `S'il vous plaît, maître.` so the gain is visible in `xtask
 only in the census. Both `î` come out right; the line's remaining errors are `l` read as `I`, which
 is #12's, and post-correction now fixes one of them.
 
+## Vectorizing the body alone, and finding the merged box was load-bearing
+
+[#100](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/100), benched before anything
+was built — the convention #37, #46 and #48 established, and the one that caught #48 being wrong
+about its own target. It caught this one too.
+
+The diagnosis above is that `feature::vectorize` runs on the **merged** box, base plus mark, so an
+accented letter is letterboxed into the bottom five-sixths of the grid while its base fills all of
+it. `á` is a third shape, different from `a` and from `e` alike, and which it lands nearer is close
+to arbitrary. #100 proposed handing `vectorize` the **body's** box instead, with the mark travelling
+separately as `MarkSlope` — which it already does.
+
+**The diagnosis is right and the fix is not available.** `xtask body-box`, on Arial:
+
+| | shape, merged | body only | body + metrics | to its rival |
+| :--- | ---: | ---: | ---: | ---: |
+| `á` against `a` | 110 | **0** | 14 | 53 (to `e`) |
+| `è` against `e` | 112 | **0** | 14 | 37 (to `o`) |
+| `ò` against `o` | 99 | **0** | 14 | 37 (to `e`) |
+| `ù` against `u` | 66 | **0** | 14 | 55 (to `o`) |
+
+#100's first prediction was that the body-only vector would "sit within noise of `a` and clear `e`
+by at least 20 cells". It does better than that: it sits at **distance zero** from its base and
+clears its rival by 37 to 55.
+
+Which is the problem. `á` no longer differs from `a` in the shape vector *at all*.
+
+### What that costs, counted
+
+The change moves 51 of 139 characters. Pairs inside the ambiguity margin, under the full shipped
+distance rather than shape alone, because that is what the matcher computes:
+
+| representation | pairs inside the margin | of which at distance zero |
+| :--- | ---: | ---: |
+| merged, shape alone | 41 | 3 |
+| **merged + metrics (shipped)** | **24** | **1** |
+| body only, shape alone | 153 | 151 |
+| **body only + metrics** | **77** | **60** |
+
+Three times the ambiguity and sixty times the ties. Verdana, where `l` and `I` are drawn
+differently and the shipped set has *no* pairs at distance zero at all, moves 8 to 70 and 0 to 31 —
+so this is a property of the representation and not of one typeface. And #37's line-metric term rescues more of it
+than expected — an accented letter is taller than its base, so `á` against `a` recovers to 14 cells,
+clear of the 7-cell margin. What it does not rescue is where the *heights* also coincide:
+
+```
+  I / i  0     i / l  0     l / ì  0
+  I / l  0     i / ì  0     l / í  0
+  I / ì  0     i / í  0     l / î  0
+  I / í  0     i / î  0     l / ï  0
+```
+
+Every dotted letter's body is a bare stem, and a bare stem is `l`, `I` and `|` — the pair #10
+measured at distance **zero** and the class `docs/error-census.md` measures as **24.4% of a real
+disc's remaining errors**, the largest one left. The proposal trades an accent confusion for a
+worse instance of the confusion the project already has most of.
+
+### Why the mark term cannot put it back
+
+The obvious answer is to turn on `mark_weight_permille`. It cannot help, and the reason is
+structural rather than a matter of weight:
+
+```
+  pair            slope   shape distance   slope difference
+  a against a      none                0      no comparison
+  à against a        68                0      no comparison
+  á against a       -67                0      no comparison
+  â against a         1                0      no comparison
+  ä against a         0                0      no comparison
+```
+
+`MarkSlope::difference` returns `None` when either side is unknown, and an unmarked letter is
+unknown by definition. That refusal is right — `docs/glyph-stability.md` records why an unmeasurable
+mark must contribute nothing rather than a fabricated zero — and it means the term contributes
+**nothing at all** to the one pair a body-only vector creates. At any weight.
+
+The second row of that table is the other half: a circumflex reports slope 1 and a diaeresis
+reports 0. #48 built the slope to separate *grave from acute*, and it does that at ten to twenty
+times its noise. Separating *marked from unmarked*, and separating *one mark from another*, are two
+different questions, and it answers neither.
+
+### What would be needed, and what it costs
+
+A mark **identity** feature, which is #48's candidate B — the mark's own feature vector. #48
+measured it: it separates all sixteen grave/acute pairs, and it clears its own rendering noise by a
+factor of **1.6**, against the slope's ten to twenty. It also costs 32 bytes per reference entry and
+a format version. #48 rejected it on the ratio; nothing here changes that number.
+
+### Predictions, scored
+
+- **1. Body-only `á` sits within noise of `a` and clears `e` by at least 20 cells.** *Right, and
+  further than predicted.* Zero and 53.
+- **2. All eight census characters read correctly, where four do today.** *Not reached.* The census
+  is a decoded-material measurement and the necessary condition failed on font renders first, which
+  is what the bench is for.
+- **3. CER moves by less than 1 point, and that is not a failure.** *Not reached, and the premise
+  moved:* `docs/error-census.md` found **no accented confusion at all** on the real disc, because
+  the material is English. The payoff is bounded by material this project has not measured; the cost
+  is certain.
+- **4. The mark-slope term stays at 0 and stays worth re-sweeping.** *Right about the weight, wrong
+  about the reason.* It is not that the term separates an axis that does not matter yet — it is that
+  the term cannot express presence, so it could not carry this change even if it were free.
+
+### What it says
+
+**Closed, not built.** The merged box is the mechanism, exactly as #48 diagnosed, and it is also the
+only place the mark's identity is recorded. Taking the mark out of the vector without putting it
+somewhere else does not make `á` into `a` plus a mark; it makes `á` **into `a`**, and `ì` into `l`.
+
+The lesson is one the project keeps relearning in new forms: a representation that collapses two
+things is a fault only if something else can tell them apart. The letterbox merge looked like the
+fault. It was the record.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
@@ -993,6 +1106,11 @@ is #12's, and post-correction now fixes one of them.
   measures the reference set against itself. Every conclusion it produces is a claim about which
   pairs sit close together, not about which glyphs land on the wrong one — and #48 is the first time
   those came apart. Any future feature justified by that bench needs a sweep before it is believed.
+- **The merged base-plus-mark box cannot be unmerged** — #100, benched and closed above. Handing
+  `vectorize` the body's box alone puts `á` at distance *zero* from `a` and `ì` at zero from `l`,
+  and `MarkSlope` cannot put back what it removes because an unmarked letter reports `NONE` and
+  contributes nothing to any distance. Reopening it needs a mark *identity* feature, which is #48's
+  candidate B at 32 bytes an entry and a 1.6x noise margin.
 - **A mark on a capital never reaches its body in ordinary text** — found while setting the
   measurement above up, and it is #57 rather than #48. `line_bands` cuts a line at any blank
   row and the accent on a capital sits above every letter Arial draws, so `À` segments as an `A` and

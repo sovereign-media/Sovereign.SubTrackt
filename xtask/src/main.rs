@@ -11,6 +11,7 @@
 
 mod accuracy;
 mod bigram;
+mod bodybox;
 mod disc;
 mod fit;
 mod fixture;
@@ -153,6 +154,7 @@ fn main() -> anyhow::Result<()> {
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("mark-sweep") => return sweep::run_mark(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
+        Some("body-box") => return bodybox::run(&args[1..]),
         Some("set-pairs") => return pairs::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
@@ -174,6 +176,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask set-pairs <set.subtref>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
+    eprintln!("  xtask body-box [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
     eprintln!("  xtask unread <media> <reference.subtref>");
     std::process::exit(2);
