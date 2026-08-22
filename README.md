@@ -452,24 +452,14 @@ do worse.
 
 ## Contributing
 
-Work is tracked as sub-issues of [#1][issue-1], and [`CLAUDE.md`](CLAUDE.md) records the conventions
-the project runs on — most of them written down because something broke when they were not followed.
+Work is tracked as sub-issues of [#1][issue-1]; the open ones are where the roadmap lives.
+[`CLAUDE.md`](CLAUDE.md) records the conventions the project runs on — most of them written down
+because something broke when they were not followed. The two that catch the most: one issue, one
+pull request, and run `scripts/check.sh` before pushing.
 
-Every stage of the pipeline is built and every measurement issue is answered. Four things that were
-on the roadmap are closed, each by measuring that the plan was wrong:
-
-- **#10** was to cluster a stream's own shapes and match the centroids. Built, swept, and **shipped
-  off** — no radius groups a title's variation without first merging characters the vector never
-  separated.
-- **Reducing edge sensitivity in binarization** was the largest cheap term left. Two approaches,
-  both **neutral-to-worse**. The lever was the binary mask itself, not where the threshold fell.
-- **#9** was to embed a reference set. Measured, and **not worth shipping**.
-- **#15** built the scoring harness, which turned every claim in this repository from coverage into
-  correctness — and immediately showed the two are barely related.
-
-What is left is the [Shortcomings](#shortcomings) list above, in roughly that order of leverage,
-plus [#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) — distribution, a
-decision more than a build, where the throughput numbers already weaken the `cdylib` case.
+Design questions here get closed by measuring them, and the measurement gets written up in `docs/`
+whichever way it comes out. Several of this project's plans died that way, which is why the
+write-ups are worth reading before proposing a change to how matching works.
 
 [issue-1]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/1
 
