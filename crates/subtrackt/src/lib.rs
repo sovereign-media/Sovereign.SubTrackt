@@ -31,3 +31,6 @@ pub use subtrackt_core as core;
 // of `subtrackt-text`.
 pub use subtrackt_core::{Error, Result};
 pub use subtrackt_text::correct::{CorrectionLog, PostCorrector};
+// `Config::layout` is a `LayoutRules`, so the type is already part of this crate's surface; naming
+// it here saves every caller a dependency on `subtrackt-text` to construct one.
+pub use subtrackt_text::layout::{LayoutRules, SpacingRule};
