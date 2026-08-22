@@ -770,9 +770,9 @@ fn report_ambiguous(marked: &[Marked], ambiguous: &[(u32, char, char)]) {
 /// Does a mark's slope survive a change of typeface?
 ///
 /// The question #9 forces on any feature that gets stored in a reference set: an embedded set is by
-/// definition built from a typeface the disc was not authored in. #43 would change that by fitting
-/// the set to the title, but until it lands the shipped answer is a rendered font, and a feature
-/// that flips sign between two typefaces would be worse than none.
+/// definition built from a typeface the disc was not authored in. #43 changed that by fitting the
+/// set to the title, so the shipped answer is a font rendered per title — but the question stands
+/// for anything embedded, and a feature that flips sign between two typefaces is worse than none.
 fn report_portability(reference: &Font, reference_name: &str, others: &[(String, Font)]) {
     println!("\n--- does a mark's slope survive a change of typeface? ---");
     if others.is_empty() {

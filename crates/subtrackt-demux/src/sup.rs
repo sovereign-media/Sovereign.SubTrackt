@@ -3,7 +3,7 @@
 //! A `.sup` file is the simplest possible PGS container: a flat sequence of segments, each with a
 //! ten-byte header carrying the magic `PG`, a 90 kHz PTS, a DTS, the segment type and its length.
 //! No index, no seeking, no container parsing — which is exactly why this is the input the rest of
-//! the pipeline is developed against while the container demuxer (#4) is still open.
+//! the pipeline is developed against, and why it stayed one after #4 landed the Matroska reader.
 //!
 //! Each emitted [`Packet`] payload is one segment in the same layout PGS packets take inside
 //! Matroska — type byte, big-endian length, data — so the decoder in `subtrackt-decode` sees the

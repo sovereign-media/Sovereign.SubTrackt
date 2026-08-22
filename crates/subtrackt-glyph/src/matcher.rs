@@ -78,9 +78,9 @@ pub struct MatchThresholds {
     ///
     /// Kept rather than removed for the same reason `ClusterRules::radius_percent` is: the
     /// machinery is the instrument that measured the question, and turning it on is one number
-    /// once there is evidence for it. #43 would change the conditions substantially — a reference
-    /// set fitted to the title is what removes the base-letter confusions that dominate today — so
-    /// the sweep is worth re-running when it lands.
+    /// once there is evidence for it. #43 changed the conditions substantially — a reference set
+    /// fitted to the title removes the base-letter confusions that dominated when this was measured
+    /// — so the sweep is worth re-running against a fitted set.
     pub mark_weight_permille: u32,
 }
 

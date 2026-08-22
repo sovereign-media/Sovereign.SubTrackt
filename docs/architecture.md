@@ -17,7 +17,9 @@ Every stage is built, and the pipeline reads a Blu-ray rip end to end. What it c
 characters *out of the box*, because nothing is embedded to match against — a decision rather than
 a gap, and the reason is in [reference-set.md](reference-set.md). Given a reference set built from
 the material's own typeface it reads text at 12.8% character error; given one built from a
-near-identical typeface, 26.8%. That gap is the project's remaining problem and it is #43.
+near-identical typeface, 26.8%. #43 closed that gap by fitting the set to the title instead of
+to the binary. What #63 asks is the part that survived: nothing yet tells a good fit from a bad one
+without ground truth, so the choice is reported to the user rather than made by the tool.
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -94,7 +96,7 @@ Complete and tested:
 - **Post-correction**: ambiguous reads resolved from the characters either side of them, off by
   default. [post-correction.md](post-correction.md) records the measurement behind that default.
 
-Stubbed, returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#4, and see
+Stubbed, returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#86, and see
 below). Nothing else is a stub — the empty reference set is a decision, not a placeholder.
 
 ### What the library actually contains
@@ -125,7 +127,7 @@ The reference set ships **empty**, and #9 closed by measuring that this is the r
 than a temporary one. A set built from a *near-identical* typeface — Liberation Sans against
 Arial-authored material — costs 11 points of character error, which is Verdana's cost to within
 noise, and neither coverage nor match distance detects it. Shipping one would trade a detectable
-failure for an undetectable one. [reference-set.md](reference-set.md) has the table; #43 is the
+failure for an undetectable one. [reference-set.md](reference-set.md) has the table; #43 was the
 answer, which is to fit the set to the title rather than to the binary.
 
 ### A hand-rolled Matroska reader, not symphonia
@@ -223,21 +225,28 @@ own text line — how tall it stands relative to that line's cap height, and how
 baseline — took 5.8 to 8.1 points off the character error rate and is the first change to improve
 the *distance between different characters* rather than the spread within one.
 
-## Decisions still open
+## Where §4's questions landed
 
-These are the §4 questions from #1, with where they live in the code.
+This table used to be headed "decisions still open". Every one of them has now been measured and
+closed, which is what closed #1 — kept here so the answers are findable from the code they live in.
 
-| Question | Where | Issue |
+| Question | Where | Answered by |
 | :--- | :--- | :--- |
-| ~~16×16 versus 32×32 grid~~ — **measured, no consistent gain; 16 stays** | `subtrackt_core::glyph::FEATURE_GRID` | #7, see `docs/glyph-stability.md` |
-| Where a reference set comes from | `subtrackt_glyph::reference` | #43 |
-| Word spacing, which #11 landed before anything could score it | `subtrackt_text::layout::is_space` | #40 |
-| CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |
+| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 — no consistent gain; 16 stays. `docs/glyph-stability.md` |
+| Where a reference set comes from | `subtrackt_glyph::reference` | #9, then #43 — embed nothing, fit to the title. `docs/reference-set.md` |
+| Word spacing | `subtrackt_text::layout::is_space` | #40 — the median-gap threshold missed half of them |
+| CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 — CLI. `docs/distribution.md` |
+| A cue with an unmatched glyph | `subtrackt::config::UnmatchedPolicy` | #13, below |
+| Session cache scope, and cluster-then-match | `subtrackt_glyph::cache` | #10 — clustering measured worse and ships off |
+| Whether one vector per character survives style variation | — | #14 — it does not. `docs/glyph-stability.md` |
+| What studios actually author against | — | #8 — PGS surveyed, VOBSUB not. `docs/library-survey.md` |
 
-Answered since this table was written, and kept here so the answers are findable: what happens to a
-cue with an unmatched glyph (#13, below); session cache scope and the cluster-then-match redesign
-(#10 — clustering measured worse and ships off); whether one reference vector per character survives
-style variation (#14 — it does not).
+**One thing outlived the epic.** §4 warned that a title in an unexpected typeface "degrades to
+garbage rather than to nothing, which is worse than the status quo". Fitting the set per title
+answered which set to use; it did not answer how to know the fit was right. A mismatched set reads
+~73% correct and ~27% confidently wrong with no counter saying which is which — the one place in
+this pipeline where a failure is not yet a fact. That is **#63**, and until it has an answer the
+fitted set is a proposal the user accepts rather than a decision the tool makes (#62).
 
 ### The accuracy gate
 
@@ -387,10 +396,10 @@ Deliberately not done yet, with the trigger for revisiting:
 | Tool | Why not yet | When to add |
 | :--- | :--- | :--- |
 | `cargo-nextest` | 116 tests execute in milliseconds; the runner is not the bottleneck | Test *execution* becomes visible against compile time, or flaky-test retries are wanted |
-| `lld` / `mold` | Linking is not dominant with this little code and no C dependencies | A demuxer backend (#4) brings in native libraries |
+| `lld` / `mold` | Linking is not dominant with this little code and no C dependencies | A demuxer backend (#86) brings in native libraries |
 | A separate `dist` profile | `release` should keep meaning "what we ship" | Release-build time on main becomes an obstacle |
 
-The one to watch is `sccache`: if #4 lands `ffmpeg-next`, dependency build time stops being
+The one to watch is `sccache`: if #86 lands `ffmpeg-next`, dependency build time stops being
 negligible and the calculus changes.
 
 ## Checks before pushing
