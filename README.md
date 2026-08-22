@@ -123,6 +123,25 @@ deliberately throws away. The reference set still has to come from the material'
 which is [#43](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43) and is what stands
 between this and working out of the box.
 
+## Install
+
+Tagged releases carry a self-contained binary for Linux and Windows, x86-64 and ARM64, with a
+`SHA256SUMS` covering the set. The Linux builds are statically linked against musl, so there is no
+glibc version to match and no runtime to install — the artifact is the whole dependency.
+
+```console
+$ curl -LO https://github.com/sovereign-media/Sovereign.SubTrackt/releases/latest/download/subtrackt-v0.1.0-x86_64-unknown-linux-musl
+$ chmod +x subtrackt-*-x86_64-unknown-linux-musl && mv subtrackt-*-x86_64-unknown-linux-musl subtrackt
+```
+
+It ships with no reference sets, so a directory of `.subtref` files has to sit beside it — that is
+the point of `subtrackt fit`, and the reasoning is in
+[`docs/reference-set.md`](docs/reference-set.md).
+
+Why a CLI rather than a `cdylib`, why static musl, and the binary-size and cold-start numbers behind
+both, are in [`docs/distribution.md`](docs/distribution.md): process spawn costs 15.8 ms against a
+22-second extraction, which settled it.
+
 ## Usage
 
 ```console
@@ -169,9 +188,9 @@ $ cargo test --workspace
 Rust 1.98 or newer, and no system dependencies. The library crates take exactly one third-party
 crate between them — `miniz_oxide`, because 83% of the PGS tracks in a real library are stored
 zlib-compressed inside Matroska and refusing it meant failing on most of the library. Everything
-else is the standard library, which is what keeps the single-static-binary option in
-[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) open and cross-compilation
-to `linux/arm64` uneventful.
+else is the standard library, which is what let
+[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) settle on a single static
+binary rather than argue about it, and what makes cross-compilation to `linux/arm64` uneventful.
 
 Run `scripts/check.sh` before pushing: it runs what CI runs, including clippy at pedantic, which is
 the gate that catches the most.

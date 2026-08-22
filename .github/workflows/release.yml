@@ -1,0 +1,124 @@
+# Tagged releases: one self-contained binary per platform, checksummed.
+#
+# Four artifacts, covering the platforms this is actually run on: Linux and Windows, x86-64 and
+# ARM64. There is no macOS build because nobody has asked for one; adding a row to the matrix below
+# is the whole change if that stops being true.
+#
+# Linux ships as static musl rather than dynamic glibc, and that is the libc decision #16 asks for.
+# A glibc binary carries a version floor set by whichever machine built it, which is a skew nobody
+# notices until the container base moves under them; a static musl binary has no floor and runs on
+# any distribution, which is a better answer to "common Linux variants" than picking two of them.
+#
+# Static linking is usually a trade, and here it is not. #16 notes that a demuxer pulling in system
+# libraries and a static musl binary pull in opposite directions -- but this pipeline has no such
+# demuxer, and the library crates take one pure-Rust dependency between them. Nothing is being given
+# up.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Not fail-fast: if one platform's toolchain breaks, the other three artifacts are still worth
+      # having, and seeing all four results at once says more than seeing the first failure.
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            # GitHub's ARM64 runners are a paid add-on for private repositories, so ARM64 is
+            # cross-compiled from x86-64 instead. Same approach the `cross` job in ci.yml already
+            # uses for aarch64 gnu.
+            linker: aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross linker
+        if: matrix.packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }}
+
+      - name: Select cross linker
+        if: matrix.linker != ''
+        shell: bash
+        run: |
+          target=$(echo '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')
+          echo "CARGO_TARGET_${target}_LINKER=${{ matrix.linker }}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p subtrackt-cli
+
+      # bash on the Windows runners too, so the packaging step is one script rather than two that
+      # drift apart.
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ matrix.target }}' in
+            *windows*) ext='.exe' ;;
+            *) ext='' ;;
+          esac
+          name="subtrackt-${GITHUB_REF_NAME}-${{ matrix.target }}${ext}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/subtrackt${ext}" "dist/${name}"
+          # Binary size is an acceptance criterion of #16, so each build states its own rather than
+          # leaving it to be read off the release page later.
+          ls -l "dist/${name}"
+          ( cd dist && sha256sum "${name}" > "${name}.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # One SHA256SUMS covering the set, so `sha256sum -c` verifies everything in one pass instead
+      # of once per download.
+      - name: Collect checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          cat ./*.sha256 > SHA256SUMS
+          rm -f ./*.sha256
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
