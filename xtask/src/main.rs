@@ -11,6 +11,7 @@
 //! ```
 
 mod accuracy;
+mod disc;
 mod fit;
 mod fixture;
 mod mark;
@@ -220,6 +221,7 @@ fn main() -> anyhow::Result<()> {
         Some("mark-sweep") => return sweep::run_mark(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
+        Some("srt-score") => return disc::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -230,5 +232,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
+    eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
     std::process::exit(2);
 }

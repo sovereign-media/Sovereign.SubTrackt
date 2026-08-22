@@ -83,7 +83,87 @@ reading as badly as Verdana. A systematic substitution is *by construction* a lo
 matcher chose `I` for `t` precisely because they were close. The signal that would detect a wrong
 reference set is suppressed by the very thing that makes the set wrong.
 
-## What this means for embedding
+## The same question against a real disc
+
+Everything above is a fixture: rendered by this project, in a font that is *in* the candidate list.
+The caveat is stated in #43 and it is the right one — an encouraging signal, not a result. So the
+same question was put to a Blu-ray.
+
+**10 Cloverfield Lane (2016)**, 1.8 GB, one PGS track at 1920×800. 822 cues in 70 seconds. Scored
+against the English subtitle shipped beside the rip — a different release of the same film, which is
+not ground truth and is not claimed as any: it is an independent transcript of the same dialogue,
+produced without reference to this pipeline. Enough to rank ten extractions of one track against
+each other and to tell 7% from 60%. Not enough to certify an absolute figure.
+
+```console
+$ subtrackt extract '10 Cloverfield Lane (2016).mkv' --reference arial.subtref \
+      --on-unmatched placeholder --format srt --report -o out.srt
+822 cues from 822 images (1644 packets); glyphs 19566 matched / 958 unmatched
+  / 3878 ambiguous (95.3% read); fit 11.7; cache 100%
+$ cargo run -p xtask -- srt-score out.srt release.eng.srt
+```
+
+Ten candidate typefaces, one extraction each:
+
+| reference set | fit | CER, all | CER, upright | CER, italic |
+| :--- | ---: | ---: | ---: | ---: |
+| **arial** | **11.7** | **8.8%** | **7.1%** | 35.7% |
+| tahoma | 18.5 | 17.4% | 15.8% | 42.8% |
+| verdana | 20.2 | 16.6% | 15.4% | 34.0% |
+| trebuc | 20.6 | 29.7% | 28.2% | 51.1% |
+| calibri | 22.6 | 30.9% | 30.2% | 42.7% |
+| segoeui | 25.7 | 28.3% | 27.4% | 41.5% |
+| arialbd | 28.8 | 36.4% | 35.6% | 48.1% |
+| georgia | 31.0 | 43.1% | 41.5% | 67.0% |
+| times | 31.5 | 62.3% | 61.8% | 68.8% |
+| ariali | 35.2 | 38.6% | 40.5% | **10.8%** |
+
+### The argmin holds, on material this project did not render
+
+Mean match distance picks Arial, and Arial is the right answer by a wide margin: 11.7 against 18.5
+for the runner-up, 8.8% CER against 16.6%. That is the only comparison a selector makes, and it is
+now made once on a real disc rather than only on a fixture rendered in a candidate's own font.
+
+It is no better among the also-rans than it was on the fixture. Tahoma and Verdana invert. Times
+reads at 62% — worse than anything else by twenty points — and mean distance ranks it *ninth of ten*,
+under-penalised for exactly the reason §3 gives: a systematic substitution is by construction a
+low-distance one.
+
+### A floor, with numbers under it for the first time
+
+#43 asks for a floor: refuse rather than fit to the least-bad candidate. The gap here is wide enough
+to place one.
+
+| | fit |
+| :--- | ---: |
+| The right typeface, this disc | 11.7 |
+| The right typeface, the accuracy fixture (exact by construction) | 13.9 |
+| The best *wrong* typeface, this disc | 18.5 |
+
+A floor near 15 accepts the right answer on both and refuses all nine wrong ones here. One disc is
+one data point and the number should not be fixed from it, but the bracket is real and it is the
+first evidence that a floor can exist at all rather than being a hope in an acceptance criterion.
+
+### And a constraint on where fitting happens
+
+The film opens with a 43-cue italic phone message, and the two Arial variants are mirror images of
+each other:
+
+| reference set | upright | italic |
+| :--- | ---: | ---: |
+| arial | **7.1%** | 35.7% |
+| ariali | 40.5% | **10.8%** |
+| arialbd | 35.6% | 48.1% |
+
+Each reads its own style in single digits and the other five times worse. Weight costs nearly as
+much as slope. That is [#14][issue-14]'s question — whether typographic variants need their own
+reference vectors — answered on real material: **they do**, and one upright vector per character
+cannot carry a track that changes style mid-film.
+
+It also lands on #43 rather than only on #14. Whole-track mean distance **cannot see this**:
+Arial-italic scores 35.2 because 95% of the track is upright, so a per-title fit would pick the
+right set, report a good number, and still read the italic act at 36%. Whatever #43 decides about
+caching scope — per library, per title — style is a level below the one it is currently considering.
 
 The argument against embedding is not licensing, and it is not "we could not find a good enough
 font". It is that a fixed set of any typeface converts a **detectable** failure into an
@@ -142,7 +222,16 @@ issue, and it is the one that unblocks the product.
   either.
 - **Per-title fitting is the unlock.** Everything above is an argument for deriving the reference
   set from the material rather than shipping one.
+- **The selector works, measured on a disc.** Mean match distance picks the right typeface as the
+  argmin out of ten candidates on real material, and the gap under it — 11.7 against 18.5 — is wide
+  enough to hold a floor. #43's first acceptance criterion has a real-material data point now
+  rather than only a fixture one.
+- **Style is a level below typeface.** An italic reference set reads italic cues at 10.8% and
+  upright at 40.5%; the upright set does the reverse. Whole-track distance cannot see it, so a fit
+  that is right about the typeface can still be wrong about a third of a reel. [#14][issue-14] is
+  not a separate mechanism from #43, it is a level of the same one.
 - **`reference-fit` is the instrument for all of it.** Any future claim that some set is good enough
-  to embed should arrive as a row in this table.
+  to embed should arrive as a row in this table. `xtask srt-score` is the equivalent for real
+  material, where the only available reference is another release.
 
 [`reference::embedded`]: ../crates/subtrackt-glyph/src/reference.rs
