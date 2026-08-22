@@ -23,9 +23,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, bail};
 use fontdue::{Font, FontSettings};
-use subtrackt_core::Rect;
+use subtrackt_core::{MarkSlope, Rect};
 use subtrackt_glyph::binarize::{BinaryMask, CoverageMask};
+use subtrackt_glyph::ccl::{self, ComponentFilter};
 use subtrackt_glyph::feature::{AspectPolicy, vectorize, vectorize_coverage};
+use subtrackt_glyph::group::GroupedGlyph;
 use subtrackt_glyph::reference::{ReferenceEntry, ReferenceSet, Style};
 
 /// Pixel size glyphs are rasterised at.
@@ -114,6 +116,33 @@ fn metrics_for(font: &Font, ch: char, cap_height: i32) -> subtrackt_core::LineMe
     subtrackt_core::LineMetrics::new(u32::try_from(height).unwrap_or(0), descent)
 }
 
+/// Which way a character's diacritic leans, from an isolated render.
+///
+/// Runs the *shipped* `mark::slope` over the character's own connected components rather than
+/// reimplementing the rule, so a reference entry and a decoded glyph are measured by the same code.
+/// `group` is skipped because there is nothing to skip: a character rendered on its own is already
+/// one glyph, and its components are exactly the parts `group` would hand over. (It could not be
+/// run here anyway — a lone `é` has a blank row between its accent and its body, so `line_bands`
+/// would band it as two lines and never attach the mark. See `docs/glyph-stability.md`.)
+pub(crate) fn mark_for(font: &Font, ch: char) -> MarkSlope {
+    let (metrics, coverage) = font.rasterize(ch, RENDER_PX);
+    let (Ok(width), Ok(height)) = (u32::try_from(metrics.width), u32::try_from(metrics.height))
+    else {
+        return MarkSlope::NONE;
+    };
+    if width == 0 || height == 0 {
+        return MarkSlope::NONE;
+    }
+    let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
+    let Ok(mask) = BinaryMask::from_bits(width, height, bits) else {
+        return MarkSlope::NONE;
+    };
+    let Ok(parts) = ccl::label(&mask, ComponentFilter::permissive()) else {
+        return MarkSlope::NONE;
+    };
+    subtrackt_glyph::mark::slope(&mask, &GroupedGlyph { parts, line: 0 })
+}
+
 pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
     let grey = args.iter().any(|a| a == "--grey-coverage");
     let font_path = args
@@ -149,6 +178,7 @@ pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
                     style: Style::Regular,
                     features,
                     metrics: metrics_for(&font, ch, cap_height),
+                    mark: mark_for(&font, ch),
                 });
             }
             None => missing.push(ch),
@@ -187,6 +217,7 @@ fn main() -> anyhow::Result<()> {
         Some("reference-fit") => return fit::run(&args[1..]),
         Some("cluster-sweep") => return sweep::run(&args[1..]),
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
+        Some("mark-sweep") => return sweep::run_mark(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         _ => {}
@@ -198,5 +229,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
+    eprintln!("  xtask mark-sweep [font.ttf]");
     std::process::exit(2);
 }

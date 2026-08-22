@@ -9,25 +9,34 @@
 
 use std::collections::HashMap;
 
-use subtrackt_core::{FeatureVector, GlyphMatch, LineMetrics};
+use subtrackt_core::{FeatureVector, GlyphMatch, LineMetrics, MarkSlope};
 
-/// What identifies a glyph for caching: its shape *and* where it sits in its line.
+/// What identifies a glyph for caching: its shape, where it sits in its line, and which way its
+/// mark leans.
 ///
 /// Shape alone is not enough and stopped being enough in #37. An `o` and an `O` can normalise to
 /// the same vector — that is the whole reason line metrics exist — so keying on the vector would
-/// hand the second one the first one's answer and make the new feature invisible.
+/// hand the second one the first one's answer and make the new feature invisible. #48 adds a second
+/// case of exactly that: an `à` and an `á` normalise to nearly the same vector *and* stand at the
+/// same height, so the mark has to be in the key or the term that separates them never gets asked.
 #[must_use]
-pub fn cache_key(features: &FeatureVector, metrics: LineMetrics) -> u64 {
+pub fn cache_key(features: &FeatureVector, metrics: LineMetrics, mark: MarkSlope) -> u64 {
     let mut key = features.cache_key();
-    if metrics.known {
-        // Mix the metrics in with the same FNV step the vector key uses.
-        for byte in u32::to_le_bytes(metrics.height_percent)
-            .into_iter()
-            .chain(i32::to_le_bytes(metrics.descent_percent))
-        {
+    // Mix each measured field in with the same FNV step the vector key uses. An unmeasured field
+    // contributes nothing, so a glyph that has no mark keys the same way it did before there was
+    // one to have.
+    let mut mix = |bytes: [u8; 4]| {
+        for byte in bytes {
             key ^= u64::from(byte);
             key = key.wrapping_mul(0x0000_0100_0000_01b3);
         }
+    };
+    if metrics.known {
+        mix(u32::to_le_bytes(metrics.height_percent));
+        mix(i32::to_le_bytes(metrics.descent_percent));
+    }
+    if mark.known {
+        mix(i32::to_le_bytes(mark.percent));
     }
     key
 }
@@ -48,8 +57,13 @@ impl SessionCache {
     }
 
     /// Look up a glyph, counting the hit or miss.
-    pub fn get(&mut self, features: &FeatureVector, metrics: LineMetrics) -> Option<GlyphMatch> {
-        if let Some(hit) = self.entries.get(&cache_key(features, metrics)) {
+    pub fn get(
+        &mut self,
+        features: &FeatureVector,
+        metrics: LineMetrics,
+        mark: MarkSlope,
+    ) -> Option<GlyphMatch> {
+        if let Some(hit) = self.entries.get(&cache_key(features, metrics, mark)) {
             self.hits += 1;
             Some(hit.clone())
         } else {
@@ -63,8 +77,15 @@ impl SessionCache {
     /// Unmatched glyphs are cached too. That is deliberate: a glyph the reference set cannot
     /// identify will recur throughout the stream, and rescanning the whole reference set for each
     /// occurrence is the worst case this cache exists to avoid.
-    pub fn insert(&mut self, features: &FeatureVector, metrics: LineMetrics, result: GlyphMatch) {
-        self.entries.insert(cache_key(features, metrics), result);
+    pub fn insert(
+        &mut self,
+        features: &FeatureVector,
+        metrics: LineMetrics,
+        mark: MarkSlope,
+        result: GlyphMatch,
+    ) {
+        self.entries
+            .insert(cache_key(features, metrics, mark), result);
     }
 
     /// Cache hits so far.
@@ -131,10 +152,26 @@ mod tests {
         let mut cache = SessionCache::new();
         let v = vector(5);
 
-        assert!(cache.get(&v, LineMetrics::UNKNOWN).is_none());
-        cache.insert(&v, LineMetrics::UNKNOWN, matched('e'));
-        assert_eq!(cache.get(&v, LineMetrics::UNKNOWN).unwrap().character, Some('e'));
-        assert_eq!(cache.get(&v, LineMetrics::UNKNOWN).unwrap().character, Some('e'));
+        assert!(
+            cache
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .is_none()
+        );
+        cache.insert(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, matched('e'));
+        assert_eq!(
+            cache
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .unwrap()
+                .character,
+            Some('e')
+        );
+        assert_eq!(
+            cache
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .unwrap()
+                .character,
+            Some('e')
+        );
 
         assert_eq!(cache.hits(), 2);
         assert_eq!(cache.misses(), 1);
@@ -144,12 +181,12 @@ mod tests {
     #[test]
     fn distinct_vectors_do_not_collide() {
         let mut cache = SessionCache::new();
-        cache.insert(&vector(1), LineMetrics::UNKNOWN, matched('a'));
-        cache.insert(&vector(2), LineMetrics::UNKNOWN, matched('b'));
+        cache.insert(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('a'));
+        cache.insert(&vector(2), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('b'));
         assert_eq!(cache.len(), 2);
         assert_eq!(
             cache
-                .get(&vector(2), LineMetrics::UNKNOWN)
+                .get(&vector(2), LineMetrics::UNKNOWN, MarkSlope::NONE)
                 .unwrap()
                 .character,
             Some('b')
@@ -160,8 +197,10 @@ mod tests {
     fn unmatched_glyphs_are_cached_so_they_are_not_rescanned_every_occurrence() {
         let mut cache = SessionCache::new();
         let v = vector(9);
-        cache.insert(&v, LineMetrics::UNKNOWN, GlyphMatch::unmatched(140));
-        let hit = cache.get(&v, LineMetrics::UNKNOWN).unwrap();
+        cache.insert(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, GlyphMatch::unmatched(140));
+        let hit = cache
+            .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+            .unwrap();
         assert!(hit.character.is_none());
         assert_eq!(hit.distance, 140);
     }
@@ -169,8 +208,8 @@ mod tests {
     #[test]
     fn clearing_resets_counters_as_well_as_entries() {
         let mut cache = SessionCache::new();
-        cache.insert(&vector(1), LineMetrics::UNKNOWN, matched('a'));
-        cache.get(&vector(1), LineMetrics::UNKNOWN);
+        cache.insert(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('a'));
+        cache.get(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE);
         cache.clear();
         assert!(cache.is_empty());
         assert_eq!(cache.hits(), 0);

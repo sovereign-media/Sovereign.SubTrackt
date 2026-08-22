@@ -258,11 +258,23 @@ pub(crate) fn build_sup(
 /// the ambiguous pairs #12 cares about, accented letters, a two-speaker dash and a colon — the
 /// punctuation case #6 is built around.
 ///
-/// The last cue is aimed squarely at post-correction and carries both halves of it. `yellow` and
-/// `line` are what it should fix when the matcher reads an `l` as an `I`; `Iowa` is what it must
-/// not touch, because the evidence for rewriting a word-initial capital in an otherwise-lowercase
-/// word is identical in both, and only one of them would be a correction. A measurement of a
-/// corrector over a corpus with nothing to damage measures half the question.
+/// The `yellow line` cue is aimed squarely at post-correction and carries both halves of it.
+/// `yellow` and `line` are what it should fix when the matcher reads an `l` as an `I`; `Iowa` is
+/// what it must not touch, because the evidence for rewriting a word-initial capital in an
+/// otherwise-lowercase word is identical in both, and only one of them would be a correction. A
+/// measurement of a corrector over a corpus with nothing to damage measures half the question.
+///
+/// The last three cues are #48's. One line of accented text answers whether a diacritic is
+/// *grouped*; it cannot answer whether the direction of one is read, because that needs both
+/// members of a pair — an `à` against an `á` — in the same material. Between them these carry
+/// `à`/`á`, `è`/`é`, `ò`/`ó` and `ù`/`ú`: four of the sixteen accent-direction pairs the matcher
+/// calls ambiguous.
+///
+/// The twelve remaining pairs are the same letters in capitals, and they are deliberately absent.
+/// An accent over a capital sits above every letterform this charset can spell, so `line_bands`
+/// bands it as a line of its own and it never reaches the letter under it — see
+/// `docs/glyph-stability.md`. Including one would score that segmentation gap inside a figure read
+/// as a matching result, which is #6's problem measured in #48's instrument.
 fn default_cues() -> Vec<Vec<String>> {
     [
         vec!["The quick brown fox jumps"],
@@ -271,6 +283,9 @@ fn default_cues() -> Vec<Vec<String>> {
         vec!["Café, naïve, jalapeño."],
         vec!["0123456789 O o I l 1"],
         vec!["Follow the yellow line", "to Iowa in 2015."],
+        vec!["Où est-il? Là, à côté."],
+        vec!["Está más allá: adiós, Perú."],
+        vec!["Però è così che sarà."],
     ]
     .iter()
     .map(|lines| lines.iter().map(|s| (*s).to_owned()).collect())
@@ -394,6 +409,22 @@ mod tests {
         assert!(all.contains("- "), "a speaker dash, which #11 must keep spaced");
         assert!(all.contains('1') && all.contains('l'), "the ambiguous pair from #12");
         assert!(all.contains('\u{e9}'), "an accented letter, which #6 must group");
+        for (grave, acute) in [
+            ('\u{e0}', '\u{e1}'),
+            ('\u{e8}', '\u{e9}'),
+            ('\u{f2}', '\u{f3}'),
+            ('\u{f9}', '\u{fa}'),
+        ] {
+            assert!(
+                all.contains(grave) && all.contains(acute),
+                "both directions of {grave}/{acute}, or #48's feature has nothing to be measured on"
+            );
+        }
+        assert!(
+            !all.chars().any(|c| ('\u{c0}'..='\u{dd}').contains(&c)),
+            "no accented capital: its mark never reaches its body, so including one would score a \
+             segmentation gap as a matching error"
+        );
         assert!(
             all.contains("yellow"),
             "an ambiguous letter with clear letters either side, which #12 can resolve"

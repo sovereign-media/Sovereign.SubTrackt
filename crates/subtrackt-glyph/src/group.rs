@@ -333,6 +333,49 @@ mod tests {
         group(components, &lines, GroupingRules::default()).unwrap()
     }
 
+    #[test]
+    fn an_accent_that_clears_every_letter_on_the_line_bands_as_a_line_of_its_own() {
+        // Pinned because it is surprising, it is not what the grouping rules say, and it is a real
+        // limitation rather than a hypothetical one. A mark attaches to a body only within a text
+        // line, and `line_bands` cuts a line at any row carrying no ink *across its whole width*.
+        // The accent on a capital sits above every letterform Arial draws, so in a line of nothing
+        // but letters the row beneath it is blank and it never reaches the letter it belongs to.
+        // `À` then segments as a bare `A` and a floating grave.
+        //
+        // Found while building #48's bench; see `docs/glyph-stability.md`, which measures it at 25
+        // of 51 marks reaching their body in a letters-only line against 44 with a `$` on it. The
+        // fix belongs to #6. Until then, this test is what makes the behaviour a decision.
+        let mut mask = BinaryMask::blank(8, 5);
+        for x in 0..2 {
+            mask.set(x, 0, true); // the mark, alone on its rows
+        }
+        for y in 2..5 {
+            for x in [0, 1, 2, 5, 6, 7] {
+                mask.set(x, y, true); // two letters, neither reaching above the mark
+            }
+        }
+
+        assert_eq!(
+            line_bands(&mask).len(),
+            2,
+            "the blank row between the mark and the letters splits the line"
+        );
+
+        let components = [
+            component(0, 0, 2, 1),
+            component(0, 2, 3, 3),
+            component(5, 2, 3, 3),
+        ];
+        let lines = assign_lines(&mask, &components).unwrap();
+        let glyphs = group(&components, &lines, GroupingRules::default()).unwrap();
+
+        assert_eq!(glyphs.len(), 3, "the mark stayed a glyph instead of joining one");
+        assert!(
+            glyphs.iter().all(|g| g.parts.len() == 1),
+            "nothing was grouped, because the mark is not on the letters' line"
+        );
+    }
+
     /// Scale a layout so the same fixture can be checked at two resolutions.
     fn scaled(components: &[Component], factor: u32) -> Vec<Component> {
         components

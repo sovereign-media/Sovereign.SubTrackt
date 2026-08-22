@@ -9,7 +9,9 @@
 //! The on-disk format below is what the generator writes and what the binary will eventually
 //! embed.
 
-use subtrackt_core::{Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, LineMetrics, Result};
+use subtrackt_core::{
+    Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, LineMetrics, MarkSlope, Result,
+};
 
 /// Typographic variant of a reference glyph.
 ///
@@ -68,6 +70,11 @@ pub struct ReferenceEntry {
     /// places `o` and `O` at almost the same point. Generated from font metrics rather than from
     /// the rasterisation, because a glyph rendered on its own has no line to be relative to.
     pub metrics: LineMetrics,
+    /// Which way this character's diacritic leans, for the characters that have one.
+    ///
+    /// The other thing the shape vector cannot express — see [`MarkSlope`]. Sixteen of the 21 pairs
+    /// the matcher calls ambiguous are one base letter differing only in this.
+    pub mark: MarkSlope,
 }
 
 /// A named collection of reference glyphs.
@@ -133,15 +140,24 @@ impl ReferenceSet {
 
 /// Magic at the head of a serialised reference set, last byte being the format version.
 ///
-/// Version 2 added line metrics. Version 1 sets still load — their entries report metrics as
-/// unknown, which is the truth about them rather than a default standing in for one.
-const MAGIC: &[u8; 8] = b"SUBTREF\x02";
+/// Version 2 added line metrics, version 3 the mark slope. Older sets still load, and an entry
+/// from one reports the field it predates as unknown rather than as a default standing in for a
+/// measurement — which is what keeps a distance term from being applied to data that never carried
+/// it.
+const MAGIC: &[u8; 8] = b"SUBTREF\x03";
 
-/// The version 1 magic, still readable.
+/// The version 2 magic, still readable. Its entries carry metrics but no mark.
+const MAGIC_V2: &[u8; 8] = b"SUBTREF\x02";
+
+/// The version 1 magic, still readable. Its entries carry neither.
 const MAGIC_V1: &[u8; 8] = b"SUBTREF\x01";
 
-/// Bytes per entry: codepoint, style, metrics-known flag, height, descent, then the vector.
-const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + FEATURE_WORDS * 8;
+/// Bytes per entry: codepoint, style, metrics-known flag, height, descent, mark-known flag, slope,
+/// then the vector.
+const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + 1 + 2 + FEATURE_WORDS * 8;
+
+/// Bytes per entry in version 2: as above without the mark-known flag and the slope.
+const ENTRY_LEN_V2: usize = 4 + 1 + 1 + 2 + 2 + FEATURE_WORDS * 8;
 
 /// Bytes per entry in version 1: codepoint, style, two reserved, then the vector.
 const ENTRY_LEN_V1: usize = 4 + 1 + 2 + FEATURE_WORDS * 8;
@@ -180,6 +196,8 @@ impl ReferenceSet {
                     .unwrap_or(0)
                     .to_le_bytes(),
             );
+            out.push(u8::from(entry.mark.known));
+            out.extend_from_slice(&i16::try_from(entry.mark.percent).unwrap_or(0).to_le_bytes());
             for word in entry.features.words() {
                 out.extend_from_slice(&word.to_le_bytes());
             }
@@ -206,6 +224,7 @@ impl ReferenceSet {
         }
         let entry_len = match &bytes[..8] {
             m if m == MAGIC => ENTRY_LEN,
+            m if m == MAGIC_V2 => ENTRY_LEN_V2,
             m if m == MAGIC_V1 => ENTRY_LEN_V1,
             _ => return Err(bad("bad magic")),
         };
@@ -233,8 +252,9 @@ impl ReferenceSet {
             let style = Style::from_byte(chunk[4])
                 .ok_or_else(|| bad(&format!("style byte {}", chunk[4])))?;
 
-            // A version 1 entry has no metrics, so it reports unknown rather than a stand-in.
-            let metrics = if entry_len == ENTRY_LEN && chunk[5] != 0 {
+            // A version 1 entry has no metrics, and a version 1 or 2 entry no mark. Each reports
+            // unknown rather than a stand-in, so a term is never applied to data that predates it.
+            let metrics = if entry_len != ENTRY_LEN_V1 && chunk[5] != 0 {
                 LineMetrics::new(
                     u32::from(u16::from_le_bytes([chunk[6], chunk[7]])),
                     i32::from(i16::from_le_bytes([chunk[8], chunk[9]])),
@@ -242,8 +262,17 @@ impl ReferenceSet {
             } else {
                 LineMetrics::UNKNOWN
             };
+            let mark = if entry_len == ENTRY_LEN && chunk[10] != 0 {
+                MarkSlope::new(i32::from(i16::from_le_bytes([chunk[11], chunk[12]])))
+            } else {
+                MarkSlope::NONE
+            };
 
-            let words_at = if entry_len == ENTRY_LEN { 10 } else { 7 };
+            let words_at = match entry_len {
+                ENTRY_LEN => 13,
+                ENTRY_LEN_V2 => 10,
+                _ => 7,
+            };
             let mut words = [0u64; FEATURE_WORDS];
             for (index, word) in words.iter_mut().enumerate() {
                 let at = words_at + index * 8;
@@ -254,6 +283,7 @@ impl ReferenceSet {
                 style,
                 features: FeatureVector::from_words(words),
                 metrics,
+                mark,
             });
         }
 
@@ -301,6 +331,8 @@ mod tests {
                     style: Style::Regular,
                     features: a,
                     metrics: LineMetrics::new(100, 0),
+                    // A bare capital carries no mark, which is a fact about it rather than a gap.
+                    mark: MarkSlope::NONE,
                 },
                 ReferenceEntry {
                     character: '\u{e9}',
@@ -308,6 +340,8 @@ mod tests {
                     features: FeatureVector::EMPTY,
                     // An accented lowercase: taller than x-height, sitting on the baseline.
                     metrics: LineMetrics::new(96, -3),
+                    // An acute rises left to right, so its cross term is negative.
+                    mark: MarkSlope::new(-66),
                 },
             ],
         )
@@ -348,6 +382,44 @@ mod tests {
         let decoded = ReferenceSet::decode(&sample().encode()).unwrap();
         assert_eq!(decoded.entries()[1].character, '\u{e9}');
         assert_eq!(decoded.entries()[1].style, Style::Italic);
+    }
+
+    #[test]
+    fn a_negative_slope_survives_the_round_trip() {
+        // The sign is the whole feature. An encoding that dropped it would leave an acute and a
+        // grave at the same value and separate nothing, with every distance still looking sane.
+        let decoded = ReferenceSet::decode(&sample().encode()).unwrap();
+        assert_eq!(decoded.entries()[1].mark, MarkSlope::new(-66));
+        assert_eq!(decoded.entries()[0].mark, MarkSlope::NONE);
+    }
+
+    #[test]
+    fn a_version_2_set_loads_with_no_mark_rather_than_a_fabricated_one() {
+        // Sets generated before #48 carry no slope. Reading zero out of them would be worse than
+        // reading nothing: zero is what a circumflex measures, so every unmarked character would
+        // claim to carry a symmetric mark and the term would fire on data that never had it.
+        let mut bytes = sample().encode();
+        bytes[7] = 2;
+        let stripped: Vec<u8> = bytes[..HEADER_LEN + "fitted-2026".len()]
+            .iter()
+            .copied()
+            .chain(
+                bytes[HEADER_LEN + "fitted-2026".len()..]
+                    .chunks_exact(ENTRY_LEN)
+                    .flat_map(|entry| {
+                        // Drop the mark-known flag and the slope, which sit between the metrics and
+                        // the vector.
+                        entry[..10].iter().chain(&entry[13..]).copied()
+                    }),
+            )
+            .collect();
+
+        let decoded = ReferenceSet::decode(&stripped).unwrap();
+        assert_eq!(decoded.len(), 2);
+        assert!(decoded.entries().iter().all(|e| e.mark == MarkSlope::NONE));
+        // The metrics a version 2 set does carry must still arrive.
+        assert_eq!(decoded.entries()[1].metrics, LineMetrics::new(96, -3));
+        assert_eq!(decoded.entries()[1].features, FeatureVector::EMPTY);
     }
 
     #[test]

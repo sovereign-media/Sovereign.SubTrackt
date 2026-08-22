@@ -153,6 +153,67 @@ impl LineMetrics {
     }
 }
 
+/// Which way a glyph's diacritic leans.
+///
+/// The second thing the shape vector cannot express, and for the same reason as [`LineMetrics`].
+/// Letterboxing scales the merged bounding box — base plus mark — to fill the grid, so a mark
+/// occupying the top sixth of the glyph lands in one or two rows of cells while everything below it
+/// is identical between `à` and `á`. The distance is then dominated by the part carrying no
+/// information, and #46 found sixteen such pairs among the 21 the matcher calls ambiguous — more
+/// than four times what `l`/`I` accounts for.
+///
+/// One signed number, because #48 measured the alternatives: the mark's own feature vector
+/// separates the same sixteen pairs but clears its own rendering noise by a factor of 1.6, where
+/// this clears it by ten to twenty. See `docs/glyph-stability.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkSlope {
+    /// The normalised second moment cross term of the mark's ink, as a percentage.
+    ///
+    /// Positive where the ink falls left to right in image coordinates — a grave, around +67 —
+    /// and negative where it rises — an acute, around −65. A mark symmetric about its vertical
+    /// axis has no direction and reads 0, which puts a circumflex *between* the two rather than
+    /// beside one. That is what lets a single number separate three marks.
+    pub percent: i32,
+    /// Whether this glyph has a mark whose direction could be measured at all.
+    ///
+    /// False for the great majority of characters, which carry no mark, and false for a mark too
+    /// small to have a direction — fewer than three ink pixels lie on a line by construction, so a
+    /// slope read off them reports the pixel count rather than the letterform.
+    ///
+    /// It is also false where `group` failed to attach a mark that exists. That case is real: an
+    /// accent over a *capital* sits above every letterform the charset can spell, so the row under
+    /// it is blank across the line and it bands as a line of its own. Treating all three the same
+    /// way is deliberate — see [`Self::difference`].
+    pub known: bool,
+}
+
+impl MarkSlope {
+    /// No mark, or none that could be measured.
+    pub const NONE: Self = Self { percent: 0, known: false };
+
+    /// A measured slope.
+    #[must_use]
+    pub const fn new(percent: i32) -> Self {
+        Self { percent, known: true }
+    }
+
+    /// How far apart two marks lean, in percentage points.
+    ///
+    /// `None` unless *both* sides carry a measured mark, which is the same contract
+    /// [`LineMetrics::difference`] keeps and it matters more here. A glyph whose mark failed to
+    /// group is indistinguishable from one that never had a mark, so charging it for the
+    /// difference would penalise a segmentation failure by rejecting the character it actually
+    /// resembles. Falling back to shape alone is worse than the full comparison and much better
+    /// than scoring against a mark that was never delivered.
+    #[must_use]
+    pub const fn difference(self, other: Self) -> Option<u32> {
+        if !self.known || !other.known {
+            return None;
+        }
+        Some(self.percent.abs_diff(other.percent))
+    }
+}
+
 /// One connected component (or diacritic group) lifted out of a subtitle image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -164,6 +225,8 @@ pub struct Glyph {
     pub features: FeatureVector,
     /// Where the glyph sits in its line, which the feature vector cannot say.
     pub metrics: LineMetrics,
+    /// Which way its diacritic leans, which the feature vector cannot say either.
+    pub mark: MarkSlope,
 }
 
 /// The result of matching one [`Glyph`] against the reference set.

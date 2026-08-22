@@ -23,16 +23,19 @@
 
 use std::collections::HashMap;
 
-use subtrackt_core::{FEATURE_BITS, FEATURE_WORDS, FeatureVector, LineMetrics};
+use subtrackt_core::{FEATURE_BITS, FEATURE_WORDS, FeatureVector, LineMetrics, MarkSlope};
 
-/// A shape together with where it sat in its line — what identifies a glyph for grouping.
+/// A shape, where it sat in its line, and which way its mark leans — what identifies a glyph for
+/// grouping.
 ///
 /// Shape alone stopped identifying a glyph in #37: an `o` and an `O` can normalise to the same
-/// vector, and treating them as one shape would undo the feature that separates them.
-pub type Shape = (FeatureVector, LineMetrics);
+/// vector, and treating them as one shape would undo the feature that separates them. #48 adds the
+/// mark for the same reason — an `à` and an `á` agree on both the vector and the height.
+pub type Shape = (FeatureVector, LineMetrics, MarkSlope);
 
-/// What a shape is stored under. `LineMetrics` is not `Hash`, so its fields are unpacked.
-type Key = ([u64; FEATURE_WORDS], u32, i32, bool);
+/// What a shape is stored under. Neither `LineMetrics` nor `MarkSlope` is `Hash`, so their fields
+/// are unpacked.
+type Key = ([u64; FEATURE_WORDS], u32, i32, bool, i32, bool);
 
 fn key_of(shape: &Shape) -> Key {
     (
@@ -40,6 +43,8 @@ fn key_of(shape: &Shape) -> Key {
         shape.1.height_percent,
         shape.1.descent_percent,
         shape.1.known,
+        shape.2.percent,
+        shape.2.known,
     )
 }
 
@@ -60,6 +65,15 @@ pub struct ClusterRules {
     /// alone would merge exactly what #37 set out to separate. Since #45 it mirrors the units as
     /// well, a cell count here being just as able to un-tune clustering when the grid moves.
     pub metric_weight_permille: u32,
+    /// What a full 100 points of difference in mark direction is worth, in tenths of a percent of
+    /// [`FEATURE_BITS`].
+    ///
+    /// Mirrors `MatchThresholds::mark_weight_permille`, and for the same reason the metric weight
+    /// mirrors its counterpart: grouping an `à` with an `á` would undo the feature that separates
+    /// them before the matcher ever sees either. It also mirrors its **default of zero** — a
+    /// clustering term priced differently from the matching one would have the two stages disagree
+    /// about whether two glyphs are the same character.
+    pub mark_weight_permille: u32,
     /// How many times centroids are recomputed and shapes reassigned after the first pass.
     ///
     /// The first pass is order-dependent: it walks shapes most-frequent-first and drops each into
@@ -89,7 +103,12 @@ impl Default for ClusterRules {
     /// measured the question, and because the finding it produced — that the feature vector cannot
     /// separate confusable characters at all — is what the next experiment has to attack.
     fn default() -> Self {
-        Self { radius_percent: 0, metric_weight_permille: 196, refine_passes: 2 }
+        Self {
+            radius_percent: 0,
+            metric_weight_permille: 196,
+            mark_weight_permille: 0,
+            refine_passes: 2,
+        }
     }
 }
 
@@ -107,6 +126,14 @@ impl ClusterRules {
     #[allow(clippy::cast_possible_truncation)]
     pub const fn metric_weight(self) -> u32 {
         (FEATURE_BITS as u32) * self.metric_weight_permille / 1000
+    }
+
+    /// What a full 100 points of mark-direction difference costs, in cells. See
+    /// [`MatchThresholds::mark_weight`](crate::matcher::MatchThresholds::mark_weight).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn mark_weight(self) -> u32 {
+        (FEATURE_BITS as u32) * self.mark_weight_permille / 1000
     }
 }
 
@@ -130,8 +157,8 @@ impl Shapes {
     }
 
     /// Record one occurrence of a shape.
-    pub fn add(&mut self, features: &FeatureVector, metrics: LineMetrics) {
-        let shape = (*features, metrics);
+    pub fn add(&mut self, features: &FeatureVector, metrics: LineMetrics, mark: MarkSlope) {
+        let shape = (*features, metrics, mark);
         self.counts.entry(key_of(&shape)).or_insert((shape, 0)).1 += 1;
         self.total += 1;
     }
@@ -174,6 +201,8 @@ pub struct Cluster {
     pub centroid: FeatureVector,
     /// The consensus line metrics, matched alongside the centroid.
     pub centroid_metrics: LineMetrics,
+    /// The consensus mark direction, matched alongside the centroid.
+    pub centroid_mark: MarkSlope,
     /// The distinct shapes in this cluster, with their occurrence counts.
     pub members: Vec<(Shape, u64)>,
     /// Total glyph occurrences across all members.
@@ -186,7 +215,7 @@ impl Cluster {
     pub fn spread(&self) -> u32 {
         self.members
             .iter()
-            .map(|((v, _), _)| self.centroid.distance(v))
+            .map(|((v, _, _), _)| self.centroid.distance(v))
             .max()
             .unwrap_or(0)
     }
@@ -194,7 +223,7 @@ impl Cluster {
     /// The centroid as a shape.
     #[must_use]
     pub const fn centre(&self) -> Shape {
-        (self.centroid, self.centroid_metrics)
+        (self.centroid, self.centroid_metrics, self.centroid_mark)
     }
 }
 
@@ -209,14 +238,14 @@ impl Cluster {
 pub fn centroid(members: &[(Shape, u64)]) -> Shape {
     let total: u64 = members.iter().map(|(_, count)| *count).sum();
     if total == 0 {
-        return (FeatureVector::EMPTY, LineMetrics::UNKNOWN);
+        return (FeatureVector::EMPTY, LineMetrics::UNKNOWN, MarkSlope::NONE);
     }
 
     let mut out = FeatureVector::EMPTY;
     for bit in 0..FEATURE_BITS {
         let set: u64 = members
             .iter()
-            .filter(|((v, _), _)| v.get(bit))
+            .filter(|((v, _, _), _)| v.get(bit))
             .map(|(_, count)| *count)
             .sum();
         if set * 2 > total {
@@ -229,15 +258,15 @@ pub fn centroid(members: &[(Shape, u64)]) -> Shape {
     // that *have* metrics contribute, and the result is known only if most of the weight does.
     let known: u64 = members
         .iter()
-        .filter(|((_, m), _)| m.known)
+        .filter(|((_, m, _), _)| m.known)
         .map(|(_, count)| *count)
         .sum();
     let metrics = if known * 2 > total {
         let weighted = |pick: fn(&LineMetrics) -> i64| -> i64 {
             let sum: i64 = members
                 .iter()
-                .filter(|((_, m), _)| m.known)
-                .map(|((_, m), count)| pick(m) * i64::try_from(*count).unwrap_or(0))
+                .filter(|((_, m, _), _)| m.known)
+                .map(|((_, m, _), count)| pick(m) * i64::try_from(*count).unwrap_or(0))
                 .sum();
             sum / i64::try_from(known).unwrap_or(1)
         };
@@ -249,15 +278,39 @@ pub fn centroid(members: &[(Shape, u64)]) -> Shape {
         LineMetrics::UNKNOWN
     };
 
-    (out, metrics)
+    // The mark averages the same way and under the same rule: only members that carry one
+    // contribute, and the cluster carries one only if most of its weight does. A cluster that is
+    // mostly bare letters with a stray accented member does not acquire an accent.
+    let marked: u64 = members
+        .iter()
+        .filter(|((_, _, k), _)| k.known)
+        .map(|(_, count)| *count)
+        .sum();
+    let mark = if marked * 2 > total {
+        let sum: i64 = members
+            .iter()
+            .filter(|((_, _, k), _)| k.known)
+            .map(|((_, _, k), count)| i64::from(k.percent) * i64::try_from(*count).unwrap_or(0))
+            .sum();
+        MarkSlope::new(i32::try_from(sum / i64::try_from(marked).unwrap_or(1)).unwrap_or(0))
+    } else {
+        MarkSlope::NONE
+    };
+
+    (out, metrics, mark)
 }
 
 /// Distance between two shapes: Hamming on the vector, plus the weighted metric difference.
 #[must_use]
 pub fn distance(a: &Shape, b: &Shape, rules: ClusterRules) -> u32 {
-    let base = a.0.distance(&b.0);
-    a.1.difference(b.1)
-        .map_or(base, |points| base + points * rules.metric_weight() / 100)
+    let mut total = a.0.distance(&b.0);
+    if let Some(points) = a.1.difference(b.1) {
+        total += points * rules.metric_weight() / 100;
+    }
+    if let Some(points) = a.2.difference(b.2) {
+        total += points * rules.mark_weight() / 100;
+    }
+    total
 }
 
 /// Group a stream's shapes.
@@ -339,10 +392,11 @@ fn build(ranked: &[(Shape, u64)], assignment: &[usize], count: usize) -> Vec<Clu
         .into_iter()
         .filter(|members| !members.is_empty())
         .map(|members| {
-            let (centroid, centroid_metrics) = centroid(&members);
+            let (centroid, centroid_metrics, centroid_mark) = centroid(&members);
             Cluster {
                 centroid,
                 centroid_metrics,
+                centroid_mark,
                 weight: members.iter().map(|(_, count)| *count).sum(),
                 members,
             }
@@ -367,7 +421,12 @@ mod tests {
     /// Eight percent is the radius the sweep in `xtask cluster-sweep` centred on. These tests are
     /// about whether the algorithm does what it says, not about whether grouping helps.
     fn grouping() -> ClusterRules {
-        ClusterRules { radius_percent: 8, metric_weight_permille: 196, refine_passes: 2 }
+        ClusterRules {
+            radius_percent: 8,
+            metric_weight_permille: 196,
+            mark_weight_permille: 0,
+            refine_passes: 2,
+        }
     }
 
     /// A vector with the given bits set.
@@ -381,7 +440,7 @@ mod tests {
 
     /// A shape with the given bits set and no line metrics.
     fn shape(bits: &[usize]) -> Shape {
-        (vector(bits), LineMetrics::UNKNOWN)
+        (vector(bits), LineMetrics::UNKNOWN, MarkSlope::NONE)
     }
 
     /// A vector of `count` consecutive bits from `start`.
@@ -396,7 +455,7 @@ mod tests {
     /// it did before metrics existed.
     fn add(shapes: &mut Shapes, v: FeatureVector, times: u64) {
         for _ in 0..times {
-            shapes.add(&v, LineMetrics::UNKNOWN);
+            shapes.add(&v, LineMetrics::UNKNOWN, MarkSlope::NONE);
         }
     }
 
@@ -422,10 +481,10 @@ mod tests {
         let mut first = Shapes::new();
         let mut second = Shapes::new();
         for bit in [0usize, 40, 80, 120] {
-            first.add(&run(bit, 10), LineMetrics::UNKNOWN);
+            first.add(&run(bit, 10), LineMetrics::UNKNOWN, MarkSlope::NONE);
         }
         for bit in [120usize, 80, 40, 0] {
-            second.add(&run(bit, 10), LineMetrics::UNKNOWN);
+            second.add(&run(bit, 10), LineMetrics::UNKNOWN, MarkSlope::NONE);
         }
         assert_eq!(first.by_frequency(), second.by_frequency());
     }
@@ -437,7 +496,7 @@ mod tests {
             (shape(&[0, 1, 3]), 1),
             (shape(&[0, 1, 4]), 1),
         ];
-        let (c, _) = centroid(&members);
+        let (c, _, _) = centroid(&members);
 
         assert!(c.get(0) && c.get(1), "cells all three agree on stay");
         assert!(!c.get(2) && !c.get(3) && !c.get(4), "one vote in three is noise");
@@ -539,7 +598,7 @@ mod tests {
 
         // Every shape must end up with the centroid it is actually nearest to.
         for c in &refined {
-            for ((member, _), _) in &c.members {
+            for ((member, _, _), _) in &c.members {
                 let mine = c.centroid.distance(member);
                 for other in &refined {
                     assert!(
@@ -617,6 +676,7 @@ mod tests {
         let c = Cluster {
             centroid: vector(&[0, 1, 2]),
             centroid_metrics: LineMetrics::UNKNOWN,
+            centroid_mark: MarkSlope::NONE,
             members: vec![(shape(&[0, 1, 2]), 5), (shape(&[0, 1, 2, 3, 4]), 1)],
             weight: 6,
         };

@@ -3,9 +3,13 @@
 Answers [#12][issue-12]. It asks for two things — a corrector for the pairs a binarized glyph cannot
 separate, and a measurement deciding whether it should be on.
 
-**It works, it is measured, and it ships switched off.** 3.1 points of character error rate on the
+**It works, it is measured, and it ships switched off.** 2.1 points of character error rate on the
 ceiling fixture, zero lines made worse — and one generated fixture is not the corpus that should
 decide a default which rewrites what a viewer reads.
+
+The number moves when the fixture does, and it has: #48 added three cues of accented text, so the
+same six substitutions are now a smaller share of a longer fixture. What has not changed is the six
+substitutions, or that none of them made a line worse.
 
 [issue-12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
@@ -81,12 +85,12 @@ plausible wrong answer once, and an aggregate would hide it.
 
 | | off | on |
 | :--- | ---: | ---: |
-| Character error rate | 15.9% | **12.8%** |
-| Word error rate | 56.8% | **51.4%** |
+| Character error rate | 11.0% | **8.9%** |
+| Word error rate | 32.7% | **28.8%** |
 | Lines improved | — | 2 |
 | **Lines made worse** | — | **0** |
 
-Six substitutions, from 35 glyphs the matcher declined to call. Every one of them:
+Six substitutions, from 56 glyphs the matcher declined to call. Every one of them:
 
 ```
 cue 3 line 0 col  9: 'I' -> 'l' in "na<?>l<?>ve,"
@@ -137,7 +141,7 @@ A stage allowed to rewrite text has to leave a trace of what it rewrote, and a c
 ```console
 $ subtrackt extract synthetic.sup --reference accuracy-fixture.subtref       --on-unmatched placeholder --post-correct --report
 reference set: accuracy-fixture (139 glyphs)
-6 cues from 6 images (36 packets); glyphs 123 matched / 8 unmatched / 35 ambiguous; cache 100%; corrections 6 (context)
+9 cues from 9 images (54 packets); glyphs 177 matched / 13 unmatched / 56 ambiguous (93.2% read); fit 13.9; cache 100%; corrections 6 (context)
   cue 3 line 0 col 9: 'I' -> 'l' in "na<?>l<?>ve,"
   cue 3 line 0 col 17: 'I' -> 'l' in "jalapeño"
   cue 5 line 0 col 2: 'I' -> 'l' in "Follow"

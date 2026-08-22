@@ -17,6 +17,7 @@
 //! A radius of zero reproduces the behaviour that existed before clustering — one label decision
 //! per distinct shape — so it is the honest baseline rather than a synthetic one.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
@@ -37,6 +38,15 @@ const RADII: [u32; 8] = [0, 2, 4, 6, 8, 10, 12, 16];
 /// in `docs/glyph-stability.md`, and now the column means the same thing at any grid size.
 const WEIGHTS: [u32; 8] = [0, 40, 98, 196, 293, 391, 586, 977];
 
+/// Mark weights to try, in tenths of a percent of the feature vector per 100 points of slope.
+///
+/// Chosen to land on round cell counts at 16x16 — 0, 5, 10, 20, 30, 40, 50 and 75 per 100 points —
+/// which puts the acute-against-grave gap #48 measured, 131 points, at 0 to 98 cells. That spans
+/// everything from below the 7-cell ambiguity margin to well past the 51-cell match ceiling, so the
+/// sweep sees the setting stop mattering at one end and start rejecting correct characters at the
+/// other.
+const MARK_WEIGHTS: [u32; 8] = [0, 20, 39, 78, 117, 156, 195, 293];
+
 /// One fixture's outcome at one setting.
 struct Row {
     setting: u32,
@@ -54,11 +64,31 @@ fn fixture(
     dir: &Path,
     repeats: usize,
 ) -> anyhow::Result<(PathBuf, String, ReferenceSet)> {
+    fixture_at(font, reference_font, dir, repeats, None)
+}
+
+/// As [`fixture`], at a chosen rendering size.
+///
+/// The size is a variable rather than a constant for #48. A mark is a fixed *fraction* of a glyph,
+/// so its absolute size follows the rendering size, and the whole question of whether its direction
+/// survives is a question about how few pixels it lands on. `docs/library-survey.md` measured real
+/// subtitle glyphs at 21 to 50 px; the fixture's own 42 is the comfortable end of that.
+fn fixture_at(
+    font: &Path,
+    reference_font: &Path,
+    dir: &Path,
+    repeats: usize,
+    px: Option<f32>,
+) -> anyhow::Result<(PathBuf, String, ReferenceSet)> {
     std::fs::create_dir_all(dir)?;
     let mut args = vec![font.display().to_string(), dir.display().to_string()];
     if repeats > 1 {
         args.push("--repeat".to_owned());
         args.push(repeats.to_string());
+    }
+    if let Some(px) = px {
+        args.push("--px".to_owned());
+        args.push(px.to_string());
     }
     crate::fixture::make(&args)?;
 
@@ -74,6 +104,102 @@ fn fixture(
 
     let truth = std::fs::read_to_string(dir.join("synthetic.txt"))?;
     Ok((dir.join("synthetic.sup"), truth, reference))
+}
+
+/// The accent-direction characters the fixture carries both members of.
+///
+/// Kept as pairs rather than as a flat list because the failure this counts is directional: a
+/// matcher that read every grave as an acute would produce the right number of accented characters
+/// overall, and only the split between the two would say so.
+const ACCENT_PAIRS: [(char, char); 4] = [
+    ('\u{e0}', '\u{e1}'),
+    ('\u{e8}', '\u{e9}'),
+    ('\u{f2}', '\u{f3}'),
+    ('\u{f9}', '\u{fa}'),
+];
+
+/// How often each accent-direction character appears in a string.
+fn accent_census(text: &str) -> Vec<(char, usize)> {
+    ACCENT_PAIRS
+        .iter()
+        .flat_map(|(a, b)| [*a, *b])
+        .map(|c| (c, text.matches(c).count()))
+        .collect()
+}
+
+/// Did the accents come out, and did they come out leaning the right way?
+///
+/// The question the CER column cannot answer. A wrong-leaning accent is one character in a line of
+/// thirty, so flipping every one of them moves CER by a point or two — well inside the spread
+/// between the conditions this sweep runs. Counting the characters directly is the only way to see
+/// whether the term has anything to do.
+fn report_accents(
+    sup: &Path,
+    truth: &str,
+    reference: &ReferenceSet,
+    weights: &[u32],
+) -> anyhow::Result<()> {
+    println!(
+        "
+  the accented characters themselves, against {} of them in the ground truth:",
+        accent_census(truth).iter().map(|(_, n)| n).sum::<usize>()
+    );
+
+    let mut header = String::new();
+    for c in ACCENT_PAIRS.iter().flat_map(|(a, b)| [*a, *b]) {
+        let _ = write!(header, "{c:>4}");
+    }
+    println!("  weight {header}");
+
+    let mut truth_row = String::new();
+    for (_, n) in accent_census(truth) {
+        let _ = write!(truth_row, "{n:>4}");
+    }
+    println!("   truth {truth_row}");
+
+    // Whether the term is armed at all. If the reference set carried no slopes, or carried the
+    // same sign for both members of a pair, every row below would be identical for a reason that
+    // has nothing to do with the material — and the conclusion drawn from them would be wrong.
+    let mut slope_row = String::new();
+    for c in ACCENT_PAIRS.iter().flat_map(|(a, b)| [*a, *b]) {
+        match reference.entries().iter().find(|e| e.character == c) {
+            Some(entry) if entry.mark.known => {
+                let _ = write!(slope_row, "{:>4}", entry.mark.percent);
+            }
+            Some(_) => slope_row.push_str("   -"),
+            None => slope_row.push_str("   ?"),
+        }
+    }
+    println!("  slopes {slope_row}   (the reference set's own, so the term is armed)");
+
+    for weight in weights {
+        let config = Config {
+            unmatched: UnmatchedPolicy::Placeholder,
+            matching: MatchThresholds {
+                mark_weight_permille: *weight,
+                ..MatchThresholds::default()
+            },
+            clustering: ClusterRules { mark_weight_permille: *weight, ..ClusterRules::default() },
+            ..Config::default()
+        };
+        let outcome = Pipeline::new(config)
+            .with_reference(reference.clone())
+            .run(sup)
+            .context("extracting")?;
+        let text = outcome
+            .track
+            .cues
+            .iter()
+            .map(subtrackt::core::Cue::text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut row = String::new();
+        for (_, n) in accent_census(&text) {
+            let _ = write!(row, "{n:>4}");
+        }
+        println!("  {weight:>6} {row}");
+    }
+    Ok(())
 }
 
 /// Extract one fixture under one configuration and score it.
@@ -148,6 +274,31 @@ fn measure_weight(
     Ok(row)
 }
 
+/// Extract at one mark weight.
+fn measure_mark_weight(
+    sup: &Path,
+    truth: &str,
+    reference: &ReferenceSet,
+    mark_weight_permille: u32,
+) -> anyhow::Result<Row> {
+    let thresholds = MatchThresholds { mark_weight_permille, ..MatchThresholds::default() };
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        matching: thresholds,
+        // Clustering keys on the mark as well, so it has to price it the same way or the two
+        // stages would disagree about whether two glyphs are the same shape.
+        clustering: ClusterRules { mark_weight_permille, ..ClusterRules::default() },
+        ..Config::default()
+    };
+    let mut row = measure(sup, truth, reference, config)?;
+    row.setting = mark_weight_permille;
+    // What an acute against a grave is worth in cells. Quoted in that gap rather than in the 100
+    // points the setting is priced against, because that pair is what the term exists to separate
+    // and 131 points is what #48 measured it at.
+    row.scaled = 131 * thresholds.mark_weight() / 100;
+    Ok(row)
+}
+
 fn print_rows(label: &str, heading: &str, baseline_note: &str, rows: &[Row]) {
     println!(
         "
@@ -184,7 +335,7 @@ fn report_closest_pairs(reference: &ReferenceSet, radii: &[u32]) {
         for b in &entries[index + 1..] {
             pairs.push((
                 a.features.distance(&b.features),
-                thresholds.distance(&a.features, a.metrics, b),
+                thresholds.distance(&a.features, a.metrics, a.mark, b),
                 a.character,
                 b.character,
             ));
@@ -365,6 +516,86 @@ pub fn run_metric(args: &[String]) -> anyhow::Result<()> {
 The weight is in tenths of a percent of the feature vector per full cap height. The second
          column is what that makes an `o` against an `O` — 28 points of cap height — worth in
          cells, against an ambiguity margin of {} and a match ceiling of {}.",
+        shipped.ambiguity_margin(),
+        shipped.max_distance()
+    );
+    Ok(())
+}
+
+/// Sweep the mark weight over the same fixtures.
+///
+/// The #37 pattern applied to #48. `xtask separability` established that the mark's direction
+/// separates the pairs; it cannot say what the term should be *worth*, because separability is a
+/// property of the reference set and the price is a property of the matcher. Only CER can answer
+/// that, and only on material where both members of a pair appear — which is what the last three
+/// fixture cues are for.
+///
+/// # Errors
+/// As [`run`].
+pub fn run_mark(args: &[String]) -> anyhow::Result<()> {
+    let font = crate::accuracy::find_font(args.first()).context(
+        "no font found; pass one explicitly, e.g. xtask mark-sweep C:/Windows/Fonts/arial.ttf",
+    )?;
+    println!("reference typeface: {}", font.display());
+
+    let other = [
+        "C:/Windows/Fonts/verdana.ttf",
+        "C:/Windows/Fonts/tahoma.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .find(|p| p.exists() && p != &font);
+
+    let root = std::env::temp_dir().join("subtrackt-mark-sweep");
+
+    // Rendering size is a variable here, unlike every other sweep, and it is the variable that
+    // matters. A mark is a fixed fraction of a glyph, so at the small end of the range
+    // `docs/library-survey.md` measured — 21 px — it lands on three or four pixels, and both the
+    // shape difference the term is meant to replace and the direction the term reads get harder at
+    // once. The fixture's own 42 px is the comfortable end.
+    let sizes: [(&str, Option<f32>); 2] = [("42px", None), ("21px", Some(21.0))];
+
+    let mut materials: Vec<(String, PathBuf)> = vec![("exact".to_owned(), font.clone())];
+    if let Some(path) = other {
+        println!("material typeface for the cross-font case: {}", path.display());
+        materials.push(("a near miss".to_owned(), path));
+    }
+
+    for (size_label, px) in sizes {
+        for (match_label, material) in &materials {
+            for repeats in [1usize, 5] {
+                let dir = root.join(format!(
+                    "{size_label}-{repeats}-{}",
+                    material.file_stem().unwrap_or_default().to_string_lossy()
+                ));
+                let (sup, truth, reference) = fixture_at(material, &font, &dir, repeats, px)?;
+
+                let variation = if repeats > 1 {
+                    "varied (5 renderings)"
+                } else {
+                    "plain"
+                };
+                let label = format!("{size_label}, {variation}, reference typeface {match_label}");
+
+                let mut rows = Vec::new();
+                for weight in MARK_WEIGHTS {
+                    rows.push(measure_mark_weight(&sup, &truth, &reference, weight)?);
+                }
+                print_rows(&label, "weight", "baseline: mark ignored", &rows);
+                report_accents(&sup, &truth, &reference, &[0, 20, 39, 78, 293])?;
+            }
+        }
+    }
+
+    let shipped = MatchThresholds::default();
+    println!(
+        "
+The weight is in tenths of a percent of the feature vector per 100 points of slope. The
+         second column is what that makes an acute against a grave — 131 points — worth in cells,
+         against an ambiguity margin of {} and a match ceiling of {}. A setting past the ceiling
+         does not merely demote a wrong-leaning accent, it rejects the character outright.",
         shipped.ambiguity_margin(),
         shipped.max_distance()
     );

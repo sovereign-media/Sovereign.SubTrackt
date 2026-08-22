@@ -14,7 +14,8 @@
 //! rather than a placeholder one — and it is what makes the accuracy gate meaningful.
 
 use subtrackt_core::{
-    Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, LineMetrics, Result,
+    Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, LineMetrics, MarkSlope,
+    Result,
 };
 
 use crate::cache::SessionCache;
@@ -56,6 +57,31 @@ pub struct MatchThresholds {
     /// setting is 50 hundredths of a cell per point: an `o` against an `O` is 28 points, so it
     /// costs 14 cells at 16x16 and the same 5.5% of the vector at any other grid size.
     pub metric_weight_permille: u32,
+    /// What a full 100 points of difference in mark direction is worth, in tenths of a percent of
+    /// [`FEATURE_BITS`].
+    ///
+    /// The same unit as `metric_weight_permille` and for the same reasons — a fraction of the
+    /// vector rather than a cell count, and priced per 100 points because that is what
+    /// [`MarkSlope::difference`] counts in.
+    ///
+    /// **Zero, which is to say the term is off**, and it is off because `xtask mark-sweep`
+    /// measured it across eight conditions and it bought nothing. An acute against a grave measures
+    /// about 131 points apart, so any setting above about 20 pushes the wrong-leaning candidate
+    /// clear of the ambiguity margin — and the ambiguity tally does fall, by 12 to 20%. CER does
+    /// not move at any setting on any condition, and above 78 it gets worse, up to 2.1 points,
+    /// because the term starts rejecting correct characters outright.
+    ///
+    /// The census that explains it is in `docs/glyph-stability.md`. The accents the pipeline gets
+    /// wrong are wrong in the *base letter*, not the direction: `á` read as `é`, `è` as `ò`. Both
+    /// members of those pairs carry the same mark, so this term cannot separate them by
+    /// construction — and the pairs it can separate were never being read wrongly.
+    ///
+    /// Kept rather than removed for the same reason `ClusterRules::radius_percent` is: the
+    /// machinery is the instrument that measured the question, and turning it on is one number
+    /// once there is evidence for it. #43 would change the conditions substantially — a reference
+    /// set fitted to the title is what removes the base-letter confusions that dominate today — so
+    /// the sweep is worth re-running when it lands.
+    pub mark_weight_permille: u32,
 }
 
 impl Default for MatchThresholds {
@@ -64,6 +90,7 @@ impl Default for MatchThresholds {
             max_distance_percent: 20,
             ambiguity_margin_percent: 3,
             metric_weight_permille: 196,
+            mark_weight_permille: 0,
         }
     }
 }
@@ -102,25 +129,38 @@ impl MatchThresholds {
         bits * permille / 1000
     }
 
+    /// What a full 100 points of mark-direction difference costs, in cells.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn mark_weight(self) -> u32 {
+        Self::metric_weight_at(self.mark_weight_permille, FEATURE_BITS as u32)
+    }
+
     /// Distance between a glyph and a reference: shape, plus the line-metric term.
     ///
     /// The metric term is `points × weight ÷ 100`: the weight is what a whole cap height costs and
     /// the difference is in percentage points of one.
     ///
-    /// When either side has no metrics the term is omitted rather than defaulted. A glyph on a line
-    /// too short to locate a baseline is compared on shape alone, which is worse than the full
-    /// comparison and much better than being scored against a fabricated height.
+    /// Each term is omitted rather than defaulted when either side lacks it. A glyph on a line too
+    /// short to locate a baseline, or one whose accent never reached its body, is compared on what
+    /// is left — which is worse than the full comparison and much better than being scored against
+    /// a height or a direction that was never measured.
     #[must_use]
     pub fn distance(
         self,
         shape: &FeatureVector,
         metrics: LineMetrics,
+        mark: MarkSlope,
         entry: &ReferenceEntry,
     ) -> u32 {
-        let base = shape.distance(&entry.features);
-        metrics
-            .difference(entry.metrics)
-            .map_or(base, |points| base + points * self.metric_weight() / 100)
+        let mut total = shape.distance(&entry.features);
+        if let Some(points) = metrics.difference(entry.metrics) {
+            total += points * self.metric_weight() / 100;
+        }
+        if let Some(points) = mark.difference(entry.mark) {
+            total += points * self.mark_weight() / 100;
+        }
+        total
     }
 }
 
@@ -208,17 +248,22 @@ impl HammingMatcher {
     /// Scan the reference set, ignoring the cache.
     #[must_use]
     pub fn scan(&self, features: &FeatureVector) -> GlyphMatch {
-        self.scan_with(features, LineMetrics::UNKNOWN)
+        self.scan_with(features, LineMetrics::UNKNOWN, MarkSlope::NONE)
     }
 
-    /// Scan the reference set for a glyph whose position in its line is known.
+    /// Scan the reference set for a glyph whose position in its line, or mark, is known.
     #[must_use]
-    pub fn scan_with(&self, features: &FeatureVector, metrics: LineMetrics) -> GlyphMatch {
+    pub fn scan_with(
+        &self,
+        features: &FeatureVector,
+        metrics: LineMetrics,
+        mark: MarkSlope,
+    ) -> GlyphMatch {
         let mut best: Option<(u32, char)> = None;
         let mut runner_up = u32::MAX;
 
         for entry in self.references.entries() {
-            let distance = self.thresholds.distance(features, metrics, entry);
+            let distance = self.thresholds.distance(features, metrics, mark, entry);
             match best {
                 Some((best_distance, _)) if distance >= best_distance => {
                     runner_up = runner_up.min(distance);
@@ -256,7 +301,7 @@ impl GlyphMatcher for HammingMatcher {
     fn prepare(&mut self, glyphs: &[Glyph]) -> Result<()> {
         let mut shapes = Shapes::new();
         for glyph in glyphs {
-            shapes.add(&glyph.features, glyph.metrics);
+            shapes.add(&glyph.features, glyph.metrics, glyph.mark);
         }
         self.distinct_shapes = shapes.distinct().try_into().unwrap_or(u64::MAX);
 
@@ -267,30 +312,30 @@ impl GlyphMatcher for HammingMatcher {
         // and filling the cache borrows the matcher.
         let answers: Vec<GlyphMatch> = clusters
             .iter()
-            .map(|c| self.scan_with(&c.centroid, c.centroid_metrics))
+            .map(|c| self.scan_with(&c.centroid, c.centroid_metrics, c.centroid_mark))
             .collect();
         self.scans += answers.len().try_into().unwrap_or(u64::MAX);
 
         for (group, answer) in clusters.iter().zip(answers) {
-            for ((features, metrics), _) in &group.members {
-                self.cache.insert(features, *metrics, answer.clone());
+            for ((features, metrics, mark), _) in &group.members {
+                self.cache.insert(features, *metrics, *mark, answer.clone());
             }
         }
         Ok(())
     }
 
     fn match_glyph(&mut self, glyph: &Glyph) -> Result<GlyphMatch> {
-        if let Some(hit) = self.cache.get(&glyph.features, glyph.metrics) {
+        if let Some(hit) = self.cache.get(&glyph.features, glyph.metrics, glyph.mark) {
             return Ok(hit);
         }
         // Only reachable without a preparation pass, or for a shape it did not see. Answering
         // from a bare scan is worse than answering from a cluster, but it is still an answer, and
         // silently returning "unmatched" for a glyph the matcher simply had not been shown would
         // be a much harder failure to notice.
-        let result = self.scan_with(&glyph.features, glyph.metrics);
+        let result = self.scan_with(&glyph.features, glyph.metrics, glyph.mark);
         self.scans += 1;
         self.cache
-            .insert(&glyph.features, glyph.metrics, result.clone());
+            .insert(&glyph.features, glyph.metrics, glyph.mark, result.clone());
         Ok(result)
     }
 
@@ -320,6 +365,7 @@ mod tests {
             style: Style::Regular,
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
         }
     }
 
@@ -329,6 +375,7 @@ mod tests {
             line: 0,
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
         }
     }
 
@@ -538,13 +585,86 @@ mod tests {
             style: Style::Regular,
             features: shape,
             metrics: LineMetrics::new(104, 0),
+            mark: MarkSlope::NONE,
         };
 
-        assert_eq!(t.distance(&shape, LineMetrics::new(104, 0), &reference), 0);
+        let none = MarkSlope::NONE;
+        assert_eq!(t.distance(&shape, LineMetrics::new(104, 0), none, &reference), 0);
         assert_eq!(
-            t.distance(&shape, LineMetrics::new(76, 0), &reference),
+            t.distance(&shape, LineMetrics::new(76, 0), none, &reference),
             28 * t.metric_weight() / 100
         );
-        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, &reference), 0);
+        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, none, &reference), 0);
+    }
+
+    /// A reference `à`: a grave, which leans the opposite way to an acute.
+    fn accented() -> ReferenceEntry {
+        ReferenceEntry {
+            character: '\u{e0}',
+            style: Style::Regular,
+            features: vector(&[1, 2, 3]),
+            metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::new(67),
+        }
+    }
+
+    #[test]
+    fn the_mark_term_is_off_by_default_because_measuring_it_found_nothing_for_it_to_do() {
+        // Pinned so the setting is a decision rather than an oversight. `xtask mark-sweep` moved
+        // CER on none of eight conditions and made it worse on four; the accents the pipeline gets
+        // wrong differ in their base letter, not their direction, and this term cannot see that.
+        // See `docs/glyph-stability.md`.
+        let t = MatchThresholds::default();
+        assert_eq!(t.mark_weight_permille, 0);
+        assert_eq!(
+            t.distance(
+                &vector(&[1, 2, 3]),
+                LineMetrics::UNKNOWN,
+                MarkSlope::new(-64),
+                &accented()
+            ),
+            0,
+            "with the term off, two opposite accents are the same distance apart as none at all"
+        );
+    }
+
+    #[test]
+    fn a_wrong_leaning_accent_costs_a_demotion_rather_than_a_rejection() {
+        // What the term does when it is switched on. An acute against a grave measures about 131
+        // points apart, and at the sweep's mid setting that has to buy a demotion: past the
+        // ambiguity margin, short of the distance ceiling. A mark is a handful of pixels on real
+        // material, and a term strong enough to reject on its own turns a marginal rasterisation
+        // into an unmatched glyph — which the sweep watched happen above 78.
+        let t = MatchThresholds { mark_weight_permille: 78, ..MatchThresholds::default() };
+        let shape = vector(&[1, 2, 3]);
+        let reference = accented();
+
+        let cost = 131 * t.mark_weight() / 100;
+        assert_eq!(
+            t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::new(-64), &reference),
+            cost
+        );
+        assert!(cost > t.ambiguity_margin(), "a wrong accent has to be visible");
+        assert!(cost < t.max_distance(), "but not a rejection on its own");
+
+        // A glyph whose mark never reached its body is compared on shape alone rather than charged
+        // for a direction that was never delivered.
+        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::NONE, &reference), 0);
+    }
+
+    #[test]
+    fn two_accents_leaning_the_same_way_are_not_separated_by_the_mark_at_all() {
+        // The finding that decided #48, as a test. `á` and `é` both carry an acute, so their
+        // slopes agree and the term contributes nothing however hard it is weighted — and those
+        // are the pairs the pipeline actually gets wrong. The pairs it can separate were already
+        // being read correctly.
+        let t = MatchThresholds { mark_weight_permille: 293, ..MatchThresholds::default() };
+        let acute = MarkSlope::new(-66);
+        let reference = ReferenceEntry { mark: MarkSlope::new(-64), ..accented() };
+        assert_eq!(
+            t.distance(&vector(&[1, 2, 3]), LineMetrics::UNKNOWN, acute, &reference),
+            2 * t.mark_weight() / 100,
+            "two acutes differ only by rasterisation noise, whatever letters they sit on"
+        );
     }
 }

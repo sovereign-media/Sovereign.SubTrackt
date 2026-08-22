@@ -288,6 +288,7 @@ impl Segmenter for ImageSegmenter {
         use subtrackt_glyph::ccl::{self, ComponentFilter};
         use subtrackt_glyph::feature::{self, AspectPolicy};
         use subtrackt_glyph::group::{self, GroupingRules};
+        use subtrackt_glyph::mark;
         use subtrackt_glyph::metrics::{self, MetricRules};
 
         let mask = self.mask(image);
@@ -321,6 +322,9 @@ impl Segmenter for ImageSegmenter {
                         |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
                     )?,
                     metrics: line_metrics,
+                    // Read off the binary mask before the boxes are merged: once base and mark
+                    // share a bounding box, letterboxing scales the direction away.
+                    mark: mark::slope(&mask, glyph),
                 })
             })
             .collect()
