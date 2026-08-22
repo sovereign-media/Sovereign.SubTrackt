@@ -11,15 +11,17 @@ it did not exist yet. They do now, and they are lopsided enough that the decisio
 
 | | |
 | :--- | ---: |
-| Release binary | **1.32–1.94 MB**, by platform |
+| Release binary | **1.35–1.96 MB**, by platform |
 | Cold start, process spawn to exit | **16.3 ms** |
 | Reference set on disk | **6.3 KB** |
 | Extraction, 5.5 GB film, 1,111 cues | **22 s** |
 
-Taken from the published `v0.0.1-alpha` artifacts rather than a development build. Cold start is the
-mean of three runs of fifty `subtrackt --version` invocations of the downloaded Windows binary,
-16.1–16.4 ms across runs — Windows has the slowest process creation of the platforms here, so it is
-an upper bound on what Linux will do rather than an estimate of it.
+Taken from published artifacts rather than from a development build. The sizes are `v0.0.2-alpha`;
+the other three rows are `v0.0.1-alpha` and have not been re-measured since, because nothing between
+the two tags touched what they measure. Cold start is the mean of three runs of fifty
+`subtrackt --version` invocations of the downloaded Windows binary, 16.1–16.4 ms across runs —
+Windows has the slowest process creation of the platforms here, so it is an upper bound on what
+Linux will do rather than an estimate of it.
 
 The comparison that matters is against the 37-track file §4 names as the worst case in the queue.
 Thirty-seven spawns cost **0.6 s**. The extraction those spawns exist to start costs on the order of
@@ -72,12 +74,15 @@ build is telling you so.
 
 Four artifacts per tag, from `.github/workflows/release.yml`:
 
-| Platform | Target | `v0.0.1-alpha` |
-| :--- | :--- | ---: |
-| Linux x86-64 | `x86_64-unknown-linux-musl` | 1.94 MB |
-| Linux ARM64 | `aarch64-unknown-linux-musl` | 1.63 MB |
-| Windows x86-64 | `x86_64-pc-windows-msvc` | 1.56 MB |
-| Windows ARM64 | `aarch64-pc-windows-msvc` | 1.32 MB |
+| Platform | Target | `v0.0.1-alpha` | `v0.0.2-alpha` |
+| :--- | :--- | ---: | ---: |
+| Linux x86-64 | `x86_64-unknown-linux-musl` | 1.94 MB | 1.96 MB |
+| Linux ARM64 | `aarch64-unknown-linux-musl` | 1.63 MB | 1.63 MB |
+| Windows x86-64 | `x86_64-pc-windows-msvc` | 1.56 MB | 1.59 MB |
+| Windows ARM64 | `aarch64-pc-windows-msvc` | 1.32 MB | 1.35 MB |
+
+Both columns are kept rather than the newer one replacing the older. A single column says how big
+the binary is; two say which way it is moving, which is the question this section exists to answer.
 
 Plus `SHA256SUMS` covering all four, so `sha256sum -c` verifies the set in one pass.
 
@@ -86,11 +91,16 @@ statically: musl and the startup files it brings cost roughly 380 KB over the dy
 Windows build of the same architecture. Against not having a glibc version to match, that is cheap.
 
 What the binary has *not* grown on is decoration. #83 added colour by severity, a spinner and a
-progress bar, and cost **30.5 KB** — 1.63 MB to 1.67 MB, measured before and after on one machine
-for `x86_64-pc-windows-msvc`. Colour is free because `clap` already compiles `anstyle`, `anstream`
-and `anstyle-query` in; the bar is forty lines of arithmetic rather than the five extra crates
-`indicatif` would have brought. The rule that produced that number is in `CLAUDE.md`: reach for a
-crate when the work is someone else's problem domain, and drawing `[####----] 43%` is not.
+progress bar for **30.5 KB** on `x86_64-pc-windows-msvc` — the same figure measured locally before
+and after, and then between the two published artifacts above. The other three targets moved by
+less, down to 168 bytes on `aarch64-unknown-linux-musl`. Colour is free because `clap` already
+compiles `anstyle`, `anstream` and `anstyle-query` in; the bar is forty lines of arithmetic rather
+than the five extra crates `indicatif` would have brought. The rule that produced that number is in
+`CLAUDE.md`: reach for a crate when the work is someone else's problem domain, and drawing
+`[####----] 43%` is not.
+
+Sizes throughout this document are binary megabytes, which is what the numbers in the table divide
+out to and what a file listing reports.
 
 No macOS build, because nobody has asked for one. It is a row in the matrix if that changes.
 

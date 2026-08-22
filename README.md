@@ -129,7 +129,7 @@ Tagged releases carry a self-contained binary for Linux and Windows, x86-64 and 
 glibc version to match and no runtime to install — the artifact is the whole dependency.
 
 ```console
-$ tag=v0.0.1-alpha
+$ tag=v0.0.2-alpha
 $ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
 $ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
 $ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
