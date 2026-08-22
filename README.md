@@ -202,16 +202,20 @@ was wrong:
 
 What is actually left, in order of leverage:
 
-- **[#43](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43)** — fit the reference
+- **[#62](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/62)** — fit the reference
   set to the title rather than to the binary. This is the one that makes the tool work out of the
-  box. #9's measurement is the argument for it, and a real disc has now supplied the two things it
-  was missing: mean match distance picks the right typeface out of ten as the argmin, and the gap
-  under it — 11.7 against 18.5 — is wide enough to place the floor the issue insists on.
-- **Style, inside #43 rather than beside it.** An italic reference set reads one film's italic act
-  at 10.8% and its upright dialogue at 40.5%; the upright set does the reverse. Whole-track distance
-  cannot see the split, so a fit that is right about the typeface is still wrong about the reel.
-  That is [#14](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/14), and it turns out
-  to be a level of #43 rather than a separate mechanism.
+  box, and the half of it that works: selecting by mean match distance costs 0.2 points of CER on
+  average across eight fixtures and picked the right typeface out of ten on a real disc. It ships as
+  a proposal a user accepts rather than a decision the tool makes, because of the next bullet.
+  Style is a scope question inside it — an italic reference set reads one film's italic act at 10.8%
+  and its upright dialogue at 40.5%, and the upright set does the reverse, so a fit that is right
+  about the typeface can still be wrong about a reel.
+- **[#63](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/63)** — whether anything can
+  tell a good fit from a bad one. Four statistics say no, and they fail for one mechanism rather
+  than four: a systematically wrong set is *by construction* a low-distance one, and a systematically
+  shared confusion is *by construction* an agreed one. Both times the thing that makes the answer
+  wrong is the thing that makes the evidence look right, so nothing computed from the candidate sets
+  alone can see it. This is the gap between "reads well" and "known to read well".
 - **Punctuation segmentation**, untracked. Eleven of the thirteen unmatched glyphs in the ceiling
   fixture are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
 - **Grouping**, two measured gaps in what a mark attaches to.
@@ -222,6 +226,10 @@ What is actually left, in order of leverage:
   [#58](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/58): the overlap rule is a
   fraction of the *mark's* width, so a mark wider than the letter under it can never reach it and
   `Î Ï î ï` never group at all.
+- **[#60](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/60)** — correct word-edge
+  ambiguity from the track's own vocabulary. Post-correction needs evidence on both sides of a
+  glyph, so `Iazy` stays wrong at a word edge; a word the same track already read clearly is
+  evidence from the material rather than an assertion about a language.
 - **[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)** — distribution. A
   decision more than a build; the throughput numbers already weaken the `cdylib` case.
 
