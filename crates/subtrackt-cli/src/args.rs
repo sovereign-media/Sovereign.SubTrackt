@@ -67,6 +67,17 @@ pub enum Command {
     /// vector as hex. Feature vectors are comparable across files, so this is what the typeface
     /// survey and the reference-set generator both work from.
     Glyphs(GlyphsArgs),
+
+    /// Render a font into a reference glyph set.
+    ///
+    /// Nothing is embedded, so this is how a set comes to exist. Point it at one font for one
+    /// `.subtref`, or at a directory of fonts for one set per font — which is what `fit` wants,
+    /// since it scores a directory of candidates and proposes a winner.
+    ///
+    /// The vectors go through the same normalisation `extract` applies to a decoded subtitle
+    /// bitmap. That is the whole reason this is a subcommand rather than a script: a reference
+    /// built through any other transform produces distances that mean nothing.
+    GenReference(GenReferenceArgs),
 }
 
 /// Arguments for `subtrackt extract`.
@@ -137,7 +148,7 @@ pub struct ExtractArgs {
     #[arg(long)]
     pub report: bool,
 
-    /// Reference glyph set to match against, as written by `xtask gen-reference`.
+    /// Reference glyph set to match against, as written by `subtrackt gen-reference`.
     ///
     /// Required in practice: nothing is embedded, and docs/reference-set.md records the
     /// measurement saying a shipped set would read worse than no set at all. Without this every
@@ -192,6 +203,34 @@ impl GlyphsArgs {
         config.binarize.include_outline = self.include_outline;
         config
     }
+}
+
+/// Arguments for `subtrackt gen-reference`.
+#[derive(Debug, Args)]
+pub struct GenReferenceArgs {
+    /// Font file, or a directory of them.
+    pub font: PathBuf,
+
+    /// Where to write: a `.subtref` file for one font, a directory for a directory of fonts.
+    pub output: PathBuf,
+
+    /// Name recorded inside the set. Defaults to the font file's stem.
+    ///
+    /// This is what `fit` prints when it ranks candidates, so it is worth setting to something you
+    /// will recognise in that table.
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Italic cut of the same typeface, contributing its own vector for every character.
+    ///
+    /// #66 is the measurement behind this: a track that changes style mid-film is read by whichever
+    /// face is closer to the ink, so both can be present in one set at once.
+    #[arg(long)]
+    pub italic: Option<PathBuf>,
+
+    /// Bold cut of the same typeface.
+    #[arg(long)]
+    pub bold: Option<PathBuf>,
 }
 
 /// Arguments for `subtrackt fit`.

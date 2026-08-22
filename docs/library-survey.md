@@ -107,7 +107,7 @@ Two things this table does *not* say, and both matter:
 ## Fitting a font to the measurement
 
 Recommendation 2 below said to stop naming typefaces and fit one to the evidence instead. That was
-done: `cargo run -p xtask -- gen-reference` renders a font through *the same* normalisation the
+done: `subtrackt gen-reference` renders a font through *the same* normalisation the
 runtime uses, and the result was scored against all 149,604 sampled glyph instances.
 
 **The typeface is Arial or something very close to it.** Taking the most frequent extracted shapes

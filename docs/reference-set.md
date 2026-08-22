@@ -541,7 +541,7 @@ whatever font gets embedded.
 Since nothing is being embedded, nothing needs licensing — but the reasoning should not have to be
 reconstructed if that changes:
 
-- **Arial is Monotype's.** `xtask gen-reference` reads a font the developer already has and writes
+- **Arial is Monotype's.** `subtrackt gen-reference` reads a font the user already has and writes
   256-bit normalised bitmaps. Whether that output is a derivative work of the font program is
   genuinely unsettled — typeface *designs* are not copyrightable in the United States while font
   *programs* are, and a downsampled bitmap is neither cleanly. It was never worth resolving, because

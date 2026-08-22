@@ -357,6 +357,7 @@ dependencies = [
 name = "subtrackt-glyph"
 version = "0.1.0"
 dependencies = [
+ "fontdue",
  "subtrackt-core",
 ]
 

@@ -10,7 +10,8 @@ is the interim.
 
 Run `scripts/check.sh`. Every time.
 
-It runs what CI runs, in CI order: fmt, clippy, tests, docs. The gate easiest to skip is the one
+It runs what CI runs, in CI order: fmt, clippy, tests, dependency discipline, docs. The gate easiest
+to skip is the one
 that catches the most: **clippy** runs at pedantic with `-D warnings`, and a `cargo test` that
 passes says nothing about it. It has already broken `main`.
 
@@ -32,10 +33,14 @@ reader would otherwise have to re-derive, and non-obvious behaviour the format o
 **Library crates take no dependencies.** `subtrackt-core` through `subtrackt` use only the standard
 library. `clap`, `anyhow` and `tracing` live in `subtrackt-cli` and nowhere else.
 
-This is not asceticism: #1 asks for a single static binary, and #16 leaves open whether the
-deliverable is a CLI or a `cdylib` behind P/Invoke. A dependency-free core makes that a new crate
+This is not asceticism: #1 asks for a single static binary, and #16 had to decide between shipping a
+CLI and a `cdylib` behind P/Invoke. A dependency-free core made that a question about one new crate
 rather than an audit of a transitive tree. The cost is real and accepted — `Error` implements
 `Display` by hand rather than deriving with `thiserror`.
+
+#16 landed on the CLI, and the rule outlived the question that motivated it: static musl linking is
+what makes "drop one file in the container" work, and it stays free only while nothing in the tree
+wants a system library. `docs/distribution.md` has the numbers.
 
 Adding one to a library crate needs a reason that outweighs the above.
 
@@ -45,6 +50,18 @@ the library. The alternative considered was hand-rolling inflate; that was the w
 is not this project's problem domain, a subtle Huffman bug produces garbage bitmaps, and
 `miniz_oxide` is pure Rust with no build script and one tiny dependency — so the single-binary and
 cross-compilation goals the rule exists to protect are all intact.
+
+**A second has, optionally.** `subtrackt-glyph` takes `fontdue` behind an off-by-default `font`
+feature, so a downloaded binary can render its own reference sets instead of needing this repository
+and a toolchain to make one (#80). Same test as above: rasterising an outline is not this project's
+problem domain, and the crate is pure Rust with no build script.
+
+The word doing the work is *optional*. A consumer who does not opt in still gets the tree the rule
+describes, and both `scripts/check.sh` and CI have a **dependency discipline** step that asserts
+exactly that. It exists because Cargo unifies features across a workspace, so the property is
+breakable from a manifest that never mentions `subtrackt-glyph` — which is not a change anyone would
+think to look for. If it fails, the fix is to justify the new dependency here and update the list,
+not to widen the list quietly.
 
 The lesson worth keeping: the rule is "justify it", not "never". Reach for a crate when the work is
 someone else's problem domain and the crate is pure Rust with a shallow tree.

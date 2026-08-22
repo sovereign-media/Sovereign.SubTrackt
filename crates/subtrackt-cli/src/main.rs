@@ -1,8 +1,8 @@
 //! Command-line front end.
 //!
-//! Deliberately thin. Everything of substance lives in the `subtrackt` library crate, because
-//! whether this ships as a CLI at all is still open (#16) — a `cdylib` for P/Invoke would replace
-//! this file and nothing else.
+//! Deliberately thin. Everything of substance lives in the `subtrackt` library crate. That was
+//! originally because whether this shipped as a CLI at all was open; #16 settled it on the CLI, and
+//! the thinness is worth keeping regardless — `docs/distribution.md` has the numbers.
 
 mod args;
 
@@ -13,8 +13,10 @@ use anyhow::{Context as _, bail};
 use clap::Parser as _;
 use subtrackt::Pipeline;
 use subtrackt_glyph::ReferenceSet;
+use subtrackt_glyph::font::{Face, generate};
+use subtrackt_glyph::reference::Style;
 
-use crate::args::{Cli, Command, ExtractArgs, FitArgs, GlyphsArgs};
+use crate::args::{Cli, Command, ExtractArgs, FitArgs, GenReferenceArgs, GlyphsArgs};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -25,6 +27,7 @@ fn main() -> anyhow::Result<()> {
         Command::Extract(args) => extract(&args),
         Command::Fit(args) => fit(&args),
         Command::Glyphs(args) => glyphs(&args),
+        Command::GenReference(args) => gen_reference(&args),
     }
 }
 
@@ -146,7 +149,7 @@ fn fit(args: &FitArgs) -> anyhow::Result<()> {
     let (candidates, skipped) = load_candidates(&args.references)?;
     if candidates.is_empty() {
         bail!(
-            "no usable reference set in {} — generate one with `cargo run -p xtask -- gen-reference`",
+            "no usable reference set in {} — generate one with `subtrackt gen-reference <font> <dir>`",
             args.references.display()
         );
     }
@@ -274,4 +277,130 @@ fn write_output(args: &ExtractArgs, rendered: &str) -> anyhow::Result<()> {
         .write_all(rendered.as_bytes())
         .context("writing to stdout")?;
     stdout.flush().context("flushing stdout")
+}
+
+/// Font file extensions worth trying in a directory.
+///
+/// Collections (`.ttc`) are left out: they hold several faces behind one file and picking the first
+/// silently would put a face in the set under a name that does not describe it.
+const FONT_EXTENSIONS: [&str; 4] = ["ttf", "otf", "TTF", "OTF"];
+
+/// Render a font, or a directory of fonts, into reference sets.
+fn gen_reference(args: &GenReferenceArgs) -> anyhow::Result<()> {
+    if args.font.is_dir() {
+        if args.name.is_some() || args.italic.is_some() || args.bold.is_some() {
+            bail!(
+                "--name, --italic and --bold describe one typeface, so they cannot be combined                  with a directory of fonts"
+            );
+        }
+        return gen_reference_dir(&args.font, &args.output);
+    }
+
+    let mut faces = vec![(args.font.clone(), Style::Regular)];
+    for (path, style) in [
+        (args.italic.as_ref(), Style::Italic),
+        (args.bold.as_ref(), Style::Bold),
+    ] {
+        if let Some(path) = path {
+            faces.push((path.clone(), style));
+        }
+    }
+
+    let name = match &args.name {
+        Some(name) => name.clone(),
+        None => stem(&args.font),
+    };
+    let written = write_set(&name, &faces, &args.output)?;
+    eprintln!("{} glyphs -> {}", written, args.output.display());
+    Ok(())
+}
+
+/// One `.subtref` per font in `dir`, written into `out`.
+fn gen_reference_dir(dir: &Path, out: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+
+    let mut fonts: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| FONT_EXTENSIONS.contains(&e))
+        })
+        .collect();
+    // Sorted so the same directory yields the same set of files in the same order every run, which
+    // matters when the output is going to be ranked and compared.
+    fonts.sort();
+
+    if fonts.is_empty() {
+        bail!("no .ttf or .otf files in {}", dir.display());
+    }
+
+    let mut made = 0usize;
+    let mut skipped = Vec::new();
+    for font in &fonts {
+        let name = stem(font);
+        let target = out.join(format!("{name}.subtref"));
+        match write_set(&name, &[(font.clone(), Style::Regular)], &target) {
+            Ok(glyphs) => {
+                made += 1;
+                eprintln!("  {name}: {glyphs} glyphs");
+            }
+            // One unreadable font in a directory of forty is not a reason to produce nothing. It is
+            // named rather than swallowed, and if every font fails the command still fails.
+            Err(e) => skipped.push(format!("{name}: {e:#}")),
+        }
+    }
+
+    for skip in &skipped {
+        eprintln!("  skipped {skip}");
+    }
+    if made == 0 {
+        bail!("none of the {} fonts in {} could be read", fonts.len(), dir.display());
+    }
+    eprintln!("{made} reference sets -> {}", out.display());
+    Ok(())
+}
+
+/// Generate one set from `faces` and write it to `out`, returning how many glyphs it holds.
+fn write_set(name: &str, faces: &[(PathBuf, Style)], out: &Path) -> anyhow::Result<usize> {
+    let mut loaded = Vec::new();
+    for (path, style) in faces {
+        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        loaded.push((*style, bytes));
+    }
+    let faces: Vec<Face<'_>> = loaded
+        .iter()
+        .map(|(style, bytes)| Face { bytes, style: *style })
+        .collect();
+
+    // `false` rather than a flag: `extract` has no grey-coverage switch, so a set built that way
+    // could never be matched by this binary. The knob stays in xtask, where both sides can move
+    // together.
+    let generated = generate(name, &faces, false)?;
+    for style in &generated.without_cap_height {
+        eprintln!(
+            "  {name}: the {style:?} face rasterises no capital H; entries carry no line metrics"
+        );
+    }
+    if !generated.missing.is_empty() {
+        // Space and a few marks legitimately have no outline; anything else is worth knowing about
+        // before the set is used to read a film.
+        eprintln!(
+            "  {name}: no outline for {} characters: {:?}",
+            generated.missing.len(),
+            generated.missing
+        );
+    }
+
+    std::fs::write(out, generated.set.encode())
+        .with_context(|| format!("writing {}", out.display()))?;
+    Ok(generated.set.len())
+}
+
+/// A path's file stem, or `unnamed` if it has none.
+fn stem(path: &Path) -> String {
+    path.file_stem()
+        .map_or_else(|| "unnamed".to_owned(), |s| s.to_string_lossy().into_owned())
 }

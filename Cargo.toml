@@ -29,6 +29,7 @@ subtrackt = { path = "crates/subtrackt", version = "0.1.0" }
 
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+fontdue = "0.9"
 miniz_oxide = "0.8"
 thiserror = "2"
 tracing = "0.1"

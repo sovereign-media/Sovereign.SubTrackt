@@ -65,6 +65,23 @@ jobs:
       - name: Accuracy on generated ground truth
         run: cargo run -p xtask --release --locked -- accuracy
 
+      # CLAUDE.md's dependency rule, enforced rather than remembered. `subtrackt-glyph` carries an
+      # optional `fontdue` for #80, and the point of it being optional is that a consumer who does
+      # not opt in still gets this tree. Feature unification makes that breakable by accident from
+      # a different crate's manifest, which is not a change anyone would think to look for.
+      - name: Dependency discipline
+        run: |
+          expected="adler2 miniz_oxide"
+          actual=$(cargo tree -p subtrackt -e normal --prefix none --locked | awk '{print $1}' |
+            grep -v '^subtrackt' | sort -u | xargs)
+          if [ "$actual" != "$expected" ]; then
+            echo "the subtrackt library tree changed."
+            echo "  expected: $expected"
+            echo "  got:      $actual"
+            echo "If that is deliberate, justify it in CLAUDE.md and update this list."
+            exit 1
+          fi
+
       - name: Docs
         # Broken intra-doc links are how a rename quietly rots the architecture notes.
         env:
