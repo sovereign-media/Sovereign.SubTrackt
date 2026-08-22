@@ -325,6 +325,9 @@ dependencies = [
 name = "subtrackt-cli"
 version = "0.0.1-alpha"
 dependencies = [
+ "anstream",
+ "anstyle",
+ "anstyle-query",
  "anyhow",
  "clap",
  "subtrackt",

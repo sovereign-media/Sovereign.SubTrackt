@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 
 use subtrackt_core::Result;
+use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_glyph::matcher::MatchThresholds;
 use subtrackt_glyph::{HammingMatcher, ReferenceSet};
 
@@ -148,11 +149,35 @@ pub fn rank(
     candidates: Vec<ReferenceSet>,
     thresholds: MatchThresholds,
 ) -> Result<(Vec<Fit>, usize)> {
+    rank_watched(survey, candidates, thresholds, &Silent)
+}
+
+/// Rank candidates, reporting how far through them the scoring has got.
+///
+/// Identical to [`rank`] but for the observer. Determinate throughout: a directory of candidate
+/// sets is counted before the first one is scored.
+///
+/// # Errors
+/// As [`rank`].
+pub fn rank_watched(
+    survey: &GlyphSurvey,
+    candidates: Vec<ReferenceSet>,
+    thresholds: MatchThresholds,
+    progress: &dyn Progress,
+) -> Result<(Vec<Fit>, usize)> {
     let total = candidates.len();
+    progress.begin(Phase::Score, Some(total.try_into().unwrap_or(u64::MAX)));
+    let mut scanned = 0u64;
     let mut fits: Vec<Fit> = candidates
         .into_iter()
-        .filter_map(|set| score_set(survey, set, thresholds).ok())
+        .filter_map(|set| {
+            let fit = score_set(survey, set, thresholds).ok();
+            scanned += 1;
+            progress.advance(scanned);
+            fit
+        })
         .collect();
+    progress.end();
 
     // Ties break on the name so a run over the same directory is reproducible. A fitter whose
     // answer moved between runs of the same file would be untestable, which is the reason

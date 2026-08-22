@@ -169,6 +169,12 @@ $ subtrackt extract movie.sup --format vtt --output movie.en.vtt --report
 Input can be a Matroska container, a raw PGS `.sup` dump, or a VOBSUB `.idx`/`.sub` pair. Output is
 SubRip or WebVTT.
 
+Data goes to stdout; everything the tool says about itself goes to stderr, coloured by severity and
+with a spinner or a progress bar while it works. Both switch themselves off when stderr is not a
+terminal, so a piped run, a redirect and CI are already clean and need no flag — `--color`,
+`--progress` and `--plain` are there for the case detection gets it wrong. `NO_COLOR` is honoured.
+Not one escape byte reaches stdout, ever: a coloured `.srt` is a corrupt `.srt`.
+
 There is also `subtrackt glyphs <file>`, which dumps normalised glyph shapes without trying to read
 them. Feature vectors are comparable across titles even with no reference set, which is what made
 the two measurement write-ups possible.

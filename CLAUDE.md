@@ -36,7 +36,10 @@ in seven places and the script is what keeps them in step. `docs/distribution.md
 ## Dependencies
 
 **Library crates take no dependencies.** `subtrackt-core` through `subtrackt` use only the standard
-library. `clap`, `anyhow` and `tracing` live in `subtrackt-cli` and nowhere else.
+library. `clap`, `anyhow`, `tracing` and the `anstyle`/`anstream`/`anstyle-query` colour stack live
+in `subtrackt-cli` and nowhere else. The last three cost nothing to name: `clap`'s default features
+already compile all of them into the binary, so #83 declared what was in the tree rather than
+adding to it.
 
 This is not asceticism: #1 asks for a single static binary, and #16 had to decide between shipping a
 CLI and a `cdylib` behind P/Invoke. A dependency-free core made that a question about one new crate

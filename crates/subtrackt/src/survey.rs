@@ -11,6 +11,7 @@
 
 use std::path::Path;
 
+use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_core::{Error, FeatureVector, LineMetrics, MarkSlope, Rect, Result, TimeSpan};
 use subtrackt_demux::StreamInfo;
 
@@ -77,6 +78,24 @@ impl crate::Pipeline {
     /// # Errors
     /// Propagates demux, decode and segmentation failures.
     pub fn survey(&self, path: impl AsRef<Path>, max_cues: Option<usize>) -> Result<GlyphSurvey> {
+        self.survey_watched(path, max_cues, &Silent)
+    }
+
+    /// Survey a file, reporting where the pass has got to.
+    ///
+    /// Identical to [`Self::survey`] but for the observer, and indeterminate even when `max_cues`
+    /// is set. The cap is an upper bound rather than a total: the pass also ends when the source
+    /// runs dry, and a title with fewer cues than the cap would leave a bar stopped part-way with
+    /// the work finished — which says the opposite of what happened.
+    ///
+    /// # Errors
+    /// As [`Self::survey`].
+    pub fn survey_watched(
+        &self,
+        path: impl AsRef<Path>,
+        max_cues: Option<usize>,
+        progress: &dyn Progress,
+    ) -> Result<GlyphSurvey> {
         use subtrackt_core::Segmenter;
 
         let path = path.as_ref();
@@ -99,6 +118,7 @@ impl crate::Pipeline {
         let mut span: Option<TimeSpan> = None;
 
         let mut images = Vec::new();
+        progress.begin(Phase::Survey, None);
         'outer: while let Some(packet) = source.next_packet()? {
             images.clear();
             images.extend(decoder.push(packet.pts, &packet.payload)?);
@@ -119,12 +139,14 @@ impl crate::Pipeline {
                     None => image.span,
                 });
                 cues += 1;
+                progress.advance(u64::try_from(cues).unwrap_or(u64::MAX));
 
                 if max_cues.is_some_and(|limit| cues >= limit) {
                     break 'outer;
                 }
             }
         }
+        progress.end();
 
         Ok(GlyphSurvey { stream, cues, span, glyphs })
     }

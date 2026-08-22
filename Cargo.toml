@@ -28,6 +28,11 @@ subtrackt-text = { path = "crates/subtrackt-text", version = "0.0.1-alpha" }
 subtrackt = { path = "crates/subtrackt", version = "0.0.1-alpha" }
 
 anyhow = "1"
+# The colour stack, named rather than inherited. `clap`'s default features already compile all
+# three into the shipped binary, so declaring them adds no crate and no bytes -- see #83.
+anstream = "1"
+anstyle = "1"
+anstyle-query = "1"
 clap = { version = "4", features = ["derive"] }
 fontdue = "0.9"
 miniz_oxide = "0.8"
