@@ -208,16 +208,24 @@ fn object(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
     b
 }
 
-/// Build a `.sup` from cues, each a list of text lines.
+/// Rendering sizes a repeated fixture cycles through, as multiples of the nominal size.
+///
+/// A real stream is authored once, so its characters do not change typeface or weight — but the
+/// same character still reaches the segmenter as several slightly different rasterisations, which
+/// is why a Blu-ray yields a few hundred distinct shapes for a few dozen characters. These
+/// multiples reproduce that: same font, same everything else, a few percent of size either way.
+const VARIED_SCALES: [f32; 5] = [1.0, 0.94, 1.06, 0.97, 1.03];
+
+/// Build a `.sup` from cues, each a list of text lines rendered at its own size.
 fn build_sup(
     font: &Font,
-    cues: &[Vec<String>],
-    px: f32,
+    cues: &[(Vec<String>, f32)],
     plane: (u32, u32),
 ) -> anyhow::Result<Vec<u8>> {
     let mut file = Vec::new();
 
-    for (index, lines) in cues.iter().enumerate() {
+    for (index, (lines, px)) in cues.iter().enumerate() {
+        let px = *px;
         let rendered: Vec<Rendered> = lines
             .iter()
             .map(|line| render_line(font, line, px))
@@ -284,14 +292,33 @@ pub fn make(args: &[String]) -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
-    let cues = default_cues();
-    let sup = build_sup(&font, &cues, px, (1920, 1080))?;
+    // Repeating the cue set is what makes a fixture resemble a stream rather than a page: the same
+    // characters recur, each time rasterised slightly differently, which is the variation
+    // clustering exists to absorb. Without it a fixture can only show clustering's cost.
+    let repeats: usize = match args.iter().position(|a| a == "--repeat") {
+        Some(at) => args
+            .get(at + 1)
+            .context("--repeat needs a value")?
+            .parse()?,
+        None => 1,
+    };
+
+    let base = default_cues();
+    let mut cues: Vec<(Vec<String>, f32)> = Vec::new();
+    for pass in 0..repeats.max(1) {
+        let scale = VARIED_SCALES[pass % VARIED_SCALES.len()];
+        for lines in &base {
+            cues.push((lines.clone(), px * scale));
+        }
+    }
+
+    let sup = build_sup(&font, &cues, (1920, 1080))?;
 
     let sup_path = out_dir.join("synthetic.sup");
     let truth_path = out_dir.join("synthetic.txt");
     let truth: String = cues
         .iter()
-        .map(|lines| lines.join("\n"))
+        .map(|(lines, _)| lines.join("\n"))
         .collect::<Vec<_>>()
         .join("\n")
         + "\n";

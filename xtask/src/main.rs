@@ -13,6 +13,7 @@
 mod accuracy;
 mod fixture;
 mod stability;
+mod sweep;
 
 use std::path::PathBuf;
 
@@ -139,6 +140,7 @@ fn main() -> anyhow::Result<()> {
         Some("measure-stability") => return stability::measure(&args[1..]),
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
+        Some("cluster-sweep") => return sweep::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");

@@ -101,7 +101,8 @@ impl Pipeline {
         // VOBSUB carries its palette out of band; without this a subpicture has colour indices
         // and no colours.
         decoder.configure(&stream.codec_private)?;
-        let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?;
+        let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?
+            .with_cluster_rules(self.config.clustering);
         let segmenter =
             ImageSegmenter::new(Binarizer::new(self.config.binarize), self.config.grey_coverage);
         let assembler = SpatialAssembler::new(self.config.layout_rules());
@@ -158,11 +159,25 @@ impl Pipeline {
     ) -> Result<TextTrack> {
         use subtrackt_core::TextAssembler;
 
+        // Segment everything before matching anything. The matcher groups a stream's own shapes
+        // and matches the groups, which it cannot do while answers are already being handed out —
+        // see `subtrackt_glyph::cluster` for why identifying glyphs one at a time cannot work.
+        let mut per_image: Vec<Vec<subtrackt_core::Glyph>> = Vec::with_capacity(images.len());
+        for image in images {
+            per_image.push(segmenter.segment(image)?);
+        }
+
+        let all_glyphs: Vec<subtrackt_core::Glyph> = per_image
+            .iter()
+            .flat_map(|glyphs| glyphs.iter().cloned())
+            .collect();
+        matcher.prepare(&all_glyphs)?;
+        report.distinct_shapes = matcher.distinct_shapes();
+        report.clusters = matcher.clusters();
+
         let mut cues = Vec::with_capacity(images.len());
 
-        for image in images {
-            let glyphs = segmenter.segment(image)?;
-
+        for (image, glyphs) in images.iter().zip(per_image) {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
                 identified.push(matcher.match_glyph(glyph)?);

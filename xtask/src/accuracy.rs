@@ -29,7 +29,7 @@ const CANDIDATES: [&str; 6] = [
     "C:/Windows/Fonts/segoeui.ttf",
 ];
 
-fn find_font(explicit: Option<&String>) -> Option<PathBuf> {
+pub fn find_font(explicit: Option<&String>) -> Option<PathBuf> {
     if let Some(path) = explicit {
         let path = PathBuf::from(path);
         return path.exists().then_some(path);
