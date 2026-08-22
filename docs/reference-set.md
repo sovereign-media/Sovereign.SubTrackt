@@ -140,9 +140,13 @@ to place one.
 | The right typeface, the accuracy fixture (exact by construction) | 13.9 |
 | The best *wrong* typeface, this disc | 18.5 |
 
-A floor near 15 accepts the right answer on both and refuses all nine wrong ones here. One disc is
-one data point and the number should not be fixed from it, but the bracket is real and it is the
-first evidence that a floor can exist at all rather than being a hope in an acceptance criterion.
+A floor near 15 accepts the right answer on both and refuses all nine wrong ones here.
+
+**And that inference was wrong, which is worth leaving in place rather than deleting.** The three
+numbers above are real and reproducible; what does not follow from them is that a floor exists. One
+disc gives one bracket, and a bracket drawn around a single sample says nothing about where the next
+sample lands. Leave-one-out over eight typefaces — the next section but one — puts a *good* read at
+16.1 cells and a *bad* one at 14.7, and no floor survives that. The gap here was this disc's luck.
 
 ### And a constraint on where fitting happens
 
