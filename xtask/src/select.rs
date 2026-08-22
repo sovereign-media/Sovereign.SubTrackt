@@ -681,10 +681,11 @@ fn character_tally(t: &Trial, panel: &[&&Scored]) -> (Tally4, BTreeMap<char, usi
 
         let written: Vec<char> = winner.chars().collect();
         for (slot, (right, backed)) in correct.into_iter().zip(supported).enumerate() {
-            if backed && !right {
-                if let Some(c) = written.get(slot) {
-                    *agreed_wrong.entry(*c).or_insert(0usize) += 1;
-                }
+            if backed
+                && !right
+                && let Some(c) = written.get(slot)
+            {
+                *agreed_wrong.entry(*c).or_insert(0usize) += 1;
             }
             match (backed, right) {
                 (true, true) => counts.clean += 1,

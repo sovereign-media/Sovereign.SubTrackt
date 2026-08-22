@@ -41,15 +41,17 @@ $ subtrackt extract '10 Cloverfield Lane (2016).mkv' --reference arial.subtref \
   / 3878 ambiguous (95.3% read); fit 11.7; cache 100%; corrections 362 (context)
 ```
 
-**5.5% character error** on that track's 775 upright cues, scored against the English subtitle
-shipped beside the rip — see [`docs/reference-set.md`](docs/reference-set.md), which also says why
-that comparison is evidence rather than ground truth.
+**5.5% character error across all 818 scored cues**, against **61.6%** for a reference set chosen to
+be wrong — an eleven-fold difference, and the whole argument for fitting. Scored against the English
+subtitle shipped beside the rip; see [`docs/reference-set.md`](docs/reference-set.md), which also
+says why that comparison is evidence rather than ground truth.
 
 What is still missing is where the candidate sets come from: `.subtref` files are generated from
-fonts by `cargo run -p xtask -- gen-reference`, which needs the repository. Putting a font
-rasteriser in the shipped binary would raise the MSRV from 1.85 to 1.87, so that is
-[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)'s call rather than a thing
-to slip in.
+fonts by `cargo run -p xtask -- gen-reference`, which needs the repository. Putting a rasteriser in
+the shipped binary is no longer a toolchain question — it is a dependency one. `fontdue` brings
+seven transitive crates against `miniz_oxide`'s one, and the library crates take exactly one
+third-party crate between them today. That trade is
+[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)'s to make.
 
 See [issue #1][issue-1] for the original design, [`docs/architecture.md`](docs/architecture.md) for
 how it is laid out, and the two measurement write-ups below for where the design has moved.
@@ -163,15 +165,15 @@ $ cargo build --release
 $ cargo test --workspace
 ```
 
-Rust 1.85 or newer, and no system dependencies. The library crates take exactly one third-party
+Rust 1.98 or newer, and no system dependencies. The library crates take exactly one third-party
 crate between them — `miniz_oxide`, because 83% of the PGS tracks in a real library are stored
 zlib-compressed inside Matroska and refusing it meant failing on most of the library. Everything
 else is the standard library, which is what keeps the single-static-binary option in
 [#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16) open and cross-compilation
 to `linux/arm64` uneventful.
 
-Run `scripts/check.sh` before pushing: it runs what CI runs, including clippy at pedantic and the
-1.85 MSRV build, which are the two gates that catch the most.
+Run `scripts/check.sh` before pushing: it runs what CI runs, including clippy at pedantic, which is
+the gate that catches the most.
 
 ## As a library
 

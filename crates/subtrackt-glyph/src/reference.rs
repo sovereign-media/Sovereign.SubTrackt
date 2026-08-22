@@ -273,10 +273,14 @@ impl ReferenceSet {
                 ENTRY_LEN_V2 => 10,
                 _ => 7,
             };
+            // `as_chunks` rather than a slice and a `try_into().expect(...)`: the eight-byte window
+            // is a property the type system can carry, so the panic path that asserted it at
+            // runtime is gone rather than merely unreachable. A parser is the last place to leave
+            // one — see the "Failing" rule in `CLAUDE.md`.
+            let (chunks, _) = chunk[words_at..].as_chunks::<8>();
             let mut words = [0u64; FEATURE_WORDS];
-            for (index, word) in words.iter_mut().enumerate() {
-                let at = words_at + index * 8;
-                *word = u64::from_le_bytes(chunk[at..at + 8].try_into().expect("8 bytes"));
+            for (word, bytes) in words.iter_mut().zip(chunks) {
+                *word = u64::from_le_bytes(*bytes);
             }
             entries.push(ReferenceEntry {
                 character,
@@ -405,7 +409,9 @@ mod tests {
             .copied()
             .chain(
                 bytes[HEADER_LEN + "fitted-2026".len()..]
-                    .chunks_exact(ENTRY_LEN)
+                    .as_chunks::<ENTRY_LEN>()
+                    .0
+                    .iter()
                     .flat_map(|entry| {
                         // Drop the mark-known flag and the slope, which sit between the metrics and
                         // the vector.

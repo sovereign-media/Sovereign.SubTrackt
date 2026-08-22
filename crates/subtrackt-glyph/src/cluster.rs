@@ -348,11 +348,11 @@ pub fn cluster(shapes: &Shapes, rules: ClusterRules) -> Vec<Cluster> {
         centroids = recentre(&ranked, &assignment, centroids.len());
         let mut moved = false;
         for (slot, (shape, _)) in ranked.iter().enumerate() {
-            if let Some((index, _)) = nearest(&centroids, shape, rules) {
-                if index != assignment[slot] {
-                    assignment[slot] = index;
-                    moved = true;
-                }
+            if let Some((index, _)) = nearest(&centroids, shape, rules)
+                && index != assignment[slot]
+            {
+                assignment[slot] = index;
+                moved = true;
             }
         }
         if !moved {
