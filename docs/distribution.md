@@ -11,13 +11,14 @@ it did not exist yet. They do now, and they are lopsided enough that the decisio
 
 | | |
 | :--- | ---: |
-| Release binary | **1.45 MB** |
+| Release binary | **1.56 MB** |
 | Cold start, process spawn to exit | **15.8 ms** |
 | Reference set on disk | **6.3 KB** |
 | Extraction, 5.5 GB film, 1,111 cues | **22 s** |
 
-Cold start is the mean of three runs of fifty `subtrackt --version` invocations, 14.7–16.5 ms across
-runs. That is a Windows figure and Windows has the slowest process creation of the three platforms
+The binary was 1.45 MB when these were taken and grew 114 KB (7.7%) when #80 put a font rasteriser
+in it, which is the only thing that has moved it. Cold start is the mean of three runs of fifty
+`subtrackt --version` invocations, 14.7–16.5 ms across runs. That is a Windows figure and Windows has the slowest process creation of the three platforms
 here, so it is an upper bound on what Linux will do rather than an estimate of it.
 
 The comparison that matters is against the 37-track file §4 names as the worst case in the queue.
@@ -90,12 +91,22 @@ is the cheaper half of that trade. All four targets are type-checked on every pu
 ## What a consumer still has to supply
 
 The binary embeds no reference sets, on purpose — see [`reference-set.md`](reference-set.md). A
-release artifact on its own extracts cues and names none of the glyphs in them. Whatever integrates
-this needs a directory of `.subtref` files alongside the binary, and `subtrackt fit` picks between
-them per title.
+release artifact on its own extracts cues and names none of the glyphs in them.
 
-That is the real remaining integration cost, and it is worth being clear that it is larger than
-anything on the table above. It is not a distribution problem, so it is not solved here.
+When this document was first written that was the largest remaining integration cost, because making
+a `.subtref` needed the repository and a Rust toolchain — precisely what §4 establishes Sovereign
+does not have. #80 closed it: `subtrackt gen-reference` renders a font, or a directory of fonts,
+using the same normalisation `extract` applies to a decoded bitmap. Three commands with nothing
+installed but the artifact:
+
+```console
+$ subtrackt gen-reference /usr/share/fonts ./sets
+$ subtrackt fit movie.mkv --references ./sets -o movie.subtref
+$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.srt
+```
+
+What is still the consumer's to supply is the *fonts* — which is a licensing question rather than a
+distribution one, and the reason it stays theirs is in `reference-set.md`.
 
 ## Caveats
 

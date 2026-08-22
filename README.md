@@ -46,12 +46,11 @@ be wrong — an eleven-fold difference, and the whole argument for fitting. Scor
 subtitle shipped beside the rip; see [`docs/reference-set.md`](docs/reference-set.md), which also
 says why that comparison is evidence rather than ground truth.
 
-What is still missing is where the candidate sets come from: `.subtref` files are generated from
-fonts by `cargo run -p xtask -- gen-reference`, which needs the repository. Putting a rasteriser in
-the shipped binary is no longer a toolchain question — it is a dependency one. `fontdue` brings
-seven transitive crates against `miniz_oxide`'s one, and the library crates take exactly one
-third-party crate between them today. That trade is
-[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)'s to make.
+Where the candidate sets come from used to be the missing half: `.subtref` files needed the
+repository and a Rust toolchain to make. `subtrackt gen-reference` now renders them from any font,
+or from a whole directory of them, so the released binary is self-sufficient. The rasteriser sits
+behind an off-by-default feature on `subtrackt-glyph`, which costs the binary 114 KB and leaves a
+library consumer who does not want it with the dependency-free crate they had.
 
 See [issue #1][issue-1] for the original design, [`docs/architecture.md`](docs/architecture.md) for
 how it is laid out, and the two measurement write-ups below for where the design has moved.
@@ -134,9 +133,15 @@ $ curl -LO https://github.com/sovereign-media/Sovereign.SubTrackt/releases/lates
 $ chmod +x subtrackt-*-x86_64-unknown-linux-musl && mv subtrackt-*-x86_64-unknown-linux-musl subtrackt
 ```
 
-It ships with no reference sets, so a directory of `.subtref` files has to sit beside it — that is
-the point of `subtrackt fit`, and the reasoning is in
-[`docs/reference-set.md`](docs/reference-set.md).
+It ships with no reference sets, and the reasoning is in
+[`docs/reference-set.md`](docs/reference-set.md): a shipped set trades a detectable failure for an
+undetectable one. Make your own from fonts you already have, then let `fit` choose between them:
+
+```console
+$ subtrackt gen-reference /usr/share/fonts ./sets
+$ subtrackt fit movie.mkv --references ./sets -o movie.subtref
+$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt
+```
 
 Why a CLI rather than a `cdylib`, why static musl, and the binary-size and cold-start numbers behind
 both, are in [`docs/distribution.md`](docs/distribution.md): process spawn costs 15.8 ms against a

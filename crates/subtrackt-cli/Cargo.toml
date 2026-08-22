@@ -18,7 +18,9 @@ doc = false
 [dependencies]
 subtrackt.workspace = true
 subtrackt-core.workspace = true
-subtrackt-glyph.workspace = true
+# `font` so a downloaded binary can generate its own reference sets rather than needing the
+# repository and a Rust toolchain to make one. #80.
+subtrackt-glyph = { workspace = true, features = ["font"] }
 
 anyhow.workspace = true
 clap.workspace = true

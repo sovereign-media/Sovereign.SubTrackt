@@ -22,6 +22,8 @@ pub mod cache;
 pub mod ccl;
 pub mod cluster;
 pub mod feature;
+#[cfg(feature = "font")]
+pub mod font;
 pub mod group;
 pub mod mark;
 pub mod matcher;

@@ -8,8 +8,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# Off by default: this is the only third-party dependency in any library crate besides
+# `miniz_oxide`, and a consumer who does not need to render fonts should not carry a rasteriser.
+# `subtrackt-cli` turns it on so a release binary can make its own reference sets; see #80.
+font = ["dep:fontdue"]
+
 [dependencies]
 subtrackt-core.workspace = true
+
+fontdue = { workspace = true, optional = true }
 
 [lints]
 workspace = true
