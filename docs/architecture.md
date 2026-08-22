@@ -11,11 +11,13 @@ restate the design.
 ```
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
-  (done)    (done)     (done)      (done)      (done)      #9/#10    (done)/#12   (done)
+  (done)    (done)     (done)      (done)      (done)      (done)      (done)      (done)
 
-Everything but matching is built. The pipeline reads a Blu-ray rip end to end and emits timed cues
-with a confidence tally; what it cannot do is name the characters, because #9 has no reference set
-worth embedding and #10 needs redesigning — see "What the measurements changed" below.
+Every stage is built, and the pipeline reads a Blu-ray rip end to end. What it cannot do is name
+characters *out of the box*, because nothing is embedded to match against — a decision rather than
+a gap, and the reason is in [reference-set.md](reference-set.md). Given a reference set built from
+the material's own typeface it reads text at 12.8% character error; given one built from a
+near-identical typeface, 26.8%. That gap is the project's remaining problem and it is #43.
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -86,8 +88,14 @@ Complete and tested:
 - SRT and WebVTT writers.
 - The pipeline wiring, end to end.
 
-Stubbed, each returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#4, and
-see below), and reference data (#9).
+- **VOBSUB decoding, complete**: control sequences, out-of-band palette, nibble RLE.
+- **Glyph matching, complete**: linear scan by Hamming distance with a line-relative metric term,
+  the runner-up margin that flags an ambiguous read, and the session cache.
+- **Post-correction**: ambiguous reads resolved from the characters either side of them, off by
+  default. [post-correction.md](post-correction.md) records the measurement behind that default.
+
+Stubbed, returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#4, and see
+below). Nothing else is a stub — the empty reference set is a decision, not a placeholder.
 
 ### What the library actually contains
 
@@ -106,20 +114,19 @@ The track-count figure matters for #16: `MaxConcurrentExtractions` and `TimeoutM
 against an assumed worst case that is roughly half the real one.
 
 **The pipeline is connected end to end**, and has been run against a real 5.5 GB Blu-ray rip:
-1,111 cues, 35,516 glyphs, a 99% session-cache hit rate, in 22 seconds. Every glyph comes back
-unmatched because the reference set is empty, so the structure is proven and the content is not —
-that is #9, which waits on #8.
+1,111 cues, 35,516 glyphs, a 99% session-cache hit rate, in 22 seconds.
 
- Running the CLI over a `.sup` produces timed cues with a
-confidence tally. Because nothing is embedded, every glyph comes back unmatched and the default
+Given a reference set it reads text; without one every glyph comes back unmatched and the default
 floor refuses the track, naming the numbers behind it — which is the designed behaviour, not a
-failure. `--on-unmatched placeholder` shows the cues and their timings. What stands between this and
-real text is reference data fitted to the material; `docs/reference-set.md` records why shipping a
-fixed set instead measured worse than shipping none.
+failure. `--version` says which reference data a binary carries, so a user seeing that can tell it
+apart from a broken decoder.
 
-The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
-unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
-belongs in it.
+The reference set ships **empty**, and #9 closed by measuring that this is the right answer rather
+than a temporary one. A set built from a *near-identical* typeface — Liberation Sans against
+Arial-authored material — costs 11 points of character error, which is Verdana's cost to within
+noise, and neither coverage nor match distance detects it. Shipping one would trade a detectable
+failure for an undetectable one. [reference-set.md](reference-set.md) has the table; #43 is the
+answer, which is to fit the set to the title rather than to the binary.
 
 ### A hand-rolled Matroska reader, not symphonia
 
@@ -205,8 +212,16 @@ of the two outcomes §4 anticipated. It works because the expensive axes are con
 stream: one encoder, one palette, one typeface, so a title's own glyphs vary only along the cheap
 axes and clustering them cancels exactly what defeats a fixed set.
 
-That makes #10 a redesign rather than an implementation, and makes reducing edge sensitivity in
-binarization the largest cheap-to-attack term left.
+That made #10 a redesign rather than an implementation. **It was redesigned, measured, and shipped
+off**: `ClusterRules::default()` uses a radius of zero, because no radius exists that groups a
+stream's variation without first merging characters the vector never separated — `I`, `l` and `|`
+sit at distance *zero* from one another. Reducing edge sensitivity in binarization was likewise
+tried and measured neutral-to-worse. Both write-ups are in [glyph-stability.md](glyph-stability.md).
+
+**What did pay was aiming at separation rather than at variance.** Measuring each glyph against its
+own text line — how tall it stands relative to that line's cap height, and how far it sits below the
+baseline — took 5.8 to 8.1 points off the character error rate and is the first change to improve
+the *distance between different characters* rather than the spread within one.
 
 ## Decisions still open
 
@@ -214,10 +229,15 @@ These are the §4 questions from #1, with where they live in the code.
 
 | Question | Where | Issue |
 | :--- | :--- | :--- |
-| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
-| ~~What happens to a cue with an unmatched glyph~~ | `subtrackt::UnmatchedPolicy` | #13 — **decided**, below |
-| Session cache scope, and the redesign it now needs | `subtrackt-glyph::cache` | #10 |
+| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 — untested; worth measuring now that #15 can score it |
+| Where a reference set comes from | `subtrackt_glyph::reference` | #43 |
+| Word spacing, which #11 landed before anything could score it | `subtrackt_text::layout::is_space` | #40 |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |
+
+Answered since this table was written, and kept here so the answers are findable: what happens to a
+cue with an unmatched glyph (#13, below); session cache scope and the cluster-then-match redesign
+(#10 — clustering measured worse and ships off); whether one reference vector per character survives
+style variation (#14 — it does not).
 
 ### The accuracy gate
 
@@ -394,5 +414,7 @@ $ scripts/check.sh
 - Thresholds are fractions, never pixel counts or raw cell counts. The same title ships at several
   resolutions, and `FEATURE_GRID` may yet change.
 - Test names state the property under test, not the function under test.
-- `unsafe` is forbidden workspace-wide. If the SIMD work in #10 needs it, that is a decision with a
-  justification, taken then.
+- `unsafe` is forbidden workspace-wide. #10 anticipated SIMD needing it; #10 shipped without any,
+  and the matcher now scans one vector per *cluster* rather than per glyph, so the case for it is
+  weaker than when the rule was written. If it ever returns, it is a decision with a justification,
+  taken then.

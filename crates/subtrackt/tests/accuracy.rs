@@ -90,8 +90,8 @@ fn segmentation_finds_about_one_glyph_per_visible_character() {
 
 #[test]
 fn every_glyph_is_unmatched_without_a_reference_set() {
-    // The embedded set is empty by design until #9 has one worth shipping. This pins that the
-    // pipeline says so honestly rather than guessing.
+    // Nothing is embedded, and #9 closed by measuring that shipping a set would read worse than
+    // shipping none. This pins that the pipeline says so honestly rather than guessing.
     let outcome = extract();
     assert_eq!(outcome.report.matched, 0);
     assert!(outcome.report.unmatched > 0);

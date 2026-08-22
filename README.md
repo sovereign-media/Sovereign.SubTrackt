@@ -36,15 +36,16 @@ probabilities.
 
 ## What the measurements found
 
-Three things were measured against a real 1,328-title library rather than assumed. Each changed the
-design.
+Nothing here was assumed. Each of these was measured — against a real 1,328-title library, or
+against ground truth the tool renders itself — and each one changed the design, usually by killing
+the plan it was meant to confirm.
 
 **[`docs/library-survey.md`](docs/library-survey.md)** — 56 titles, 1950s–2020s, 149,604 glyphs.
 A dominant glyph family runs through the library and one cluster covers 43 of 56 titles across
-seventy years, so a fixed reference set is worth having. Fitting rendered fonts against it
-identifies the typeface as **Arial or very close**: the most frequent extracted shapes land on
-`i` at distance 0, `t` at 6, `a` at 10, `o` at 13. But a fixed set covers only **46%** of glyph
-instances.
+seventy years. Fitting rendered fonts against it identifies the typeface as **Arial or very close**:
+the most frequent extracted shapes land on `i` at distance 0, `t` at 6, `a` at 10, `o` at 13. But a
+fixed set covers only **46%** of glyph instances, and "or very close" turned out to be the expensive
+half of that sentence — see below.
 
 **[`docs/glyph-stability.md`](docs/glyph-stability.md)** — why. Two renderings of the *same*
 character are typically further apart (median 46 cells) than two *different* characters are
@@ -65,9 +66,17 @@ Being visually close to the material bought 0.6 points, and neither coverage nor
 notices. A shipped set would trade a detectable failure for an undetectable one.
 
 **The consequence.** One reference vector per character cannot work, and enumerating styles does not
-rescue it. The session cache stops being an optimisation and becomes the mechanism: the expensive
-axes are constant *within* a stream, so clustering a title's own repeated shapes cancels exactly the
-variation that defeats a fixed set. That is the second of the two outcomes §4 of #1 anticipated.
+rescue it. Clustering a title's own repeated shapes was the obvious escape — the expensive axes are
+constant within a stream — and it was built, swept and **measured worse at every radius**: no radius
+groups a title's variation without first merging characters the vector never separated, since `I`,
+`l` and `|` sit at distance zero from one another.
+
+What did work was aiming at *separation* rather than at variance. Measuring each glyph against its
+own text line — how tall it stands relative to that line's cap height, how far it drops below the
+baseline — took 5.8 to 8.1 points off the error rate, because it adds the one thing normalisation
+deliberately throws away. The reference set still has to come from the material's own typeface,
+which is [#43](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43) and is what stands
+between this and working out of the box.
 
 ## Usage
 
@@ -156,21 +165,32 @@ print!("{}", outcome.render(&config)?);
 Work is tracked as sub-issues of [#1][issue-1], and [`CLAUDE.md`](CLAUDE.md) records the conventions
 the project runs on — most of them written down because something broke when they were not followed.
 
-The two issues that gated everything else, #8 and #14, are both answered; their write-ups are in
-`docs/` and are the reason the remaining work looks different from the original plan. What is left,
-roughly in order of leverage:
+Every stage of the pipeline is built and every measurement issue is answered; their write-ups are in
+`docs/` and are the reason the remaining work looks nothing like the original plan. Four things that
+were on this list are done and worth knowing about, because each closed by measuring that the plan
+was wrong:
 
-- **[#10](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/10)** needs *redesigning*,
-  not implementing. It is written as per-glyph matching against a fixed set, and the measurements
-  say that cannot work. It should become: cluster a stream's own shapes, then match cluster
-  centroids against the reference.
-- **Reducing edge sensitivity in binarization.** At 30 cells it is the largest term that is cheap to
-  attack, and unlike weight and slant it is an artefact of our own thresholding.
-- **[#3](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/3)** — VOBSUB. Only 4% of
-  titles, but the entire DVD-era half of the library is unmeasured without it.
-- **[#15](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/15)** — ground truth.
-  Everything measured so far is coverage, not correctness, and nothing can tell the difference
-  until this exists.
+- **#10** was to cluster a stream's own shapes and match the centroids. Built, swept, and **shipped
+  off** — no radius groups a title's variation without first merging characters the vector never
+  separated, since `I`, `l` and `|` sit at distance *zero* from each other.
+- **Reducing edge sensitivity in binarization** was the largest cheap term left. Two approaches,
+  both **neutral-to-worse**. The lever was the binary mask itself, not where the threshold fell.
+- **#9** was to embed a reference set. Measured, and **not worth shipping**: see above.
+- **#15** built the scoring harness, which is what turned every claim in this repository from
+  coverage into correctness — and immediately showed the two are barely related.
+
+What is actually left, in order of leverage:
+
+- **[#43](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43)** — fit the reference
+  set to the title rather than to the binary. This is the one that makes the tool work out of the
+  box, and #9's measurement is the argument for it.
+- **[#40](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40)** — word spacing. The
+  largest measured error class left: 3.2 of the remaining 12.8 CER points, and most of the gap
+  between the character and word rates.
+- **Punctuation segmentation**, untracked. Six of the eight unmatched glyphs in the ceiling fixture
+  are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
+- **[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)** — distribution. A
+  decision more than a build; the throughput numbers already weaken the `cdylib` case.
 
 ## Licence
 

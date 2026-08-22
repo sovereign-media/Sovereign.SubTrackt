@@ -165,13 +165,13 @@ fn report(score: &Score, report: &subtrackt::Report, reference: &str, hypothesis
     let hypothesis_words = hypothesis.split_whitespace().count();
     if hypothesis_words < reference_words {
         println!(
-            "  spacing   : {} words run together (#11 gap threshold)",
+            "  spacing   : {} words run together (#40 gap threshold)",
             reference_words - hypothesis_words
         );
     }
     let placeholders = hypothesis.matches('\u{fffd}').count();
     if placeholders > 0 {
-        println!("  unread    : {placeholders} glyphs matched nothing (#9 reference coverage)");
+        println!("  unread    : {placeholders} glyphs matched nothing (reference coverage, #43)");
     }
 }
 
