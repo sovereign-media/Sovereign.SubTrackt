@@ -358,18 +358,23 @@ held; the magnitude was wrong.
 
 `xtask metric-sweep` scores the weight across the same four conditions as #10:
 
-| weight | plain, exact | varied, exact | plain, near miss | varied, near miss |
-| :--- | ---: | ---: | ---: | ---: |
-| 0 (shape only) | 16.9% | 23.9% | 32.3% | 28.5% |
-| 25 | 16.1% | 19.4% | 29.8% | 24.7% |
-| **50** | **16.1%** | **17.0%** | **24.2%** | **22.8%** |
-| 75 | 16.1% | 17.0% | 25.0% | 23.1% |
-| 150 | 16.1% | 18.3% | 25.0% | 26.0% |
-| 250 | 16.9% | 22.6% | 31.5% | 31.1% |
+| weight | `o` vs `O` | plain, exact | varied, exact | plain, near miss | varied, near miss |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| 0 (shape only) | 0 | 16.9% | 23.9% | 32.3% | 28.5% |
+| 98 | 7 | 16.1% | 19.4% | 29.8% | 24.7% |
+| **196** | **14** | **16.1%** | **17.0%** | **24.2%** | **22.8%** |
+| 293 | 21 | 16.1% | 17.0% | 25.0% | 23.1% |
+| 586 | 42 | 16.1% | 18.3% | 25.0% | 26.0% |
+| 977 | 70 | 16.9% | 22.6% | 31.5% | 31.1% |
 
-CER, lower is better. **Fifty is best or tied-best in all four**, which is a clean choice rather than
-a fitted one, and it is what ships. At that weight a full cap-height difference is worth 14 cells —
-twice the ambiguity margin, comfortably inside the 51-cell match ceiling.
+CER, lower is better. The weight is in tenths of a percent of the vector per full cap height, and
+the second column is what that makes the gap between an `o` and an `O` — 28 points of cap height —
+worth in cells. #45 moved the unit after the fact: these rows were measured as 0, 25, 50, 75, 150
+and 250 hundredths of a cell, and at 16×16 the two spellings name the same cell counts exactly.
+
+**196 — fourteen cells between an `o` and an `O` — is best or tied-best in all four**, which is a
+clean choice rather than a fitted one, and it is what ships. Fourteen cells is twice the ambiguity
+margin, comfortably inside the 51-cell match ceiling.
 
 The gains land where they should. The ceiling case improves by 0.8 points because it was never
 failing on this; the realistic cases — varied rendering, mismatched typeface — improve by **5.8 to
@@ -464,8 +469,9 @@ The answer is **not proven**, and how the measurement says so matters more than 
 
 ### One instrument says yes
 
-`xtask metric-sweep`, each grid scored at its own best weight — see #45 for why the weight has to
-move at all:
+`xtask metric-sweep`, each grid scored at its own best weight — #45 is why it had to move at all,
+and has since been fixed. Both settings are quoted below in the hundredths-of-a-cell unit that was
+current when they were measured:
 
 | condition | 16×16 (w=50) | 32×32 (w=250) | |
 | :--- | ---: | ---: | :--- |
@@ -519,8 +525,57 @@ problem; measured, it behaves like every other variance lever, because a finer g
 letterform's noise as faithfully as its signal.
 
 **Not shipped.** `FEATURE_GRID` stays at 16. What the attempt did buy is that the constant can now
-actually be changed — see #45 — so the next person to ask is a one-line experiment away rather than
-an afternoon of hardcode archaeology.
+actually be changed — the hardcodes are gone and #45 below is fixed — so the next person to ask is a
+one-line experiment away rather than an afternoon of hardcode archaeology.
+
+### The exchange rate that was not a fraction
+
+`metric_weight` was documented in hundredths of a cell: an absolute count, on the one axis
+`MatchThresholds` promises in as many words is scale-free. A full cap height was therefore worth 50
+cells at every grid size — 19.6% of a 256-bit vector and 4.9% of a 1024-bit one — which is why the
+32×32 attempt above had to refit it before the grid could be judged at all, and why anyone flipping
+the constant without noticing would have measured the refit's absence and blamed the grid.
+
+It is now tenths of a percent of `FEATURE_BITS` per cap height. 196 is the same 50 cells at 16×16
+and 200 at 32×32, and the promise the type makes is now enforced by a test that evaluates the
+conversion at several grid sizes rather than only the one the build uses.
+
+**A re-expression, not a retune**, and the sweep says so: every row of `xtask metric-sweep` at 16×16
+is identical before and after, setting for setting, cell count for cell count and CER for CER.
+
+| `o` vs `O` | plain, exact | varied, exact | plain, near miss | varied, near miss |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 cells | 11.6% | 19.8% | 31.7% | 26.5% |
+| 7 | 11.0% | 14.4% | 29.9% | 22.9% |
+| **14 (shipped)** | **11.0%** | **11.4%** | **22.6%** | **19.8%** |
+| 21 | 11.0% | 11.4% | 21.3% | 19.3% |
+| 42 | 11.0% | 12.6% | 21.3% | 21.5% |
+| 70 | 11.6% | 16.6% | 28.7% | 26.2% |
+
+Indexed by cell count rather than by setting, because the cell count is the thing both spellings
+agree on. The figures sit well below the #37 table further up because the tree has moved since —
+#12 and #40 both landed.
+
+And what the fix is worth, which is the point of it. `FEATURE_GRID` flipped to 32 on this tree, with
+the term priced both ways:
+
+| an `o` against an `O` at 32×32 | plain, exact | varied, exact | plain, near miss | varied, near miss |
+| :--- | ---: | ---: | ---: | ---: |
+| 14 cells — what the cell count gave | 22.0% | 18.1% | 32.9% | 22.6% |
+| **56 cells — what the fraction gives** | **12.2%** | **11.0%** | **20.1%** | **15.9%** |
+| | **−9.8** | **−7.1** | **−12.8** | **−6.7** |
+
+Up to 12.8 points, recovered by a constant that follows the grid rather than by someone remembering
+to follow it — and #46, measuring the same effect from the other side, put it at 10.9. The absolute
+figures differ from the 32×32 column further up because that column predates #12 and #40; both rows
+here come from the same tree, which is what makes them a comparison.
+
+One loose end, recorded and not acted on. At **both** grid sizes the sweep row above the shipped one
+scores a shade better — 21 cells against 14 at 16×16, 84 against 56 at 32×32 — by 1.3 and 0.5 points
+on the near-miss conditions here and 1.2 and 0.5 there, and no worse anywhere. That the argmin sits
+at the same *fraction* of the vector at both sizes is the new unit's own argument for itself. It is
+also still a retune: the fixture has moved under the number #37 chose, and re-choosing it belongs in
+its own issue rather than smuggled into a change whose entire claim is that it changes nothing.
 
 ## What follows
 
@@ -549,7 +604,9 @@ an afternoon of hardcode archaeology.
 - **A 32×32 grid is not proven** — see above. One instrument makes it 3.6 to 4.7 points better on
   near-miss typefaces, another makes it a one-point wash across four of them with coverage down on
   every one, and the shape vector's own separation statistic slightly worsens. `FEATURE_GRID` stays
-  at 16. The attempt exposed #45.
+  at 16. The attempt exposed #45, which is fixed — the exchange rate between shape and line metrics
+  is a fraction of the vector now, so the next grid change no longer un-tunes the matcher on its
+  way past.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two
   approaches measured neutral-to-worse. The lever is the binary mask itself, not the threshold
   placement, which makes it a #7 question about carrying grey coverage into the feature vector.

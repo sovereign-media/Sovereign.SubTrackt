@@ -29,8 +29,13 @@ use subtrackt_glyph::matcher::MatchThresholds;
 /// Radii to try, in percent of the feature vector.
 const RADII: [u32; 8] = [0, 2, 4, 6, 8, 10, 12, 16];
 
-/// Metric weights to try, in hundredths of a cell per percentage point of difference.
-const WEIGHTS: [u32; 8] = [0, 10, 25, 50, 75, 100, 150, 250];
+/// Metric weights to try, in tenths of a percent of the feature vector per full cap height.
+///
+/// The unrounded-looking values are the hundredths-of-a-cell settings this sweep used before #45,
+/// re-expressed. Each lands on exactly the same cell count at 16x16 as the setting it replaces — 0,
+/// 10, 25, 50, 75, 100, 150 and 250 hundredths — so the rows still line up with the ones recorded
+/// in `docs/glyph-stability.md`, and now the column means the same thing at any grid size.
+const WEIGHTS: [u32; 8] = [0, 40, 98, 196, 293, 391, 586, 977];
 
 /// One fixture's outcome at one setting.
 struct Row {
@@ -126,17 +131,20 @@ fn measure_weight(
     sup: &Path,
     truth: &str,
     reference: &ReferenceSet,
-    metric_weight: u32,
+    metric_weight_permille: u32,
 ) -> anyhow::Result<Row> {
+    let thresholds = MatchThresholds { metric_weight_permille, ..MatchThresholds::default() };
     let config = Config {
         unmatched: UnmatchedPolicy::Placeholder,
-        matching: MatchThresholds { metric_weight, ..MatchThresholds::default() },
+        matching: thresholds,
         ..Config::default()
     };
     let mut row = measure(sup, truth, reference, config)?;
-    row.setting = metric_weight;
-    // What a full cap-height difference — an `o` against an `O` — is worth in cells.
-    row.scaled = 28 * metric_weight / 100;
+    row.setting = metric_weight_permille;
+    // What an `o` against an `O` — 28 points of cap height — is worth in cells. Quoted in the
+    // `o`/`O` gap rather than in the whole cap height the setting is priced against, because that
+    // pair is what the term exists to separate and what #37 reported.
+    row.scaled = 28 * thresholds.metric_weight() / 100;
     Ok(row)
 }
 
@@ -351,10 +359,14 @@ pub fn run_metric(args: &[String]) -> anyhow::Result<()> {
         print_rows(&label, "weight", "baseline: shape only", &rows);
     }
 
+    let shipped = MatchThresholds::default();
     println!(
         "
-The second column is what a full cap-height difference — an `o` against an `O` — is
-         worth in cells at that weight, against an ambiguity margin of 7 and a match ceiling of 51."
+The weight is in tenths of a percent of the feature vector per full cap height. The second
+         column is what that makes an `o` against an `O` — 28 points of cap height — worth in
+         cells, against an ambiguity margin of {} and a match ceiling of {}.",
+        shipped.ambiguity_margin(),
+        shipped.max_distance()
     );
     Ok(())
 }

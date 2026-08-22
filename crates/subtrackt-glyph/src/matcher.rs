@@ -23,8 +23,14 @@ use crate::reference::{ReferenceEntry, ReferenceSet};
 
 /// Matching thresholds.
 ///
-/// Both are expressed in percent of [`FEATURE_BITS`] rather than in raw cell counts, so changing
+/// Every one of these is a fraction of [`FEATURE_BITS`] rather than a raw cell count, so changing
 /// the grid size does not silently change how permissive the matcher is.
+///
+/// The exchange rate below was the exception until #45, and what the exception cost is why the rule
+/// is written down. Holding a cell count, the gap it prices between an `o` and an `O` was worth 5.5%
+/// of a 256-bit vector and 1.4% of a 1024-bit one, so doubling the grid quietly stopped weighting
+/// the feature #37 added to separate exactly that pair — measured at up to 12.8 points of CER, with
+/// nothing erroring and no counter moving. See `docs/glyph-stability.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchThresholds {
     /// A candidate further than this fraction of the vector away is not a match at all.
@@ -32,7 +38,8 @@ pub struct MatchThresholds {
     /// A winner beating the runner-up by less than this is reported as ambiguous, and is the only
     /// kind of glyph post-correction is allowed to touch.
     pub ambiguity_margin_percent: u32,
-    /// How much a percentage point of line-metric difference is worth, in hundredths of a cell.
+    /// What a full cap-height difference in line metrics is worth, in tenths of a percent of
+    /// [`FEATURE_BITS`].
     ///
     /// The shape vector cannot separate `o` from `O` — see [`LineMetrics`] — so a second term
     /// carries the difference in how tall each stands in its line. This is the exchange rate
@@ -43,11 +50,12 @@ pub struct MatchThresholds {
     /// Zero disables the term entirely, which is what a version 1 reference set effectively gets
     /// anyway since its entries carry no metrics.
     ///
-    /// **This is the one threshold here that is not a fraction of [`FEATURE_BITS`]**, and the
-    /// comment above is a promise it does not keep: a full cap-height difference is worth 14 cells
-    /// at any grid size, which is 5.5% of a 256-bit vector and 1.4% of a 1024-bit one. Measured at
-    /// 32x32 the shipped value costs up to 10.9 points of CER, silently. Tracked as #45.
-    pub metric_weight: u32,
+    /// Priced per *full* cap height — 100 percentage points — because that is what
+    /// [`LineMetrics::difference`] counts in, and in tenths of a percent because the measured value
+    /// is 19.6% of the vector and 20% is a different number. In the units #37 reported, the shipped
+    /// setting is 50 hundredths of a cell per point: an `o` against an `O` is 28 points, so it
+    /// costs 14 cells at 16x16 and the same 5.5% of the vector at any other grid size.
+    pub metric_weight_permille: u32,
 }
 
 impl Default for MatchThresholds {
@@ -55,7 +63,7 @@ impl Default for MatchThresholds {
         Self {
             max_distance_percent: 20,
             ambiguity_margin_percent: 3,
-            metric_weight: 50,
+            metric_weight_permille: 196,
         }
     }
 }
@@ -75,7 +83,29 @@ impl MatchThresholds {
         (FEATURE_BITS as u32) * self.ambiguity_margin_percent / 100
     }
 
+    /// What a full cap-height metric difference — 100 percentage points — costs, in cells.
+    ///
+    /// 50 cells on a 256-bit vector, which is the value #37 measured, and the same fraction of any
+    /// other vector.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn metric_weight(self) -> u32 {
+        Self::metric_weight_at(self.metric_weight_permille, FEATURE_BITS as u32)
+    }
+
+    /// The same conversion against an arbitrary vector length.
+    ///
+    /// Split out so a test can check the scale-free property across grid sizes. [`FEATURE_BITS`] is
+    /// a compile-time constant, so a promise about what happens when it changes is otherwise
+    /// unenforceable from inside one build — which is exactly how #45 survived unnoticed.
+    const fn metric_weight_at(permille: u32, bits: u32) -> u32 {
+        bits * permille / 1000
+    }
+
     /// Distance between a glyph and a reference: shape, plus the line-metric term.
+    ///
+    /// The metric term is `points × weight ÷ 100`: the weight is what a whole cap height costs and
+    /// the difference is in percentage points of one.
     ///
     /// When either side has no metrics the term is omitted rather than defaulted. A glyph on a line
     /// too short to locate a baseline is compared on shape alone, which is worse than the full
@@ -90,7 +120,7 @@ impl MatchThresholds {
         let base = shape.distance(&entry.features);
         metrics
             .difference(entry.metrics)
-            .map_or(base, |points| base + points * self.metric_weight / 100)
+            .map_or(base, |points| base + points * self.metric_weight() / 100)
     }
 }
 
@@ -463,5 +493,58 @@ mod tests {
         let t = MatchThresholds::default();
         assert_eq!(t.max_distance(), u32::try_from(FEATURE_BITS).unwrap() * 20 / 100);
         assert!(t.ambiguity_margin() < t.max_distance());
+    }
+
+    #[test]
+    fn a_cap_height_costs_the_same_fraction_of_the_vector_at_any_grid_size() {
+        // The defect #45 fixed. The exchange rate was a cell count, so at 32x32 it was worth a
+        // quarter of what it was worth at 16x16 and the term separating `o` from `O` all but
+        // vanished — silently, since nothing errors and no counter moves. FEATURE_BITS is fixed at
+        // compile time, so the property is checked against the grid sizes the project might build
+        // with rather than only the one it is built with.
+        let permille = MatchThresholds::default().metric_weight_permille;
+        for grid in [16_u32, 32, 64] {
+            let bits = grid * grid;
+            let weight = MatchThresholds::metric_weight_at(permille, bits);
+            assert!(
+                (weight * 1000).abs_diff(bits * permille) <= 1000,
+                "at {grid}x{grid} a cap height costs {weight} of {bits} cells, which is not \
+                 {permille} per mille to within the one cell that rounding allows"
+            );
+        }
+    }
+
+    #[test]
+    fn the_shipped_weight_re_expresses_what_was_measured_rather_than_retuning_it() {
+        // #37 measured the rate at 50 hundredths of a cell per percentage point on a 256-bit
+        // vector; #45 changed only how that is written down. Pinned against 256 explicitly rather
+        // than against FEATURE_BITS, so it stays a statement about the measured number and does
+        // not fail the day the grid moves.
+        let permille = MatchThresholds::default().metric_weight_permille;
+        assert_eq!(MatchThresholds::metric_weight_at(permille, 256), 50);
+        // Which is to say an `o` against an `O` — 28 points of cap height — still costs 14 cells.
+        assert_eq!(28 * MatchThresholds::metric_weight_at(permille, 256) / 100, 14);
+    }
+
+    #[test]
+    fn the_metric_term_charges_in_proportion_to_the_gap_and_nothing_for_an_unknown_one() {
+        // Same shape, different heights: the case #37 exists for. The `o`/`O` gap has to cost 28%
+        // of what a whole cap height costs, and an unmeasurable line has to cost nothing at all
+        // rather than be scored against a fabricated height.
+        let t = MatchThresholds::default();
+        let shape = vector(&[1, 2, 3]);
+        let reference = ReferenceEntry {
+            character: 'O',
+            style: Style::Regular,
+            features: shape,
+            metrics: LineMetrics::new(104, 0),
+        };
+
+        assert_eq!(t.distance(&shape, LineMetrics::new(104, 0), &reference), 0);
+        assert_eq!(
+            t.distance(&shape, LineMetrics::new(76, 0), &reference),
+            28 * t.metric_weight() / 100
+        );
+        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, &reference), 0);
     }
 }
