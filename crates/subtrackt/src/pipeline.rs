@@ -10,7 +10,9 @@
 use std::path::Path;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
-use subtrackt_core::{Error, GlyphMatcher, Result, Segmenter, SubtitleImage, TextTrack};
+use subtrackt_core::{
+    Error, GlyphMatcher, LineMetrics, Rect, Result, Segmenter, SubtitleImage, TextTrack,
+};
 use subtrackt_demux::{StreamInfo, SubtitleSource};
 use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
 use subtrackt_glyph::matcher::HammingMatcher;
@@ -36,8 +38,44 @@ pub struct Outcome {
     /// stage is built to avoid: a caller has to be able to see what was rewritten, not just how
     /// often.
     pub corrections: Vec<CorrectionLog>,
+    /// Every glyph the matcher would not name, in cue order.
+    ///
+    /// Counted in [`Report::unmatched`] as well; this says *which*. #98 is the reason it is carried
+    /// rather than merely tallied, and the argument is the one `corrections` already makes: the
+    /// project's whole thesis is that an unmatched glyph is a **fact** rather than a confidence
+    /// score, and a fact a caller cannot inspect is doing only half its job. A user whose reference
+    /// set is missing a character learns which one from here and from nowhere else.
+    ///
+    /// Always collected, with no flag to switch it off, because an unread glyph is by construction
+    /// rare — a few percent of a track — and a feature film's worth is tens of kilobytes against the
+    /// tens of thousands of glyphs the run already holds resident.
+    pub unread: Vec<UnreadGlyph>,
     /// The stream that was read.
     pub stream: StreamInfo,
+}
+
+/// One glyph that matched nothing, and everything known about it that is not its shape.
+///
+/// Deliberately not the [`FeatureVector`](subtrackt_core::FeatureVector). The vector is a lossy
+/// 16x16 projection and says nothing a reader can act on; what a reader needs is where the glyph
+/// sat, how big it was, and whether its line could be measured at all — because a glyph on an
+/// unmeasurable line was matched on shape alone and failed for a different reason than one that had
+/// metrics and still found nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnreadGlyph {
+    /// Which cue it came from, counting from zero.
+    pub cue: usize,
+    /// Which text line within that cue.
+    pub line: usize,
+    /// Where it sat, in subtitle-plane coordinates.
+    pub bounds: Rect,
+    /// Where it stood in its line, or [`LineMetrics::UNKNOWN`] if the line was unmeasurable.
+    pub metrics: LineMetrics,
+    /// How far the nearest reference entry was — the one that was still too far to accept.
+    ///
+    /// A glyph rejected at 52 cells against a 51-cell ceiling is a different problem from one
+    /// rejected at 140, and the count alone cannot tell them apart.
+    pub distance: u32,
 }
 
 impl Outcome {
@@ -149,13 +187,20 @@ impl Pipeline {
         report.images = images.len().try_into().unwrap_or(u64::MAX);
 
         let mut corrections = Vec::new();
+        let mut unread = Vec::new();
         let mut stages = Stages {
             segmenter: &segmenter,
             matcher: &mut matcher,
             assembler: &assembler,
         };
-        let track =
-            self.build_track(&images, &mut stages, &mut report, &mut corrections, progress)?;
+        let track = self.build_track(
+            &images,
+            &mut stages,
+            &mut report,
+            &mut corrections,
+            &mut unread,
+            progress,
+        )?;
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
         report.cache_hits = stages.matcher.cache_hits();
@@ -171,7 +216,7 @@ impl Pipeline {
             });
         }
 
-        Ok(Outcome { track, report, corrections, stream })
+        Ok(Outcome { track, report, corrections, unread, stream })
     }
 
     /// The corrector this configuration asks for.
@@ -221,6 +266,7 @@ impl Pipeline {
         stages: &mut Stages<'_>,
         report: &mut Report,
         corrections: &mut Vec<CorrectionLog>,
+        unread: &mut Vec<UnreadGlyph>,
         progress: &dyn Progress,
     ) -> Result<TextTrack> {
         // Segment everything before matching anything. The matcher groups a stream's own shapes
@@ -265,11 +311,27 @@ impl Pipeline {
         let mut read_cues = Vec::with_capacity(images.len());
         done = 0;
         progress.begin(Phase::Read, Some(total));
-        for (image, glyphs) in images.iter().zip(per_image) {
+        for (cue, (image, glyphs)) in images.iter().zip(per_image).enumerate() {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
                 identified.push(stages.matcher.match_glyph(glyph)?);
             }
+
+            // Named here rather than counted, because this is the one place a glyph and the answer
+            // it did not get are both in hand. See `Outcome::unread`.
+            unread.extend(
+                glyphs
+                    .iter()
+                    .zip(&identified)
+                    .filter(|(_, m)| m.character.is_none())
+                    .map(|(glyph, m)| UnreadGlyph {
+                        cue,
+                        line: glyph.line,
+                        bounds: glyph.bounds,
+                        metrics: glyph.metrics,
+                        distance: m.distance,
+                    }),
+            );
 
             // How well the matched glyphs fitted, not just how many did. See `Report::distance_sum`
             // for why the second number cannot stand in for the first.

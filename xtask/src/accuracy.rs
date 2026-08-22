@@ -448,6 +448,11 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
 
         println!("\n--- {label}: accuracy on generated ground truth ---");
         report(&score, &outcome.report, truth.trim(), text.trim());
+        // Once, for the representation the pipeline ships with, for the same reason the gate below
+        // applies to that one: it is the read a user would actually get.
+        if grey == Config::default().grey_coverage {
+            crate::unread::table(&outcome.unread);
+        }
         scored.push((label, grey, score, text, reference));
     }
 

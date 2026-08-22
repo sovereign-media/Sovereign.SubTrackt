@@ -308,7 +308,9 @@ against **61.6%** for a reference set chosen to be wrong. That eleven-fold gap i
 for fitting, and it is why nothing ships embedded.
 
 Scored against the English subtitle shipped beside the rip; [`docs/reference-set.md`](docs/reference-set.md)
-explains why that is evidence rather than ground truth. The pipeline's own ceiling — fixture and
+explains why that is evidence rather than ground truth. [`docs/error-census.md`](docs/error-census.md)
+says character by character where the remaining 5.5% is, and it is far less spread out than that
+number suggests: two error classes account for 73% of it. The pipeline's own ceiling — fixture and
 reference rendered from the same font, so typeface mismatch is excluded by construction — is 93.9%
 coverage, and real material can only do worse.
 
@@ -381,6 +383,7 @@ the plan it was meant to confirm.
 | :--- | :--- |
 | [`library-survey.md`](docs/library-survey.md) | 56 titles, 1950s–2020s, 149,604 glyphs. One glyph cluster covers 43 of 56 titles across seventy years, and fits **Arial or very close** — but a fixed set covers only **46%** of glyph instances, and "or very close" was the expensive half of that sentence. |
 | [`glyph-stability.md`](docs/glyph-stability.md) | Why. Two renderings of the *same* character are typically further apart (median 46 cells) than two *different* characters are (median 31). A one-pixel shift in the binarization threshold costs 30 cells — as much as character identity itself. Rendering size and anti-aliasing cost 11 and 8: the axes normalisation was built to absorb, and it absorbs them. |
+| [`error-census.md`](docs/error-census.md) | Where the remaining 5.5% actually is, per character, on a real disc. **48.8% of it is the full stop**, which matches nothing at all — a 5x5 component sitting 60 cells from the nearest entry in a set built from the material's own typeface, against a 51-cell ceiling. `l` read as `I` is another 24.4%. Everything else is under 4%. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
 | [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — five statistics, two mechanisms. The last one measures a typeface's style well enough to identify it from its font file 79–85% of the time, and still cannot gate a track: a decoded glyph drifts further from its own typeface than the typefaces sit apart. |
