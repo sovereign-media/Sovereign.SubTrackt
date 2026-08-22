@@ -356,25 +356,52 @@ impl ImageSegmenter {
     fn mask(&self, image: &SubtitleImage) -> BinaryMask {
         self.binarizer.mask(image)
     }
-}
 
-impl Segmenter for ImageSegmenter {
-    fn segment(&self, image: &SubtitleImage) -> Result<Vec<subtrackt_core::Glyph>> {
+    /// Segment an image, and hand back the foreground mask it was segmented from.
+    ///
+    /// The mask is built on every call already and dropped at the end of it; this is the same work
+    /// with the intermediate kept. It exists because a glyph's *un-normalised* ink is not
+    /// recoverable from what [`Segmenter::segment`] returns — [`FeatureVector`] is letterboxed onto
+    /// a 16x16 grid and thresholded per cell, which is a lossy projection built to make two
+    /// renderings of one character converge.
+    ///
+    /// #63 is the caller: telling a good reference-set fit from a bad one needs the ink's *style*
+    /// — stroke weight, contrast, the shape of a terminal — and at 16x16 a stem is one to three
+    /// cells, so those are quantised away before anything can measure them. `xtask font-id`
+    /// measured the cost of asking through the grid instead at 46 to 54 points of font-retrieval
+    /// accuracy.
+    ///
+    /// Kept off the [`Segmenter`] trait: the trait is the stage contract every extraction runs
+    /// through, and this is an instrument. Nothing on the matching path calls it.
+    pub(crate) fn segment_with_mask(
+        &self,
+        image: &SubtitleImage,
+    ) -> Result<(Vec<subtrackt_core::Glyph>, BinaryMask)> {
+        let mask = self.mask(image);
+        let glyphs = self.segment_from(image, &mask)?;
+        Ok((glyphs, mask))
+    }
+
+    /// The body of both entry points, over a mask the caller owns.
+    fn segment_from(
+        &self,
+        image: &SubtitleImage,
+        mask: &BinaryMask,
+    ) -> Result<Vec<subtrackt_core::Glyph>> {
         use subtrackt_glyph::ccl::{self, ComponentFilter};
         use subtrackt_glyph::feature::{self, AspectPolicy};
         use subtrackt_glyph::group::{self, GroupingRules};
         use subtrackt_glyph::mark;
         use subtrackt_glyph::metrics::{self, MetricRules};
 
-        let mask = self.mask(image);
         // Components and lines are yes-or-no questions and need the binary mask. Only the feature
         // vector reads the coverage plane, and only when asked to.
         let coverage = self.grey_coverage.then(|| self.binarizer.coverage(image));
-        let components = ccl::label(&mask, ComponentFilter::default())?;
+        let components = ccl::label(mask, ComponentFilter::default())?;
         // One banding, used for both the assignment and the metrics. A band of nothing but accents
         // is not a text line — see `group::text_lines` — and a caller that banded twice could
         // measure line anchors against a different set than it grouped by.
-        let bands = group::text_lines(&mask, &components, GroupingRules::default());
+        let bands = group::text_lines(mask, &components, GroupingRules::default());
         let lines = group::assign_to(&bands, &components)?;
         let grouped = group::group(&components, &lines, GroupingRules::default())?;
 
@@ -396,16 +423,23 @@ impl Segmenter for ImageSegmenter {
                     bounds,
                     line: glyph.line,
                     features: coverage.as_ref().map_or_else(
-                        || feature::vectorize(&mask, bounds, AspectPolicy::default()),
+                        || feature::vectorize(mask, bounds, AspectPolicy::default()),
                         |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
                     )?,
                     metrics: line_metrics,
                     // Read off the binary mask before the boxes are merged: once base and mark
                     // share a bounding box, letterboxing scales the direction away.
-                    mark: mark::slope(&mask, glyph),
+                    mark: mark::slope(mask, glyph),
                 })
             })
             .collect()
+    }
+}
+
+impl Segmenter for ImageSegmenter {
+    fn segment(&self, image: &SubtitleImage) -> Result<Vec<subtrackt_core::Glyph>> {
+        let mask = self.mask(image);
+        self.segment_from(image, &mask)
     }
 
     fn binarize(&self, image: &SubtitleImage) -> Result<subtrackt_core::IndexedBitmap> {
@@ -435,6 +469,40 @@ mod tests {
             palette,
             forced: false,
         }
+    }
+
+    #[test]
+    fn segmenting_with_the_mask_kept_returns_the_same_glyphs_as_segmenting_without() {
+        // The instrument must not change what it observes. `segment_with_mask` exists so #63 can
+        // read a glyph's un-normalised ink, and if it segmented even slightly differently from the
+        // shipped path then every measurement taken through it would be about a pipeline nobody
+        // runs.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let plain = segmenter.segment(&image()).unwrap();
+        let (with_mask, mask) = segmenter.segment_with_mask(&image()).unwrap();
+        assert_eq!(plain, with_mask);
+        assert_eq!((mask.width(), mask.height()), (8, 8), "the whole image, not a glyph");
+    }
+
+    #[test]
+    fn the_kept_mask_carries_ink_the_feature_vector_cannot_express() {
+        // The 4x4 block is 16 pixels of ink in a 4x4 box: solid. The feature vector letterboxes
+        // that onto 16x16 and says which cells are inked, so it can say the shape is square but
+        // not that the stroke is four pixels wide -- which is the whole reason this exists.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (glyphs, mask) = segmenter.segment_with_mask(&image()).unwrap();
+        assert_eq!(glyphs.len(), 1);
+
+        let cropped = mask.crop(glyphs[0].bounds).unwrap();
+        assert_eq!(
+            (cropped.width(), cropped.height()),
+            (glyphs[0].bounds.width, glyphs[0].bounds.height)
+        );
+        assert_eq!(
+            cropped.foreground_count(),
+            (cropped.width() * cropped.height()) as usize,
+            "a solid block crops to solid ink, at its own resolution"
+        );
     }
 
     #[test]

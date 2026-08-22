@@ -16,7 +16,7 @@ use subtrackt_core::{Error, FeatureVector, LineMetrics, MarkSlope, Rect, Result,
 use subtrackt_demux::StreamInfo;
 
 use crate::pipeline::ImageSegmenter;
-use subtrackt_glyph::binarize::Binarizer;
+use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
 
 /// One glyph as it appeared, with no attempt to identify it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +38,19 @@ pub struct GlyphRecord {
     pub metrics: LineMetrics,
     /// Which way its diacritic leans, carried for the same reason.
     pub mark: MarkSlope,
+    /// The glyph's un-normalised ink, cropped to [`Self::bounds`].
+    ///
+    /// `None` unless [`Config::glyph_masks`](crate::Config::glyph_masks) asked for it, and the
+    /// distinction between `None` and an empty mask is the usual one in this project: absent means
+    /// nobody asked, never that the glyph had no ink.
+    ///
+    /// This is the only thing here that [`Self::features`] cannot be recovered from, and it is the
+    /// wrong way round from how it looks. The feature vector is a *lossy* projection built to make
+    /// two renderings of one character converge — letterboxed onto a 16x16 grid, thresholded per
+    /// cell — so it answers "which character" well and "what is this ink like" not at all. At that
+    /// resolution a stem is one to three cells, which is why stroke weight and contrast do not
+    /// survive it.
+    pub mask: Option<BinaryMask>,
 }
 
 /// Everything one pass over a file turned up.
@@ -112,6 +125,7 @@ impl crate::Pipeline {
             Binarizer::new(self.config().binarize),
             self.config().grey_coverage,
         );
+        let keep_masks = self.config().glyph_masks;
 
         let mut glyphs = Vec::new();
         let mut cues = 0usize;
@@ -124,7 +138,24 @@ impl crate::Pipeline {
             images.extend(decoder.push(packet.pts, &packet.payload)?);
 
             for image in &images {
-                for glyph in segmenter.segment(image)? {
+                // One segmentation either way. The mask is built during it and normally dropped;
+                // `keep_masks` only decides whether each glyph's share of it is copied out.
+                let (in_image, image_mask) = if keep_masks {
+                    let (glyphs, whole) = segmenter.segment_with_mask(image)?;
+                    (glyphs, Some(whole))
+                } else {
+                    (segmenter.segment(image)?, None)
+                };
+
+                for glyph in in_image {
+                    // `crop` refuses a zero-extent rectangle, and that refusal is propagated rather
+                    // than softened to `None`: a glyph with no extent means the component filter
+                    // let an empty box through, and a survey that quietly recorded it as "no mask
+                    // was asked for" would hide a real segmentation fault behind a flag.
+                    let cropped = match &image_mask {
+                        Some(whole) => Some(whole.crop(glyph.bounds)?),
+                        None => None,
+                    };
                     glyphs.push(GlyphRecord {
                         cue: cues,
                         line: glyph.line,
@@ -132,6 +163,7 @@ impl crate::Pipeline {
                         features: glyph.features,
                         metrics: glyph.metrics,
                         mark: glyph.mark,
+                        mask: cropped,
                     });
                 }
                 span = Some(match span {
@@ -226,6 +258,7 @@ mod tests {
             features,
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            mask: None,
         };
         let survey = GlyphSurvey {
             stream: StreamInfo {

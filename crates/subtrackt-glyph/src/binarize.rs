@@ -8,7 +8,7 @@
 //! makes foreground-versus-background a question about the palette — answerable once per image,
 //! for at most 256 entries — instead of a question about every pixel.
 
-use subtrackt_core::{Error, IndexedBitmap, Palette, Result, SubtitleImage};
+use subtrackt_core::{Error, IndexedBitmap, Palette, Rect, Result, SubtitleImage};
 
 /// Which parts of a glyph count as foreground.
 ///
@@ -115,6 +115,36 @@ impl BinaryMask {
     #[must_use]
     pub fn foreground_count(&self) -> usize {
         self.bits.iter().filter(|b| **b).count()
+    }
+
+    /// The ink inside `area`, as a mask of its own.
+    ///
+    /// Reads through [`Self::get`], so a rectangle running off the edge of the source comes back
+    /// padded with background rather than refused or clipped. That is the right answer here and not
+    /// a convenience: the caller is a glyph's bounding box, which is derived from this mask's own
+    /// components and therefore always inside it. A rectangle that is not says the boxes and the
+    /// mask have come from different images, and a smaller-than-asked-for mask would hide that by
+    /// producing a plausible glyph.
+    ///
+    /// A zero-width or zero-height area is refused, because a glyph with no extent is a component
+    /// filter that let an empty box through rather than something to return an empty mask for.
+    ///
+    /// # Errors
+    /// Returns [`Error::Config`] if `area` has zero width or height.
+    pub fn crop(&self, area: Rect) -> Result<Self> {
+        if area.width == 0 || area.height == 0 {
+            return Err(Error::Config(format!(
+                "cannot crop a {}x{} region out of a mask",
+                area.width, area.height
+            )));
+        }
+        let mut bits = Vec::with_capacity(area.width as usize * area.height as usize);
+        for y in area.y..area.y.saturating_add(area.height) {
+            for x in area.x..area.x.saturating_add(area.width) {
+                bits.push(self.get(x, y));
+            }
+        }
+        Self::from_bits(area.width, area.height, bits)
     }
 
     /// Foreground pixels per row, the projection line splitting works from.
@@ -296,7 +326,52 @@ impl Binarizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subtrackt_core::{PaletteEntry, Rect, TimeSpan, Timestamp};
+    use subtrackt_core::{PaletteEntry, TimeSpan, Timestamp};
+
+    /// A mask with a 2x2 block of ink at (1, 1) inside a 4x4 field.
+    fn blocked() -> BinaryMask {
+        let mut mask = BinaryMask::blank(4, 4);
+        for (x, y) in [(1, 1), (2, 1), (1, 2), (2, 2)] {
+            mask.set(x, y, true);
+        }
+        mask
+    }
+
+    #[test]
+    fn cropping_takes_the_ink_at_the_rectangle_and_nothing_around_it() {
+        let cropped = blocked().crop(Rect::new(1, 1, 2, 2)).unwrap();
+        assert_eq!((cropped.width(), cropped.height()), (2, 2));
+        assert_eq!(cropped.foreground_count(), 4, "the whole block and no margin");
+
+        // Offset by one: a quarter of the block, in the corner nearest where it was.
+        let corner = blocked().crop(Rect::new(2, 2, 2, 2)).unwrap();
+        assert_eq!(corner.foreground_count(), 1);
+        assert!(corner.get(0, 0));
+    }
+
+    #[test]
+    fn a_crop_running_past_the_edge_is_padded_with_background_not_shrunk() {
+        // The size asked for is the size returned, because a caller measuring a glyph needs the
+        // box it asked about. Silently returning a smaller mask would put the ink at the wrong
+        // coordinates and every axis measured from it would be wrong by an unknowable amount.
+        let cropped = blocked().crop(Rect::new(3, 3, 4, 4)).unwrap();
+        assert_eq!((cropped.width(), cropped.height()), (4, 4));
+        assert_eq!(cropped.foreground_count(), 0, "past the ink, so background");
+    }
+
+    #[test]
+    fn a_crop_with_no_extent_is_rejected_rather_than_returning_an_empty_mask() {
+        // A glyph with no extent is a component filter that let an empty box through, and this
+        // project reports that rather than handing back something that looks like a blank glyph.
+        assert!(blocked().crop(Rect::new(0, 0, 0, 4)).is_err());
+        assert!(blocked().crop(Rect::new(0, 0, 4, 0)).is_err());
+    }
+
+    #[test]
+    fn cropping_the_whole_mask_returns_the_mask() {
+        let mask = blocked();
+        assert_eq!(mask.crop(Rect::new(0, 0, 4, 4)).unwrap(), mask);
+    }
 
     /// A 3x2 image: index 0 transparent, 1 opaque bright fill, 2 opaque dark outline.
     fn image() -> SubtitleImage {

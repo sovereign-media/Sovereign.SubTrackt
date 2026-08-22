@@ -590,8 +590,12 @@ fn raw_styles(font: &Font) -> Vec<StyleVector> {
 ///
 /// Deduplicated by feature vector, so the pooling population is the track's shape inventory rather
 /// than its letter frequency. Nothing here consults a reference set, a match or a character.
-fn track_styles(sup: &Path) -> anyhow::Result<Vec<StyleVector>> {
-    let survey = Pipeline::new(subtrackt::Config::default())
+fn track_styles(sup: &Path, resolution: Resolution) -> anyhow::Result<Vec<StyleVector>> {
+    let config = subtrackt::Config {
+        glyph_masks: resolution == Resolution::Mask,
+        ..subtrackt::Config::default()
+    };
+    let survey = Pipeline::new(config)
         .survey(sup, None)
         .with_context(|| format!("surveying {}", sup.display()))?;
 
@@ -604,12 +608,52 @@ fn track_styles(sup: &Path) -> anyhow::Result<Vec<StyleVector>> {
         if glyph.bounds.height == 0 {
             continue;
         }
-        let aspect = glyph.bounds.width as f32 / glyph.bounds.height as f32;
-        if let Some(style) = style_of(&glyph.features, aspect) {
+        let aspect = f32::from(u16::try_from(glyph.bounds.width).unwrap_or(u16::MAX))
+            / f32::from(u16::try_from(glyph.bounds.height).unwrap_or(u16::MAX));
+
+        let style = match resolution {
+            Resolution::Grid => style_of(&glyph.features, aspect),
+            // The glyph's own ink, at the resolution it was decoded at. Deduplication is still by
+            // feature vector rather than by mask: two instances of one character differ by a pixel
+            // of anti-aliasing and would both survive a mask-keyed dedup, which would reintroduce
+            // the letter-frequency weighting the dedup exists to remove.
+            Resolution::Mask => glyph.mask.as_ref().and_then(|mask| {
+                let cells: Vec<(usize, usize)> = (0..mask.height())
+                    .flat_map(|y| (0..mask.width()).map(move |x| (x, y)))
+                    .filter(|&(x, y)| mask.get(x, y))
+                    .map(|(x, y)| (x as usize, y as usize))
+                    .collect();
+                let ink = InkBox::new(cells, mask.width() as usize, mask.height() as usize)?;
+                style_of_box(&ink, aspect)
+            }),
+        };
+        if let Some(style) = style {
             styles.push(style);
         }
     }
     Ok(styles)
+}
+
+/// Which representation of a glyph's ink the style axes are measured on.
+///
+/// The distinction #63 turned on. Both go through the same [`style_of_box`], so a difference
+/// between them is a difference in what survived, not in how it was measured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolution {
+    /// The 16x16 normalised feature vector, which is all a survey carried before #63.
+    Grid,
+    /// The glyph's un-normalised mask, which `Config::glyph_masks` now keeps.
+    Mask,
+}
+
+impl Resolution {
+    /// What the tables call it.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Grid => "16x16 grid",
+            Self::Mask => "glyph mask",
+        }
+    }
 }
 
 /// Load a font, naming the file if it will not parse.
@@ -689,6 +733,7 @@ fn trial(
     sets: &[(String, subtrackt_glyph::ReferenceSet)],
     weights: &Weights,
     dir: &Path,
+    resolution: Resolution,
 ) -> anyhow::Result<Trial> {
     let name = stem(material);
     let fixture_dir = dir.join(format!("fontid-{name}"));
@@ -699,7 +744,7 @@ fn trial(
     ])?;
     let sup = fixture_dir.join("synthetic.sup");
 
-    let styles = track_styles(&sup)?;
+    let styles = track_styles(&sup, resolution)?;
     let track = pool(name.clone(), &styles)
         .with_context(|| format!("{name}: the fixture segmented into no measurable glyph"))?;
 
@@ -1007,13 +1052,8 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         println!("  {name:<10} {:>8.3}", weights.weights[index] * 2.0);
     }
 
-    let descriptors: BTreeMap<String, Descriptor> = per_font
-        .iter()
-        .filter_map(|(name, styles)| pool(name.clone(), styles).map(|d| (name.clone(), d)))
-        .collect();
-
     // The retrieval comparison needs no material at all, so it can be run over a large font list
-    // cheaply — which is the only way 6-of-8 becomes a number worth quoting.
+    // cheaply -- which is the only way 6-of-8 becomes a number worth quoting.
     if retrieval_only {
         return report_resolutions(&fonts, &per_font);
     }
@@ -1022,36 +1062,68 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     std::fs::create_dir_all(&dir)?;
     let sets = crate::select::reference_sets(&fonts, &dir)?;
 
-    let mut trials = Vec::new();
-    for material in &fonts {
-        trials.push(
-            trial(material, &fonts, &descriptors, &sets, &weights, &dir)
-                .with_context(|| stem(material))?,
-        );
-    }
-    println!(
-        "\ntrack samples: {}",
-        trials
+    // Both resolutions, all the way through. Before `Config::glyph_masks` a track could only be
+    // measured on the grid, and the three steps needing one were measured on a descriptor that
+    // font-file retrieval showed loses 46 to 54 points. Running both is what turns that from an
+    // objection into a number.
+    for resolution in [Resolution::Grid, Resolution::Mask] {
+        println!("\n\n========== track measured on the {} ==========", resolution.label());
+
+        // The font side has to be measured the same way, or a full-resolution track would be
+        // compared against a descriptor built through the very projection under test.
+        let mut per_side = BTreeMap::new();
+        for font in &fonts {
+            let loaded = load(font)?;
+            let styles = match resolution {
+                Resolution::Grid => font_styles(&loaded),
+                Resolution::Mask => raw_styles(&loaded),
+            };
+            per_side.insert(stem(font), styles);
+        }
+        let side_weights = Weights::fit_pooled(&per_side, FOLDS);
+        let side_descriptors: BTreeMap<String, Descriptor> = per_side
             .iter()
-            .map(|t| format!("{} {}", t.material, t.track.shapes))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+            .filter_map(|(name, styles)| pool(name.clone(), styles).map(|d| (name.clone(), d)))
+            .collect();
 
-    let rho = report_independence(&trials);
-    if rho.abs() >= 0.5 && !keep_going {
-        println!();
+        let mut trials = Vec::new();
+        for material in &fonts {
+            trials.push(
+                trial(
+                    material,
+                    &fonts,
+                    &side_descriptors,
+                    &sets,
+                    &side_weights,
+                    &dir,
+                    resolution,
+                )
+                .with_context(|| stem(material))?,
+            );
+        }
         println!(
-            "  STOP. #63: if the score correlates with mean match distance across candidates,"
+            "track samples: {}",
+            trials
+                .iter()
+                .map(|t| format!("{} {}", t.material, t.track.shapes))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-        println!("  the independence claim is wrong and this is a fourth instance after all. It");
-        println!("  does. Pass --continue to print the rest anyway.");
-        return Ok(());
+
+        let rho = report_independence(&trials);
+        report_separation(&trials, &side_descriptors, &side_weights);
+        report_calibration(&side_descriptors, &side_weights);
+
+        if rho.abs() >= 0.5 && !keep_going && resolution == Resolution::Mask {
+            println!();
+            println!("  #63: if the score correlates with mean match distance across candidates,");
+            println!("  the independence claim is wrong and this is a fourth instance after all.");
+            println!("  Read the caveat in the issue before taking that at face value: two");
+            println!("  independent statistics that both track the right answer must correlate.");
+        }
     }
 
-    report_separation(&trials, &descriptors, &weights);
     report_resolutions(&fonts, &per_font)?;
-    report_calibration(&descriptors, &weights);
     Ok(())
 }
 

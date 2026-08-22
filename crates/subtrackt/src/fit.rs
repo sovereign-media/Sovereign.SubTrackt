@@ -215,6 +215,7 @@ mod tests {
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            mask: None,
         }
     }
 
