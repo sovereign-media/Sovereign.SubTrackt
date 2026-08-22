@@ -15,6 +15,7 @@ mod disc;
 mod fit;
 mod fixture;
 mod mark;
+mod pairs;
 mod select;
 mod separability;
 mod spacing;
@@ -159,31 +160,49 @@ pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
             .map_or_else(|| "unnamed".to_owned(), |s| s.to_string_lossy().into_owned()),
     };
 
-    let bytes = std::fs::read(font_path).with_context(|| format!("reading {font_path}"))?;
-    let font = Font::from_bytes(bytes.as_slice(), FontSettings::default())
-        .map_err(|e| anyhow::anyhow!("{font_path} is not a usable font: {e}"))?;
-
-    // The unit every metric is a fraction of. Without it there is nothing to be relative to, and
-    // the set is written with unknown metrics rather than invented ones.
-    let cap_height = i32::try_from(font.metrics('H', RENDER_PX).height).unwrap_or(0);
-    if cap_height <= 0 {
-        eprintln!("  {font_path} rasterises no capital H; entries will carry no line metrics");
+    // Additional faces of the same typeface, each contributing its own vector for every character.
+    // #66 is the measurement behind this: a track that changes style mid-film is read by whichever
+    // face is closer to the ink, and the style byte exists so both can be present at once.
+    let mut faces = vec![(font_path.clone(), Style::Regular)];
+    for (flag, style) in [("--italic", Style::Italic), ("--bold", Style::Bold)] {
+        if let Some(at) = args.iter().position(|a| a == flag) {
+            let path = args
+                .get(at + 1)
+                .cloned()
+                .with_context(|| format!("{flag} needs a font"))?;
+            faces.push((path, style));
+        }
     }
 
     let mut entries = Vec::new();
     let mut missing = Vec::new();
-    for ch in charset() {
-        match vector_for(&font, ch, grey) {
-            Some(features) => {
-                entries.push(ReferenceEntry {
-                    character: ch,
-                    style: Style::Regular,
-                    features,
-                    metrics: metrics_for(&font, ch, cap_height),
-                    mark: mark_for(&font, ch),
-                });
+    for (path, style) in &faces {
+        let bytes = std::fs::read(path).with_context(|| format!("reading {path}"))?;
+        let font = Font::from_bytes(bytes.as_slice(), FontSettings::default())
+            .map_err(|e| anyhow::anyhow!("{path} is not a usable font: {e}"))?;
+
+        // The unit every metric is a fraction of, taken per face: an italic and an upright cut of
+        // one typeface do not share a cap height exactly, and scaling one against the other's would
+        // make every metric slightly wrong in a way nothing would report.
+        let cap_height = i32::try_from(font.metrics('H', RENDER_PX).height).unwrap_or(0);
+        if cap_height <= 0 {
+            eprintln!("  {path} rasterises no capital H; entries will carry no line metrics");
+        }
+
+        for ch in charset() {
+            match vector_for(&font, ch, grey) {
+                Some(features) => {
+                    entries.push(ReferenceEntry {
+                        character: ch,
+                        style: *style,
+                        features,
+                        metrics: metrics_for(&font, ch, cap_height),
+                        mark: mark_for(&font, ch),
+                    });
+                }
+                None if *style == Style::Regular => missing.push(ch),
+                None => {}
             }
-            None => missing.push(ch),
         }
     }
 
@@ -222,17 +241,21 @@ fn main() -> anyhow::Result<()> {
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("mark-sweep") => return sweep::run_mark(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
+        Some("set-pairs") => return pairs::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
-    eprintln!("  xtask gen-reference <font.ttf> <out.subtref> [--name NAME]");
+    eprintln!(
+        "  xtask gen-reference <font.ttf> <out.subtref> [--name NAME] [--italic F] [--bold F]"
+    );
     eprintln!("  xtask measure-stability <regular.ttf> [bold] [italic] [bold-italic]");
     eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
     eprintln!("  xtask fit-select <font.ttf>...");
+    eprintln!("  xtask set-pairs <set.subtref>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
