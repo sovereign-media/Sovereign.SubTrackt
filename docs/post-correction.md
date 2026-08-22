@@ -104,9 +104,9 @@ on a line another stage had already broken. Worth remembering when reading the n
 context post-correction reads is the output of every stage before it**, so an upstream spacing or
 segmentation error arrives here as bad evidence.
 
-That is also why `0123456789 O o I l 1` is untouched despite being full of candidates: #11 ran its
-characters together into `0123456789OoI I 1`, and the merged token gives the trailing letters digits
-on one side and nothing on the other. Two-sided evidence declined it. Had the rule been one-sided,
+That is also why `0123456789 O o I l 1` is untouched despite being full of candidates: the spacing
+rule (#40) ran its characters together into `0123456789OoI I 1`, and the merged token gives the
+trailing letters digits on one side and nothing on the other. Two-sided evidence declined it. Had the rule been one-sided,
 the same upstream bug would have rewritten `O` and `o` into digits and made that line worse.
 
 ## Why the default is still off
@@ -163,9 +163,12 @@ had stopped refusing.
   repeats constantly — occurred elsewhere in the same track in a read that was unambiguous. That is
   evidence from the material, which is the kind this project accepts. It cannot be demonstrated on a
   six-cue fixture, so it waits for [#15]'s corpus alongside the default.
-- **Ambiguity is becoming a cluster property.** Since #10 the answer is decided per cluster, so a
-  wrong label is wrong for every instance of it. Voting a cluster's identity across all its contexts
-  would be both more consequential and easier to audit than deciding each occurrence alone.
+- **Ambiguity is a per-glyph property, not a per-cluster one.** #12 was written expecting #10's
+  clustering to make it the latter — one wrong label being wrong for every instance of it, which
+  would have made correction both more consequential and easier to audit. Clustering measured worse
+  and ships off (`ClusterRules::default()` has a radius of zero), so every distinct shape still
+  carries its own decision and the corrector sees each occurrence alone. Cluster-level voting is not
+  available and would need #10 revisited first.
 - **The confusion table is the blast radius.** `5`/`S`, `8`/`B` and `2`/`Z` are the obvious
   additions and are deliberately absent. Each one wants its own row in the table above before it
   goes in.

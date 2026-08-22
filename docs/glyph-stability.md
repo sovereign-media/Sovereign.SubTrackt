@@ -406,13 +406,17 @@ has since taken that up and cleared most of the second class, though not this li
 - ~~**The next experiment is a line-relative size feature**~~ — **done, and it works**: #37, see
   above. 5.8 to 8.1 points of CER on realistic conditions, and zero-distance pairs down from three
   to one. The first change to aim at separation rather than variance, and the first to pay.
-- **What remains is not shape.** Word spacing is #11 and `l`/`I` is #12. ~~#12 now receives those
+- **What remains is not shape.** Word spacing is #40 — #11 landed the rule before anything could
+  score it, and scoring found it finds 21 of 29 spaces — and `l`/`I` is #12. ~~#12 now receives those
   glyphs flagged as ambiguous rather than answered silently.~~ **Built and measured** — see
   `docs/post-correction.md`. Reading `l`/`I` from the characters either side of it takes 3.1 points
   off the CER above and makes no line worse. `jaIapeño` is fixed; `Iazy` is not, because the
   evidence for correcting a word-initial capital is the same evidence that would break `Iowa`.
-- **#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds labels;
-  it will not carry the load alone.
+- ~~**#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds
+  labels; it will not carry the load alone.~~ **Stronger than that, measured.** A fixed set should
+  not be embedded at all: a near-identical typeface costs 11 points of CER, which is a
+  visibly-different one's cost to within noise, and nothing the accuracy gate can see detects it.
+  The set has to be fitted to the title — #43. See `docs/reference-set.md`.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two
   approaches measured neutral-to-worse. The lever is the binary mask itself, not the threshold
   placement, which makes it a #7 question about carrying grey coverage into the feature vector.

@@ -95,6 +95,12 @@ Two things this table does *not* say, and both matter:
   and two different characters more than three times further apart — so 51 is uncomfortably close to
   the distance at which characters start being confusable. Correctness cannot be measured until #15
   supplies ground truth.
+
+  **#15 landed, and this caveat was an understatement.** Scored against ground truth, a Segoe UI
+  reference set matches the *same* 93.9% of glyphs as an Arial one on Arial-authored material and
+  reads at 37.8% character error against Arial's 15.9%. Coverage barely moved; accuracy went 2.4×.
+  Every coverage figure on this page should be read as an upper bound on something it does not
+  measure. See [reference-set.md](reference-set.md).
 - **The reference was pooled from the library itself**, so this is partly measuring self-similarity
   and is optimistic by an unknown amount.
 
@@ -155,23 +161,33 @@ the session cache from an optimisation into the mechanism. It is no longer optio
 **1. Keep the fixed reference set. Do not abandon it.** A dominant glyph family covers most of the
 library across seventy years, which is the outcome §2D of #1 needs and was not guaranteed.
 
-**2. Stop naming typefaces and go the other way round (#9).** The Arial/Helvetica/Trebuchet/Tiresias
-list should not be built from. Instead: render candidate fonts, vector them, and match them against
+**2. Stop naming typefaces and go the other way round (#9).** ~~The Arial/Helvetica/Trebuchet/Tiresias
+list should not be built from.~~ Instead: render candidate fonts, vector them, and match them against
 the dominant cluster measured here. Whichever font aligns *identifies* the typeface and supplies the
-character labels the cluster lacks. That turns #9 from a guess into a fit against evidence, and the
-survey data is the fixture it fits against.
+character labels the cluster lacks.
 
-**3. `FailTrack` cannot stay the default (#13).** It rejects a track on a single unmatched glyph.
-At 96.5% median coverage a typical film has hundreds of unmatched glyphs, so the current default
-would reject essentially every track in the library. `Threshold { min_ratio }` is the only variant
-these numbers support, and the floor should be set from the corpus in #15 rather than picked.
+**Done, and the mechanism works — but not as a shipped set.** The fit identified Arial. Scoring
+candidate sets against ground truth then showed that "or very close" is not close enough: Liberation
+Sans, metric-compatible with Arial and drawn to match it, costs 11 points of character error, which
+is Verdana's cost to within noise. So the fitting has to happen against the *title*, not once
+against the library — #43.
 
-**4. The tail needs the session cache to be load-bearing (#10, #14).** Around a fifth of titles
-would be poorly served by any fixed set. For those, matching by self-consistency within a stream —
-clustering a title's own repeated shapes and labelling clusters rather than individual glyphs — is
-the mechanism that degrades gracefully. #14 should be read with this in mind.
+**3. `FailTrack` cannot stay the default (#13).** ~~It rejects a track on a single unmatched
+glyph.~~ **Done.** The default is `Threshold { min_ratio: 0.90 }`, and the 90% column of the table
+above — 48 of 56 titles — is half of what set it. The other half is the pipeline's own ceiling case
+at 93.9%, above which the floor would be `FailTrack` again.
 
-**5. Survey VOBSUB once #3 lands.** Nothing here describes DVD-era subtitles at all.
+**4. ~~The tail needs the session cache to be load-bearing (#10, #14).~~ Wrong, and measured
+wrong.** The recommendation was to match by self-consistency within a stream — cluster a title's own
+repeated shapes and label clusters rather than individual glyphs. It was built and swept, and it is
+**worse at every radius**. The premise was that a character's own renderings are closer to each
+other than to the nearest different character; #14 found the nearest different character at distance
+*zero* (`I`, `l`, `|`), so no radius exists. Clustering ships off. See
+[glyph-stability.md](glyph-stability.md).
+
+**5. Survey VOBSUB once #3 lands.** #3 landed — control sequences, out-of-band palette and nibble
+RLE all decode — but the survey was never re-run. Nothing here still describes DVD-era subtitles, and
+that remains the largest unmeasured corner of the library at 60 titles.
 
 ## Reproducing
 
