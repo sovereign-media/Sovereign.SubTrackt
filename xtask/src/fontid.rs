@@ -904,6 +904,127 @@ fn report_retrieval(per_font: &BTreeMap<String, Vec<StyleVector>>, weights: &Wei
     rate
 }
 
+/// Prediction 4: is the descriptor blind inside a typeface family?
+///
+/// This issue predicted the deciding result would be that a style descriptor calls two
+/// metric-compatible cuts near-identical, leaving a floor that answers *"is this typeface family
+/// present at all"* and never *"is this the right cut"*. #8 fitted a real library to "Arial **or
+/// very close**", so that population is precisely where a floor would have to work.
+///
+/// Two things are printed, both from the font files alone and both at whichever resolution the
+/// caller measured:
+///
+/// - **Each font's nearest neighbours.** If the prediction holds, `arial`'s nearest is `arialbd` or
+///   `ariali` rather than another typeface, and the distance to it is down among the smallest in the
+///   whole matrix.
+/// - **Within-family against between-family distances.** A family here is the filename stem with a
+///   trailing cut suffix removed, which is crude and is why the neighbour table is printed beside
+///   it: the summary is a claim and the table is the evidence for it.
+///
+/// This is worth measuring even though the proposal has already failed its separation bar, because
+/// the two answers differ. "The descriptor cannot separate anything" and "the descriptor separates
+/// typefaces but not cuts" imply different next proposals, and only one of them is what this issue
+/// predicted.
+fn report_family_blindness(descriptors: &BTreeMap<String, Descriptor>, weights: &Weights) {
+    println!("\n--- prediction 4: can it tell one cut of a typeface from another? ---");
+
+    let entries: Vec<&Descriptor> = descriptors.values().collect();
+    if entries.len() < 3 {
+        println!("  needs at least three fonts to have neighbours worth naming.");
+        return;
+    }
+
+    let names: Vec<&str> = entries.iter().map(|d| d.name.as_str()).collect();
+    println!();
+    println!("  {:<12} {:<34} family?", "font", "three nearest, by style distance");
+    let mut within = Vec::new();
+    let mut between = Vec::new();
+    for a in &entries {
+        let mut ranked: Vec<(f32, &str)> = entries
+            .iter()
+            .filter(|b| b.name != a.name)
+            .map(|b| (weights.distance(a, b), b.name.as_str()))
+            .collect();
+        ranked.sort_by(|x, y| x.0.total_cmp(&y.0));
+
+        for (distance, other) in &ranked {
+            if family_of(&a.name, &names) == family_of(other, &names) {
+                within.push(*distance);
+            } else {
+                between.push(*distance);
+            }
+        }
+
+        let listed: Vec<String> = ranked
+            .iter()
+            .take(3)
+            .map(|(distance, other)| format!("{other} {distance:.2}"))
+            .collect();
+        let nearest_is_kin = ranked
+            .first()
+            .is_some_and(|(_, other)| family_of(&a.name, &names) == family_of(other, &names));
+        println!(
+            "  {:<12} {:<34} {}",
+            a.name,
+            listed.join("  "),
+            if nearest_is_kin { "yes" } else { "-" }
+        );
+    }
+
+    let mean = |values: &[f32]| -> f32 {
+        if values.is_empty() {
+            0.0
+        } else {
+            values.iter().sum::<f32>() / values.len() as f32
+        }
+    };
+    println!();
+    if within.is_empty() {
+        println!("  no two fonts here share a family, so the within-family figure has no sample.");
+        println!("  pass several cuts of one typeface -- arial.ttf arialbd.ttf ariali.ttf -- to");
+        println!("  measure it.");
+        return;
+    }
+    within.sort_by(f32::total_cmp);
+    between.sort_by(f32::total_cmp);
+    println!(
+        "  within a family:  mean {:.3} over {} pairs (closest {:.3})",
+        mean(&within),
+        within.len(),
+        within.first().copied().unwrap_or_default()
+    );
+    println!(
+        "  between families: mean {:.3} over {} pairs (closest {:.3})",
+        mean(&between),
+        between.len(),
+        between.first().copied().unwrap_or_default()
+    );
+    println!();
+    println!("  the prediction is that the first line is far below the second, and that the two");
+    println!("  ranges overlap enough that no floor separates a wrong cut from a right one.");
+}
+
+/// The typeface a filename stem belongs to, taken from the font list rather than guessed.
+///
+/// A stem belongs to the longest *other* stem in the set that it starts with: `arialbd` and
+/// `ariali` both belong to `arial` because `arial` is present, and a font whose base cut was not
+/// passed belongs to itself.
+///
+/// Guessing the suffix instead is what the first version of this did, and it was wrong in a way
+/// worth recording. Stripping a trailing `l` for Calibri Light turned `arial` into `aria` while
+/// `arialbd` stripped to `arial`, so the two landed in different families and the within-family
+/// summary was computed over the wrong pairs entirely. Windows stems are too irregular to parse —
+/// `calibri` genuinely ends in `i` — and the set of fonts on the command line already contains the
+/// answer.
+fn family_of(stem: &str, all: &[&str]) -> String {
+    let lower = stem.to_ascii_lowercase();
+    all.iter()
+        .map(|other| other.to_ascii_lowercase())
+        .filter(|other| *other != lower && lower.starts_with(other.as_str()))
+        .max_by_key(String::len)
+        .unwrap_or(lower)
+}
+
 /// Step 5: the scale, from the font files alone.
 ///
 /// The reason this proposal can have a floor at all where mean match distance could not: the
@@ -1011,6 +1132,14 @@ fn report_resolutions(
         raw - weighted
     );
     println!("  whether a negative result here is about the axes or about what they were fed.");
+
+    // Prediction 4 is asked of the raster descriptors, because those are the ones that work. Asked
+    // through the grid it would measure the projection rather than the axes.
+    let raw_descriptors: BTreeMap<String, Descriptor> = per_font_raw
+        .iter()
+        .filter_map(|(name, styles)| pool(name.clone(), styles).map(|d| (name.clone(), d)))
+        .collect();
+    report_family_blindness(&raw_descriptors, &raw_pooled);
     Ok(())
 }
 
@@ -1246,6 +1375,34 @@ mod tests {
             "a within-font-noisy axis earns nothing: {:?}",
             weights.weights
         );
+    }
+
+    #[test]
+    fn a_cut_belongs_to_the_base_font_when_the_base_font_was_passed() {
+        let all = [
+            "arial", "arialbd", "ariali", "arialbi", "calibri", "calibrib", "times",
+        ];
+        for cut in ["arialbd", "ariali", "arialbi"] {
+            assert_eq!(family_of(cut, &all), "arial", "{cut}");
+        }
+        assert_eq!(family_of("arial", &all), "arial", "a base cut is its own family");
+        assert_eq!(family_of("calibrib", &all), "calibri");
+
+        // The bug this replaced: guessing the suffix stripped the trailing `l` of `arial` for
+        // Calibri Light, so `arial` grouped as `aria` while `arialbd` grouped as `arial` and the
+        // within-family summary was computed over the wrong pairs entirely.
+        assert_eq!(family_of("arial", &all), family_of("arialbd", &all));
+        assert_eq!(family_of("calibri", &all), family_of("calibrib", &all));
+    }
+
+    #[test]
+    fn a_font_whose_base_cut_was_not_passed_is_a_family_of_its_own() {
+        // Understating similarity rather than inventing it: a bold with no regular on the command
+        // line has nothing to be a cut *of*, and guessing one would put two unrelated typefaces in
+        // a family and move the summary it feeds.
+        let all = ["arialbd", "times", "verdana"];
+        assert_eq!(family_of("arialbd", &all), "arialbd");
+        assert_eq!(family_of("times", &all), "times");
     }
 
     #[test]
