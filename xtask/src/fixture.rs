@@ -270,6 +270,11 @@ pub(crate) fn build_sup(
 /// `à`/`á`, `è`/`é`, `ò`/`ó` and `ù`/`ú`: four of the sixteen accent-direction pairs the matcher
 /// calls ambiguous.
 ///
+/// `plaît` and `maître` carry `î`, which is #58's: the circumflex is three times the width of the
+/// stem under it, so until the overlap rule was denominated by the narrower of the two it never
+/// grouped at all. `naïve` above carries the half of that issue still open — a diaeresis straddles
+/// its stem, so neither dot overlaps it and only their union would.
+///
 /// The twelve remaining pairs are the same letters in capitals, and they are deliberately absent.
 /// An accent over a capital sits above every letterform this charset can spell, so `line_bands`
 /// bands it as a line of its own and it never reaches the letter under it — see
@@ -283,7 +288,7 @@ fn default_cues() -> Vec<Vec<String>> {
         vec!["Café, naïve, jalapeño."],
         vec!["0123456789 O o I l 1"],
         vec!["Follow the yellow line", "to Iowa in 2015."],
-        vec!["Où est-il? Là, à côté."],
+        vec!["Où est-il? Là, à côté.", "S'il vous plaît, maître."],
         vec!["Está más allá: adiós, Perú."],
         vec!["Però è così che sarà."],
     ]

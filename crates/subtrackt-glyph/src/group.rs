@@ -31,7 +31,19 @@ pub struct GroupingRules {
     pub diacritic_max_height_percent: u32,
     /// Maximum vertical gap between a diacritic and its base, in percent of line height.
     pub max_gap_percent: u32,
-    /// Minimum horizontal overlap with the base, in percent of the diacritic's width.
+    /// Minimum horizontal overlap between a diacritic and its base, in percent of **the narrower
+    /// of the two**.
+    ///
+    /// The narrower rather than the diacritic, and #58 is what the difference cost. Measured against
+    /// the diacritic alone, a mark wider than the letter under it can never reach any threshold
+    /// however well centred: the circumflex of an `î` is 28px over a 9px stem, which is 32% against
+    /// a floor of 50, so `Î Ï î ï` never grouped at all. `ì` passed at 53%, which is a coincidence
+    /// rather than a margin.
+    ///
+    /// The question the rule exists to ask is whether a mark sits over *this* letter rather than a
+    /// different one, and for a body narrower than the mark that cannot be expressed as a fraction
+    /// of the mark. A mark genuinely straddling two letters still fails, because the overlap with
+    /// either one is then a small part of that letter too.
     pub min_overlap_percent: u32,
     /// Maximum vertical gap between two stacked punctuation marks, in percent of the taller
     /// mark's height.
@@ -301,8 +313,21 @@ fn overlaps_enough(mark: Rect, base: Rect, rules: GroupingRules) -> bool {
     if right <= left {
         return false;
     }
+    // The mark's centre has to fall within the letter. Denominating the overlap by the narrower of
+    // the two boxes is what lets a wide mark attach to a narrow stem, and on its own it would also
+    // let a mark *straddling* two narrow letters claim whichever it covers half of. A centre test
+    // costs nothing and rules that out: a mark the typeface placed over a letter is centred on it,
+    // and a mark between two is centred between them.
+    let centre = mark.x + mark.width / 2;
+    if centre < base.x || centre >= base.right() {
+        return false;
+    }
+
     let overlap = right - left;
-    overlap * 100 >= mark.width.max(1) * rules.min_overlap_percent
+    // The narrower of the two. See `GroupingRules::min_overlap_percent` for why this is not the
+    // mark's own width.
+    let narrower = mark.width.min(base.width).max(1);
+    overlap * 100 >= narrower * rules.min_overlap_percent
 }
 
 /// Rows between two boxes, or zero when they overlap vertically.
@@ -331,6 +356,41 @@ mod tests {
     fn group_line(components: &[Component]) -> Vec<GroupedGlyph> {
         let lines = vec![0; components.len()];
         group(components, &lines, GroupingRules::default()).unwrap()
+    }
+
+    #[test]
+    fn a_mark_wider_than_the_letter_under_it_still_attaches() {
+        // #58. The circumflex of an `î` is three times the width of the stem it sits on — 28px over
+        // 9px in Arial at 96px — so an overlap measured as a fraction of the *mark* tops out at 32%
+        // against a floor of 50 and the mark never attaches. Measured against the narrower of the
+        // two it is 100%, which is the question the rule was trying to ask.
+        let mark = component(0, 0, 28, 13);
+        let body = component(10, 20, 9, 50);
+        assert!(overlaps_enough(mark.bounds, body.bounds, GroupingRules::default()));
+
+        let grouped = group_line(&[mark, body]);
+        assert_eq!(grouped.len(), 1, "one character, not two glyphs");
+        assert_eq!(grouped[0].parts.len(), 2);
+    }
+
+    #[test]
+    fn a_mark_straddling_two_narrow_letters_still_belongs_to_neither() {
+        // The failure the change has to avoid: denominating by the narrower box could let a mark
+        // that sits between two letters claim both. It cannot, because the overlap with either one
+        // is then a small part of that letter too.
+        let rules = GroupingRules::default();
+        let left = component(0, 20, 8, 40);
+        let right = component(36, 20, 8, 40);
+        // A wide mark spanning the gap, covering half of each letter. Its centre lands between
+        // them, in neither.
+        let straddling = component(4, 0, 36, 10);
+        assert!(!overlaps_enough(straddling.bounds, left.bounds, rules));
+        assert!(!overlaps_enough(straddling.bounds, right.bounds, rules));
+
+        // And the same mark shifted onto the right letter does attach, so the test is about where
+        // the mark sits rather than about its width.
+        let over_right = component(22, 0, 36, 10);
+        assert!(overlaps_enough(over_right.bounds, right.bounds, rules));
     }
 
     #[test]
