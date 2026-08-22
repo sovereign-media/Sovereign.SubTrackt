@@ -217,7 +217,7 @@ fn object(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
 const VARIED_SCALES: [f32; 5] = [1.0, 0.94, 1.06, 0.97, 1.03];
 
 /// Build a `.sup` from cues, each a list of text lines rendered at its own size.
-fn build_sup(
+pub(crate) fn build_sup(
     font: &Font,
     cues: &[(Vec<String>, f32)],
     plane: (u32, u32),
