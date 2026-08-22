@@ -27,6 +27,13 @@ pub struct Report {
     pub ambiguous: u64,
     /// Glyphs answered from the session cache.
     pub cache_hits: u64,
+    /// Sum of the Hamming distances of every glyph that matched.
+    ///
+    /// Coverage says how many glyphs found *a* reference; this says how well they fitted it, and
+    /// the two answer different questions. A reference set built from the wrong typeface still
+    /// matches nearly everything, just further away — so a mean rising towards the threshold is the
+    /// signal that a track is being read confidently and wrongly, which coverage alone cannot see.
+    pub distance_sum: u64,
     /// Glyphs whose line was too short or too uniform to measure against.
     ///
     /// These fall back to shape alone, which is how the pipeline behaved before #37. A large count
@@ -88,6 +95,23 @@ impl Report {
         policy.rejects(self.confidence())
     }
 
+    /// Mean distance of the glyphs that matched, or zero when none did.
+    ///
+    /// Read it against [`MatchThresholds::max_distance`](subtrackt_glyph::matcher::MatchThresholds::max_distance):
+    /// a mean well below the ceiling means the reference set fits the material, and a mean pressed
+    /// up against it means glyphs are being accepted because the threshold is generous rather than
+    /// because they resemble anything.
+    #[must_use]
+    pub fn mean_match_distance(&self) -> f32 {
+        if self.matched == 0 {
+            return 0.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.distance_sum as f32 / self.matched as f32
+        }
+    }
+
     /// Session cache hit rate in `0.0..=1.0`.
     #[must_use]
     pub fn cache_hit_rate(&self) -> f32 {
@@ -106,13 +130,14 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous; \
-             cache {:.0}%; corrections {} ({})",
+             fit {:.1}; cache {:.0}%; corrections {} ({})",
             self.cues,
             self.images,
             self.packets,
             self.matched,
             self.unmatched,
             self.ambiguous,
+            self.mean_match_distance(),
             self.cache_hit_rate() * 100.0,
             self.corrections,
             // Named even when it is `none`, because "post-correction was off" and "post-correction
@@ -150,6 +175,34 @@ mod tests {
     #[test]
     fn an_empty_run_reports_a_zero_hit_rate_rather_than_dividing_by_zero() {
         assert!((Report::default().cache_hit_rate() - 0.0).abs() < f32::EPSILON);
+        assert!((Report::default().mean_match_distance() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn how_well_glyphs_matched_is_reported_separately_from_how_many_did() {
+        // `docs/reference-set.md` measured two sets matching the same 93.9% of glyphs and reading
+        // 2.4 times differently, so coverage cannot stand in for fit. These are two numbers.
+        let mut close = Report::default();
+        close.record(Confidence { matched: 10, unmatched: 0, ambiguous: 0 });
+        close.distance_sum = 130;
+
+        let mut far = Report::default();
+        far.record(Confidence { matched: 10, unmatched: 0, ambiguous: 0 });
+        far.distance_sum = 227;
+
+        assert!((close.confidence().ratio() - far.confidence().ratio()).abs() < f32::EPSILON);
+        assert!((close.mean_match_distance() - 13.0).abs() < 1e-6);
+        assert!((far.mean_match_distance() - 22.7).abs() < 1e-4);
+    }
+
+    #[test]
+    fn unmatched_glyphs_do_not_drag_the_mean_distance_down() {
+        // A glyph that matched nothing has no distance to a reference, only a best-effort figure
+        // for diagnostics. Averaging it in would make a badly-read track look like a close fit.
+        let mut report = Report::default();
+        report.record(Confidence { matched: 2, unmatched: 8, ambiguous: 0 });
+        report.distance_sum = 40;
+        assert!((report.mean_match_distance() - 20.0).abs() < 1e-6);
     }
 
     #[test]
@@ -169,6 +222,7 @@ mod tests {
         assert!(line.contains("3 cues"), "{line}");
         assert!(line.contains("40 matched / 2 unmatched / 1 ambiguous"), "{line}");
         assert!(line.contains("cache 50%"), "{line}");
+        assert!(line.contains("fit 0.0"), "{line}");
         assert!(line.contains("corrections 2 (context)"), "{line}");
     }
 

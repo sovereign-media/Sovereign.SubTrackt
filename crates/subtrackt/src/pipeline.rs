@@ -221,6 +221,14 @@ impl Pipeline {
                 identified.push(matcher.match_glyph(glyph)?);
             }
 
+            // How well the matched glyphs fitted, not just how many did. See `Report::distance_sum`
+            // for why the second number cannot stand in for the first.
+            report.distance_sum += identified
+                .iter()
+                .filter(|m| m.character.is_some())
+                .map(|m| u64::from(m.distance))
+                .sum::<u64>();
+
             let read = assembler.assemble_annotated(image, &glyphs, &identified)?;
             let mut cue = read.cue;
             report.record(cue.confidence);
