@@ -38,7 +38,10 @@ pub fn find_font(explicit: Option<&String>) -> Option<PathBuf> {
 }
 
 /// Extract a `.sup` with a reference set and return the text, one cue line per line.
-fn extract(
+///
+/// # Errors
+/// Propagates any pipeline failure.
+pub(crate) fn extract(
     sup: &Path,
     reference: ReferenceSet,
     grey_coverage: bool,

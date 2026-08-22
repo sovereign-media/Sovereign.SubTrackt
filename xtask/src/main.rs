@@ -11,6 +11,7 @@
 //! ```
 
 mod accuracy;
+mod fit;
 mod fixture;
 mod separability;
 mod stability;
@@ -181,6 +182,7 @@ fn main() -> anyhow::Result<()> {
         Some("measure-stability") => return stability::measure(&args[1..]),
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
+        Some("reference-fit") => return fit::run(&args[1..]),
         Some("cluster-sweep") => return sweep::run(&args[1..]),
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
@@ -191,5 +193,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask measure-stability <regular.ttf> [bold] [italic] [bold-italic]");
     eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
     eprintln!("  xtask accuracy [font.ttf]");
+    eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
     std::process::exit(2);
 }

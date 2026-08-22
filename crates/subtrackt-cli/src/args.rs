@@ -1,14 +1,35 @@
 //! Command-line surface.
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::{Config, UnmatchedPolicy};
 use subtrackt_core::SubtitleFormat;
 
+/// What `--version` prints: the binary, and the reference data compiled into it.
+///
+/// Two different things decide what an extraction says, and they are fixed in different places. A
+/// bad read is either the code or the data it matched against, and a version string naming only the
+/// first leaves the second untraceable — which matters more here than usual, because the embedded
+/// set is empty and a user seeing every glyph come back unmatched should be able to find out why
+/// from the tool rather than from the source.
+fn version() -> &'static str {
+    static VERSION: OnceLock<String> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        let set = subtrackt_glyph::reference::embedded();
+        format!(
+            "{} (reference set: {}, {} glyphs)",
+            env!("CARGO_PKG_VERSION"),
+            set.name(),
+            set.len()
+        )
+    })
+}
+
 /// Extract plain text from bitmap image-based subtitle streams.
 #[derive(Debug, Parser)]
-#[command(name = "subtrackt", version, about, long_about = None)]
+#[command(name = "subtrackt", version = version(), about, long_about = None)]
 pub struct Cli {
     /// What to do.
     #[command(subcommand)]
@@ -87,8 +108,9 @@ pub struct ExtractArgs {
 
     /// Reference glyph set to match against, as written by `xtask gen-reference`.
     ///
-    /// The embedded set is empty until #9 has one worth shipping, so without this every glyph
-    /// comes back unmatched.
+    /// Required in practice: nothing is embedded, and docs/reference-set.md records the
+    /// measurement saying a shipped set would read worse than no set at all. Without this every
+    /// glyph comes back unmatched, which is the honest answer rather than a broken one.
     #[arg(long)]
     pub reference: Option<PathBuf>,
 }
@@ -237,6 +259,19 @@ mod tests {
     #[test]
     fn the_cli_definition_is_internally_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn the_version_names_the_reference_data_as_well_as_the_binary() {
+        // A user whose every glyph comes back unmatched is looking at empty reference data, not at
+        // a broken decoder, and the tool should be able to tell them that itself.
+        let version = version();
+        assert!(version.starts_with(env!("CARGO_PKG_VERSION")), "{version}");
+        assert!(version.contains("reference set:"), "{version}");
+        assert!(
+            version.contains("empty"),
+            "{version}: nothing is embedded, and it should say so"
+        );
     }
 
     #[test]

@@ -263,9 +263,23 @@ impl ReferenceSet {
 
 /// The reference set compiled into this binary.
 ///
-/// Still empty. #8 established that a fixed set is worth having; it also established that the set
-/// has to be fitted to the measured evidence rather than guessed, and until that is done shipping
-/// nothing is the honest option.
+/// **Empty, and now empty on purpose rather than pending.** `xtask reference-fit` scored six
+/// candidate sets against Arial-rendered material and `docs/reference-set.md` records what it
+/// found: Liberation Sans — metric-compatible with Arial, openly licensed, the obvious thing to
+/// embed — reads it at 26.8% character error against Arial's own 15.9%, which is Verdana's 27.4%
+/// to within noise. Being visually close to the material bought 0.6 points.
+///
+/// The errors it makes are systematic rather than scattered: `t` read as `I` in every position,
+/// `1` as `4`, `a` unmatched throughout. That is a confident wrong answer, which is the failure
+/// mode §4 of #1 rejected general OCR to avoid, and neither figure the accuracy gate can see
+/// detects it — Segoe UI matches the same 93.9% of glyphs as Arial and reads 2.4 times worse.
+///
+/// So an embedded set would trade a *detectable* failure for an undetectable one. With nothing
+/// embedded a mismatched disc comes back entirely unmatched and the caller falls back to burn-in;
+/// with a set embedded it comes back three-quarters right and nothing says which quarter.
+///
+/// This is not waiting on a better font. The unlock is reference data fitted to the material
+/// itself rather than shipped in the binary.
 #[must_use]
 pub fn embedded() -> ReferenceSet {
     ReferenceSet::empty()
@@ -300,10 +314,15 @@ mod tests {
     }
 
     #[test]
-    fn the_embedded_set_is_empty_until_one_is_fitted_to_the_survey() {
+    fn the_embedded_set_is_empty_because_shipping_one_measured_worse_than_shipping_none() {
+        // Not a placeholder. `xtask reference-fit` priced every candidate and
+        // `docs/reference-set.md` records why an empty set beats the best of them: a mismatched
+        // disc read against a shipped set comes back three-quarters right with nothing saying
+        // which quarter, and read against nothing at all comes back refused.
         let set = embedded();
         assert!(set.is_empty());
         assert_eq!(set.len(), 0);
+        assert_eq!(set.name(), "empty", "and `--version` prints this, so a user can see it");
     }
 
     #[test]

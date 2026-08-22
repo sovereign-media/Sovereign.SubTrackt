@@ -58,6 +58,12 @@ characters around them takes **3.1 points** off the ceiling fixture's character 
 no line worse. It ships switched off: the corrector refuses more than it accepts by construction,
 but one generated fixture is not a corpus to decide a default that rewrites what a viewer reads.
 
+**[`docs/reference-set.md`](docs/reference-set.md)** — why nothing is embedded. Reading
+Arial-authored material with a Liberation Sans reference set — metric-compatible, openly licensed,
+the obvious thing to ship — costs **11 points of CER**, which is Verdana's cost to within noise.
+Being visually close to the material bought 0.6 points, and neither coverage nor match distance
+notices. A shipped set would trade a detectable failure for an undetectable one.
+
 **The consequence.** One reference vector per character cannot work, and enumerating styles does not
 rescue it. The session cache stops being an optimisation and becomes the mechanism: the expensive
 axes are constant *within* a stream, so clustering a title's own repeated shapes cancels exactly the
