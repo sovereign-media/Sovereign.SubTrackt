@@ -8,6 +8,8 @@ use subtrackt::config::DEFAULT_MIN_MATCHED;
 use subtrackt::{Config, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
+use crate::style::When;
+
 /// What `--version` prints: the binary, and the reference data compiled into it.
 ///
 /// Two different things decide what an extraction says, and they are fixed in different places. A
@@ -39,6 +41,41 @@ pub struct Cli {
     /// Increase log verbosity. Repeatable.
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
+
+    /// Colour stderr by severity. Auto follows the terminal and honours `NO_COLOR`.
+    #[arg(long, value_enum, value_name = "WHEN", default_value_t = When::Auto, global = true)]
+    pub color: When,
+
+    /// Draw a spinner and a progress bar on stderr.
+    #[arg(long, value_enum, value_name = "WHEN", default_value_t = When::Auto, global = true)]
+    pub progress: When,
+
+    /// Neither colour nor progress: the output a redirected run already produces.
+    #[arg(long, global = true)]
+    pub plain: bool,
+}
+
+impl Cli {
+    /// When to colour, with `--plain` folded in.
+    ///
+    /// `--plain` is one flag for the case detection gets wrong in both directions at once -- a CI
+    /// runner with a pty allocated, a container with `TERM` set -- and it wins over the specific
+    /// flags rather than losing to them, because there is no reading of `--plain --color always`
+    /// where the user wanted colour.
+    #[must_use]
+    pub const fn color(&self) -> When {
+        if self.plain { When::Never } else { self.color }
+    }
+
+    /// When to draw progress, with `--plain` folded in the same way.
+    #[must_use]
+    pub const fn progress(&self) -> When {
+        if self.plain {
+            When::Never
+        } else {
+            self.progress
+        }
+    }
 }
 
 /// Subcommands.
@@ -579,6 +616,49 @@ mod tests {
             }
             other => panic!("expected glyphs, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn plain_means_both_the_others_never_whatever_they_were_set_to() {
+        // One flag rather than two, because the case it exists for -- detection getting it wrong
+        // -- gets both wrong at once.
+        let cli = Cli::try_parse_from(["subtrackt", "list", "m.mkv", "--plain"]).unwrap();
+        assert_eq!(cli.color(), When::Never);
+        assert_eq!(cli.progress(), When::Never);
+
+        let cli = Cli::try_parse_from([
+            "subtrackt",
+            "list",
+            "m.mkv",
+            "--plain",
+            "--color",
+            "always",
+            "--progress",
+            "always",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.color(),
+            When::Never,
+            "there is no reading of that where colour was wanted"
+        );
+        assert_eq!(cli.progress(), When::Never);
+    }
+
+    #[test]
+    fn the_display_flags_are_global_and_default_to_auto() {
+        // Global so they can be typed after the subcommand, which is where a hand reaches for them
+        // when a run turns out to be noisier than expected.
+        let cli =
+            Cli::try_parse_from(["subtrackt", "extract", "m.sup", "--color", "never"]).unwrap();
+        assert_eq!(cli.color(), When::Never);
+        assert_eq!(cli.progress(), When::Auto);
+        assert_eq!(
+            Cli::try_parse_from(["subtrackt", "list", "m.mkv"])
+                .unwrap()
+                .color(),
+            When::Auto
+        );
     }
 
     #[test]

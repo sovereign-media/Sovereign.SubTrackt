@@ -22,6 +22,9 @@ subtrackt-core.workspace = true
 # repository and a Rust toolchain to make one. #80.
 subtrackt-glyph = { workspace = true, features = ["font"] }
 
+anstream.workspace = true
+anstyle.workspace = true
+anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 tracing.workspace = true

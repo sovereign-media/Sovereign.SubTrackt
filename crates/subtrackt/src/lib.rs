@@ -21,7 +21,7 @@ pub mod score;
 pub mod survey;
 
 pub use config::{Config, UnmatchedPolicy};
-pub use fit::{Fit, rank, score_set};
+pub use fit::{Fit, rank, rank_watched, score_set};
 pub use pipeline::{Outcome, Pipeline};
 pub use report::Report;
 pub use score::{Score, score_text, score_track};
@@ -32,6 +32,7 @@ pub use subtrackt_core as core;
 // Post-correction is the one stage whose output a caller has to be able to audit rather than
 // merely count, so its log type is part of this crate's surface and not an implementation detail
 // of `subtrackt-text`.
+pub use subtrackt_core::progress::{Phase, Progress, Silent};
 pub use subtrackt_core::{Error, Result};
 pub use subtrackt_text::correct::{CorrectionLog, PostCorrector};
 // `Config::layout` is a `LayoutRules`, so the type is already part of this crate's surface; naming

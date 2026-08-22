@@ -85,6 +85,13 @@ The two Linux rows are the larger ones, and that difference is the measured pric
 statically: musl and the startup files it brings cost roughly 380 KB over the dynamically linked
 Windows build of the same architecture. Against not having a glibc version to match, that is cheap.
 
+What the binary has *not* grown on is decoration. #83 added colour by severity, a spinner and a
+progress bar, and cost **30.5 KB** — 1.63 MB to 1.67 MB, measured before and after on one machine
+for `x86_64-pc-windows-msvc`. Colour is free because `clap` already compiles `anstyle`, `anstream`
+and `anstyle-query` in; the bar is forty lines of arithmetic rather than the five extra crates
+`indicatif` would have brought. The rule that produced that number is in `CLAUDE.md`: reach for a
+crate when the work is someone else's problem domain, and drawing `[####----] 43%` is not.
+
 No macOS build, because nobody has asked for one. It is a row in the matrix if that changes.
 
 Both ARM64 targets are cross-compiled from x86-64 runners rather than built natively: GitHub's

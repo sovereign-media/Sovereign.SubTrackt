@@ -9,6 +9,7 @@
 
 use std::path::Path;
 
+use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_core::{Error, GlyphMatcher, Result, Segmenter, SubtitleImage, TextTrack};
 use subtrackt_demux::{StreamInfo, SubtitleSource};
 use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
@@ -100,6 +101,19 @@ impl Pipeline {
     /// expected to fall back to burn-in rather than to ship half a subtitle. Every counter behind
     /// that decision is in [`Report`], so the caller can log why it happened.
     pub fn run(&self, path: impl AsRef<Path>) -> Result<Outcome> {
+        self.run_watched(path, &Silent)
+    }
+
+    /// Extract a track, reporting where the run has got to.
+    ///
+    /// Identical to [`Self::run`] but for the observer. A film is minutes of work in two shapes --
+    /// packets arriving with no total in sight, then every decoded image segmented, clustered and
+    /// matched -- and a front end that says nothing across either is indistinguishable from a hung
+    /// one. What gets drawn, and whether anything does, belongs entirely to `progress`.
+    ///
+    /// # Errors
+    /// As [`Self::run`].
+    pub fn run_watched(&self, path: impl AsRef<Path>, progress: &dyn Progress) -> Result<Outcome> {
         let path = path.as_ref();
         let mut source = subtrackt_demux::open(path)?;
 
@@ -122,25 +136,29 @@ impl Pipeline {
         };
         let mut images = Vec::new();
 
+        // Indeterminate: the source is streamed until it is exhausted, so how many packets there
+        // are is not known until there are none left.
+        progress.begin(Phase::Decode, None);
         while let Some(packet) = source.next_packet()? {
             report.packets += 1;
+            progress.advance(report.packets);
             images.extend(decoder.push(packet.pts, &packet.payload)?);
         }
         images.extend(decoder.finish()?);
+        progress.end();
         report.images = images.len().try_into().unwrap_or(u64::MAX);
 
         let mut corrections = Vec::new();
-        let track = self.build_track(
-            &images,
-            &segmenter,
-            &mut matcher,
-            &assembler,
-            &mut report,
-            &mut corrections,
-        )?;
+        let mut stages = Stages {
+            segmenter: &segmenter,
+            matcher: &mut matcher,
+            assembler: &assembler,
+        };
+        let track =
+            self.build_track(&images, &mut stages, &mut report, &mut corrections, progress)?;
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
-        report.cache_hits = matcher.cache_hits();
+        report.cache_hits = stages.matcher.cache_hits();
 
         if report.is_rejected_by(self.config.unmatched) {
             // Every number behind the decision, because the caller is being told to fall back to
@@ -200,27 +218,39 @@ impl Pipeline {
     fn build_track(
         &self,
         images: &[SubtitleImage],
-        segmenter: &ImageSegmenter,
-        matcher: &mut HammingMatcher,
-        assembler: &SpatialAssembler,
+        stages: &mut Stages<'_>,
         report: &mut Report,
         corrections: &mut Vec<CorrectionLog>,
+        progress: &dyn Progress,
     ) -> Result<TextTrack> {
         // Segment everything before matching anything. The matcher groups a stream's own shapes
         // and matches the groups, which it cannot do while answers are already being handed out —
         // see `subtrackt_glyph::cluster` for why identifying glyphs one at a time cannot work.
         let mut per_image: Vec<Vec<subtrackt_core::Glyph>> = Vec::with_capacity(images.len());
+        // Three reported phases rather than one, because this is three passes over the same images
+        // with a whole-stream barrier between them. One bar filling up three times under a single
+        // label would say less than three that each name what is running.
+        let total: u64 = images.len().try_into().unwrap_or(u64::MAX);
+        let mut done = 0u64;
+        progress.begin(Phase::Segment, Some(total));
         for image in images {
-            per_image.push(segmenter.segment(image)?);
+            per_image.push(stages.segmenter.segment(image)?);
+            done += 1;
+            progress.advance(done);
         }
+        progress.end();
 
         let all_glyphs: Vec<subtrackt_core::Glyph> = per_image
             .iter()
             .flat_map(|glyphs| glyphs.iter().cloned())
             .collect();
-        matcher.prepare(&all_glyphs)?;
-        report.distinct_shapes = matcher.distinct_shapes();
-        report.clusters = matcher.clusters();
+        // One call with no way to see inside it, so a spinner rather than a bar. It still earns
+        // its line: on a feature film the grouping pass is seconds of otherwise silent work.
+        progress.begin(Phase::Cluster, None);
+        stages.matcher.prepare(&all_glyphs)?;
+        progress.end();
+        report.distinct_shapes = stages.matcher.distinct_shapes();
+        report.clusters = stages.matcher.clusters();
         report.glyphs_without_metrics = all_glyphs
             .iter()
             .filter(|g| !g.metrics.known)
@@ -233,10 +263,12 @@ impl Pipeline {
         // answers are already being handed out — the same argument that makes `matcher.prepare` a
         // separate pass. Every image is already resident, so this costs nothing but the ordering.
         let mut read_cues = Vec::with_capacity(images.len());
+        done = 0;
+        progress.begin(Phase::Read, Some(total));
         for (image, glyphs) in images.iter().zip(per_image) {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
-                identified.push(matcher.match_glyph(glyph)?);
+                identified.push(stages.matcher.match_glyph(glyph)?);
             }
 
             // How well the matched glyphs fitted, not just how many did. See `Report::distance_sum`
@@ -247,10 +279,15 @@ impl Pipeline {
                 .map(|m| u64::from(m.distance))
                 .sum::<u64>();
 
-            let read = assembler.assemble_annotated(image, &glyphs, &identified)?;
+            let read = stages
+                .assembler
+                .assemble_annotated(image, &glyphs, &identified)?;
             report.record(read.cue.confidence);
             read_cues.push(read);
+            done += 1;
+            progress.advance(done);
         }
+        progress.end();
 
         let mut corrector = self.corrector();
         corrector.observe(&read_cues);
@@ -290,6 +327,17 @@ impl Pipeline {
         report.corrector = corrector.name();
         Ok(TextTrack::new(cues, None))
     }
+}
+
+/// The stage instances one run is assembled from.
+///
+/// Grouped rather than passed one by one because they travel together and always will: they are
+/// the fan of stage crates the architecture document describes, and a run either has all of them
+/// or is not a run.
+struct Stages<'a> {
+    segmenter: &'a ImageSegmenter,
+    matcher: &'a mut HammingMatcher,
+    assembler: &'a SpatialAssembler,
 }
 
 /// Binarize, label, group and vectorize — the [`Segmenter`] side of `subtrackt-glyph`.
