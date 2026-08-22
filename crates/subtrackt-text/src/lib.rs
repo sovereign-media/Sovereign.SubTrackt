@@ -4,6 +4,6 @@ pub mod correct;
 pub mod format;
 pub mod layout;
 
-pub use correct::{NoopCorrector, PostCorrector};
+pub use correct::{ContextCorrector, CorrectionLog, NoopCorrector, PostCorrector};
 pub use format::{SrtWriter, VttWriter, writer_for};
-pub use layout::{LayoutRules, SpatialAssembler};
+pub use layout::{AssembledCue, LayoutRules, SpatialAssembler};

@@ -50,8 +50,14 @@ pub struct Report {
     pub cues: u64,
     /// Cues dropped under [`UnmatchedPolicy::Drop`].
     pub cues_dropped: u64,
-    /// Corrections applied by post-correction.
+    /// Characters post-correction substituted.
+    ///
+    /// Watch it against `ambiguous`: the corrector is only allowed to touch a glyph the matcher
+    /// flagged, so this can never exceed that count, and a ratio anywhere near 1 would mean the
+    /// rules had stopped refusing anything.
     pub corrections: u64,
+    /// Name of the corrector that ran, or an empty string for a run that never assembled a cue.
+    pub corrector: &'static str,
     /// Name of the reference set used, so a bad extraction can be traced to its data.
     pub reference_set: String,
 }
@@ -100,14 +106,19 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous; \
-             cache {:.0}%",
+             cache {:.0}%; corrections {} ({})",
             self.cues,
             self.images,
             self.packets,
             self.matched,
             self.unmatched,
             self.ambiguous,
-            self.cache_hit_rate() * 100.0
+            self.cache_hit_rate() * 100.0,
+            self.corrections,
+            // Named even when it is `none`, because "post-correction was off" and "post-correction
+            // ran and changed nothing" are different facts about a track and a summary that
+            // printed `0` for both would hide the difference.
+            self.corrector,
         )
     }
 }
@@ -143,7 +154,14 @@ mod tests {
 
     #[test]
     fn the_summary_line_names_the_numbers_that_matter() {
-        let mut report = Report { cues: 3, images: 3, packets: 12, ..Report::default() };
+        let mut report = Report {
+            cues: 3,
+            images: 3,
+            packets: 12,
+            corrections: 2,
+            corrector: "context",
+            ..Report::default()
+        };
         report.record(Confidence { matched: 40, unmatched: 2, ambiguous: 1 });
         report.cache_hits = 21;
 
@@ -151,5 +169,16 @@ mod tests {
         assert!(line.contains("3 cues"), "{line}");
         assert!(line.contains("40 matched / 2 unmatched / 1 ambiguous"), "{line}");
         assert!(line.contains("cache 50%"), "{line}");
+        assert!(line.contains("corrections 2 (context)"), "{line}");
+    }
+
+    #[test]
+    fn the_summary_tells_a_corrector_that_did_nothing_from_one_that_never_ran() {
+        // Both report zero corrections and they mean different things, so the name has to be
+        // there: one track was left alone on purpose, the other was examined and found clean.
+        let off = Report { corrector: "none", ..Report::default() }.to_string();
+        let on = Report { corrector: "context", ..Report::default() }.to_string();
+        assert!(off.contains("corrections 0 (none)"), "{off}");
+        assert!(on.contains("corrections 0 (context)"), "{on}");
     }
 }

@@ -86,8 +86,18 @@ fn extract(args: &ExtractArgs) -> anyhow::Result<()> {
     let rendered = outcome.render(&config)?;
     write_output(args, &rendered)?;
 
+    // Every correction, individually, whenever post-correction ran. A stage allowed to rewrite
+    // text has to leave a trace of what it rewrote, and a count alone is not one: `3 corrections`
+    // cannot be checked by anybody, and `'I' -> 'l' in "jalapeño"` can.
+    for correction in &outcome.corrections {
+        tracing::info!("post-correction: {correction}");
+    }
+
     if args.report {
         eprintln!("{}", outcome.report);
+        for correction in &outcome.corrections {
+            eprintln!("  {correction}");
+        }
     }
     Ok(())
 }

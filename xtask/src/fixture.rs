@@ -257,6 +257,12 @@ fn build_sup(
 /// Written for this purpose, not taken from any film. Between them they cover both cases, digits,
 /// the ambiguous pairs #12 cares about, accented letters, a two-speaker dash and a colon — the
 /// punctuation case #6 is built around.
+///
+/// The last cue is aimed squarely at post-correction and carries both halves of it. `yellow` and
+/// `line` are what it should fix when the matcher reads an `l` as an `I`; `Iowa` is what it must
+/// not touch, because the evidence for rewriting a word-initial capital in an otherwise-lowercase
+/// word is identical in both, and only one of them would be a correction. A measurement of a
+/// corrector over a corpus with nothing to damage measures half the question.
 fn default_cues() -> Vec<Vec<String>> {
     [
         vec!["The quick brown fox jumps"],
@@ -264,6 +270,7 @@ fn default_cues() -> Vec<Vec<String>> {
         vec!["- Is it 1 or l?", "- Neither: it is I."],
         vec!["Café, naïve, jalapeño."],
         vec!["0123456789 O o I l 1"],
+        vec!["Follow the yellow line", "to Iowa in 2015."],
     ]
     .iter()
     .map(|lines| lines.iter().map(|s| (*s).to_owned()).collect())
@@ -387,5 +394,14 @@ mod tests {
         assert!(all.contains("- "), "a speaker dash, which #11 must keep spaced");
         assert!(all.contains('1') && all.contains('l'), "the ambiguous pair from #12");
         assert!(all.contains('\u{e9}'), "an accented letter, which #6 must group");
+        assert!(
+            all.contains("yellow"),
+            "an ambiguous letter with clear letters either side, which #12 can resolve"
+        );
+        assert!(
+            all.contains("Iowa"),
+            "and a proper noun whose capital #12 must leave alone, or the corrector is measured \
+             only on what it can gain"
+        );
     }
 }

@@ -26,4 +26,8 @@ pub use score::{Score, score_text, score_track};
 pub use survey::{GlyphRecord, GlyphSurvey};
 
 pub use subtrackt_core as core;
+// Post-correction is the one stage whose output a caller has to be able to audit rather than
+// merely count, so its log type is part of this crate's surface and not an implementation detail
+// of `subtrackt-text`.
 pub use subtrackt_core::{Error, Result};
+pub use subtrackt_text::correct::{CorrectionLog, PostCorrector};
