@@ -28,8 +28,32 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  # Fails the whole release before anything is built, rather than four times in parallel after.
+  #
+  # A tag and `Cargo.toml` disagreeing is silent and permanent once published: the artifacts are
+  # named for the tag, `--version` reports what the manifest said, and nothing downstream compares
+  # them. The pair only stays in step because something checks.
+  verify:
+    name: tag matches the crate version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare the tag to Cargo.toml
+        run: |
+          set -euo pipefail
+          declared=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tagged" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match the workspace version ${declared}."
+            echo "Artifacts would be named for the tag while --version printed ${declared}."
+            echo "Run scripts/release.sh ${tagged}, land that pull request, then tag again."
+            exit 1
+          fi
+          echo "${GITHUB_REF_NAME} matches Cargo.toml (${declared})"
+
   build:
     name: ${{ matrix.target }}
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       # Not fail-fast: if one platform's toolchain breaks, the other three artifacts are still worth
@@ -117,8 +141,17 @@ jobs:
           rm -f ./*.sha256
           cat SHA256SUMS
 
+      # `generate_release_notes` is the changelog: GitHub lists every pull request merged since the
+      # previous tag, with authors and a compare link. This project writes pull request titles as
+      # sentences about why, so that list reads as release notes without anything hand-maintained --
+      # and a hand-maintained CHANGELOG.md would only duplicate commit messages and then drift from
+      # them.
+      #
+      # A tag carrying a pre-release suffix (`v0.2.0-rc.1`) is marked as one, so it does not become
+      # the "latest release" that an install line resolves to.
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
