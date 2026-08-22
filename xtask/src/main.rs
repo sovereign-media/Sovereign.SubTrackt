@@ -10,6 +10,7 @@
 //! ```
 
 mod accuracy;
+mod bigram;
 mod disc;
 mod fit;
 mod fixture;

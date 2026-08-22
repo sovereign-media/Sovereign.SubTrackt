@@ -60,6 +60,22 @@ struct Scored {
     charged_mean: f32,
     coverage: f64,
     cer: f64,
+    /// Mean bigram log-probability of the text this candidate read, under the declared language.
+    ///
+    /// #101. `None` where there was too little Latin-script text to score, which is the silence
+    /// [`crate::bigram::Table::score`] promises rather than a fabricated figure.
+    ///
+    /// The one statistic here that never consults the matcher's assignment. It reads the
+    /// distribution of *output characters*, three stages downstream of the ink, so neither of the
+    /// two mechanisms that killed #63's five can reach it.
+    bigram: Option<f64>,
+    /// The same, with every unread character charged the uniform floor.
+    ///
+    /// #63's own repair for mean match distance, applied to the same flaw here: an unread character
+    /// is not a Latin letter, so it breaks the bigram chain and the surviving bigrams are only the
+    /// ones the set was confident about. A set that reads three-quarters of a track otherwise
+    /// scores on its best three-quarters.
+    charged_bigram: Option<f64>,
     /// One entry per line of output, so agreement can be asked per line rather than only per
     /// track. Lines rather than cues because the ground truth the fixture writes carries no cue
     /// boundary, and because "lines made worse" is the unit `docs/post-correction.md` already
@@ -70,6 +86,14 @@ struct Scored {
 /// Everything measured for one material font.
 struct Trial {
     material: String,
+    /// What the *ground truth* scores under the language prior.
+    ///
+    /// #101's anchor, and the row that turned out to matter most. Without it the extraction's
+    /// figure is a number in an unfamiliar unit; with it, the question becomes whether a read is
+    /// near or far from what a correct read of this same text scores — and on a fixture that
+    /// deliberately carries French, Spanish and Italian lines for the accent tests, "what a correct
+    /// read scores" is nowhere near what English scores.
+    truth_bigram: Option<f64>,
     /// The ground truth the fixture was rendered from, one entry per line.
     truth_lines: Vec<String>,
     /// Every candidate, including the material's own font.
@@ -164,6 +188,10 @@ fn trial(
     let sup = fixture_dir.join("synthetic.sup");
     let ceiling = f64::from(MatchThresholds::default().max_distance());
 
+    // Built once per trial rather than once per candidate: it depends on the language, not on the
+    // read, and rebuilding it inside the loop would suggest otherwise.
+    let english = crate::bigram::Table::from_corpus(crate::bigram::CORPUS);
+
     let mut scores = Vec::new();
     for (candidate, set) in sets {
         let (text, outcome) = crate::accuracy::extract(&sup, set.clone(), false, false)?;
@@ -188,13 +216,16 @@ fn trial(
             charged_mean: charged as f32,
             coverage,
             cer: score_text(truth.trim(), text.trim()).character_error_rate() * 100.0,
+            bigram: english.score(text.trim()),
+            charged_bigram: english.score_charged(text.trim()),
             lines: text.trim().lines().map(str::to_owned).collect(),
         });
     }
 
     let truth_lines: Vec<String> = truth.trim().lines().map(str::to_owned).collect();
+    let truth_bigram = english.score(truth.trim());
 
-    Ok(Trial { material: name, truth_lines, scores })
+    Ok(Trial { material: name, truth_bigram, truth_lines, scores })
 }
 
 /// Report what each statistic picks when the right answer is available.
@@ -521,6 +552,292 @@ fn report_agreement(trials: &[Trial]) {
             best_bad - worst_good
         );
     }
+}
+
+/// Does a language prior separate a good read from a bad one?
+///
+/// #101, and the sixth statistic put to #63's bar. The five before it all asked the matcher about
+/// its own answer, or measured decoded ink; this reads the *text*, three stages downstream, and
+/// never touches the assignment. `docs/fit-confidence.md` leaves a standing filter for exactly this
+/// case and this is the answer to it.
+///
+/// The bar is #63's, unchanged, and it is separation rather than correlation:
+///
+/// > Retrieval asks for a ranking. A floor needs a margin.
+///
+/// So the table below reports, for every candidate on every material — not only the winner — the
+/// bigram score beside the character error rate, and then asks whether **every** good read scores
+/// better than **every** bad one. A statistic that merely correlates convicts nothing: two genuinely
+/// independent statistics that both track the right answer must correlate. What decides it is
+/// whether one can be thresholded without throwing away a clean extraction.
+///
+/// The independence test is the other half, and it is the one #63 specifies: does this go wrong in
+/// the *same places* as mean match distance? Calibri fitting closest at 14.7 cells while reading at
+/// 11.5% CER, against a further-out Trebuchet reading at 2.6%, is the case that decides it —
+/// agreement where match distance is already right is evidence of nothing.
+fn report_bigram(trials: &[Trial]) {
+    println!("\n--- a language prior on the read text (#101) ---");
+    println!(
+        "  mean bigram log-probability per character pair, under a table built from a\n  \
+         public-domain English text at bench time. Higher is more English-like; a uniform\n  \
+         alphabet would score {:.2}.",
+        crate::bigram::Table::uniform_floor()
+    );
+    println!();
+    println!(
+        "  {:<12} {:<12} {:>9} {:>9} {:>9} {:>9} {:>10}",
+        "material", "candidate", "CER", "read", "bigram", "charged", "distance"
+    );
+
+    let mut good: Vec<Ranked> = Vec::new();
+    let mut bad: Vec<Ranked> = Vec::new();
+    let mut rows: Vec<Read> = Vec::new();
+    for t in trials {
+        // The anchor first: what a *perfect* read of this material scores. Anything below it is
+        // the read's fault; the distance from it is the only reading of a candidate's figure that
+        // does not require calibrating an unfamiliar unit by eye.
+        println!(
+            "  {:<12} {:<12} {:>8.1}% {:>9} {:>9} {:>9} {:>10}",
+            t.material,
+            "GROUND TRUTH",
+            0.0,
+            "100.0%",
+            t.truth_bigram
+                .map_or_else(|| "no score".to_owned(), |v| format!("{v:.2}")),
+            t.truth_bigram
+                .map_or_else(|| "no score".to_owned(), |v| format!("{v:.2}")),
+            "-"
+        );
+        let mut ranked: Vec<&Scored> = t.scores.iter().collect();
+        ranked.sort_by(|a, b| a.cer.total_cmp(&b.cer));
+        for s in ranked {
+            let show =
+                |v: Option<f64>| v.map_or_else(|| "no score".to_owned(), |v| format!("{v:.2}"));
+            println!(
+                "  {:<12} {:<12} {:>8.1}% {:>8.1}% {:>9} {:>9} {:>10.1}",
+                t.material,
+                s.candidate,
+                s.cer,
+                s.coverage * 100.0,
+                show(s.bigram),
+                show(s.charged_bigram),
+                s.matched_mean
+            );
+            // Silence, not a number, and it stays out of the bar rather than entering it as a
+            // guess. A row that vanished entirely would look like a candidate never scored, so it
+            // is printed either way.
+            let Some(bigram) = s.charged_bigram else {
+                continue;
+            };
+            let label = format!("{}/{}", t.material, s.candidate);
+            rows.push((s.cer, bigram, label.clone()));
+            if s.cer < GOOD_READ_PERCENT {
+                good.push((bigram, label));
+            } else {
+                bad.push((bigram, label));
+            }
+        }
+    }
+
+    separation(&good, &bad);
+    separation_sweep(&rows);
+    argmin_only(trials);
+    independence(trials);
+}
+
+/// The same question restricted to the read a fitter would actually produce.
+///
+/// The table above puts every candidate to the bar, which is the strict form and the one #63's
+/// figures are in. It is also not the situation a gate is ever in: a fitter picks the argmin by
+/// mean match distance and a gate sees *that* read and no other. Fourteen rows rather than 196, and
+/// the bar applied to them.
+fn argmin_only(trials: &[Trial]) {
+    println!(
+        "
+  restricted to the read a fitter would produce, on the charged score — the argmin by
+  match distance:"
+    );
+    println!(
+        "  {:<12} {:<12} {:>9} {:>10} {:>16}",
+        "material", "argmin", "its CER", "bigram", "vs ground truth"
+    );
+    let (mut good, mut bad): (Vec<Ranked>, Vec<Ranked>) = (Vec::new(), Vec::new());
+    for t in trials {
+        let Some(choice) = t.best(false, matched_mean) else {
+            continue;
+        };
+        let Some(bigram) = choice.charged_bigram else {
+            continue;
+        };
+        println!(
+            "  {:<12} {:<12} {:>8.1}% {bigram:>10.2} {:>16}",
+            t.material,
+            choice.candidate,
+            choice.cer,
+            t.truth_bigram
+                .map_or_else(|| "-".to_owned(), |truth| format!("{:+.2}", bigram - truth))
+        );
+        let label = format!("{}/{}", t.material, choice.candidate);
+        if choice.cer < GOOD_READ_PERCENT {
+            good.push((bigram, label));
+        } else {
+            bad.push((bigram, label));
+        }
+    }
+    separation(&good, &bad);
+}
+
+/// One scored read: how badly it read, what the prior made of it, and which pair it was.
+type Read = (f64, f64, String);
+
+/// One scored read under a single statistic, for the two-bucket form of the bar.
+type Ranked = (f64, String);
+
+/// The bar, swept across where "good" is drawn rather than at one arbitrary line.
+///
+/// [`GOOD_READ_PERCENT`] is generous to the idea and it is still a line someone chose. Sweeping it
+/// says something the single figure cannot: *how bad* a read has to be before the statistic can
+/// tell. A gate that separates 3% from 30% and not 3% from 8% is a different product from one that
+/// separates nothing, and #101's own framing — a mismatched set produces "73% correct text and 27%
+/// confidently wrong" — is a claim about the far end of this sweep.
+fn separation_sweep(rows: &[Read]) {
+    println!(
+        "
+  the bar, swept across where a read stops counting as good:"
+    );
+    println!(
+        "    {:>10} {:>6} {:>6} {:>22} {:>22}",
+        "line", "good", "bad", "worst good", "best bad"
+    );
+    for line in [5.0f64, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0] {
+        let (good, bad): (Vec<&Read>, Vec<&Read>) =
+            rows.iter().partition(|(cer, _, _)| *cer < line);
+        let worst_good = good.iter().min_by(|a, b| a.1.total_cmp(&b.1));
+        let best_bad = bad.iter().max_by(|a, b| a.1.total_cmp(&b.1));
+        let (Some(worst_good), Some(best_bad)) = (worst_good, best_bad) else {
+            println!("    {line:>9.0}% {:>6} {:>6}   not both kinds", good.len(), bad.len());
+            continue;
+        };
+        let verdict = if worst_good.1 > best_bad.1 {
+            format!("SEPARATED by {:.2}", worst_good.1 - best_bad.1)
+        } else {
+            format!("overlaps by {:.2}", best_bad.1 - worst_good.1)
+        };
+        println!(
+            "    {line:>9.0}% {:>6} {:>6} {:>22} {:>22}   {verdict}",
+            good.len(),
+            bad.len(),
+            format!("{:.2} ({})", worst_good.1, worst_good.2),
+            format!("{:.2} ({})", best_bad.1, best_bad.2)
+        );
+    }
+}
+
+/// The bar: every good read above every bad one, with the crossing pair named when it is not.
+fn separation(good: &[Ranked], bad: &[Ranked]) {
+    let worst_good = good.iter().min_by(|a, b| a.0.total_cmp(&b.0));
+    let best_bad = bad.iter().max_by(|a, b| a.0.total_cmp(&b.0));
+    println!(
+        "\n  reads under {GOOD_READ_PERCENT:.0}% CER: {} of them, worst scoring {}",
+        good.len(),
+        worst_good.map_or_else(|| "-".to_owned(), |(v, n)| format!("{v:.2} ({n})"))
+    );
+    println!(
+        "  reads over  {GOOD_READ_PERCENT:.0}% CER: {} of them, best scoring  {}",
+        bad.len(),
+        best_bad.map_or_else(|| "-".to_owned(), |(v, n)| format!("{v:.2} ({n})"))
+    );
+
+    let (Some(worst_good), Some(best_bad)) = (worst_good, best_bad) else {
+        println!("  not enough of both kinds to ask the question");
+        return;
+    };
+    if worst_good.0 > best_bad.0 {
+        println!(
+            "  **separated** by {:.2} — a floor between them accepts every good read and refuses\n  \
+             every bad one on these materials",
+            worst_good.0 - best_bad.0
+        );
+    } else {
+        // The crossing pair is the deliverable when it fails. "It overlaps" is a result; *which*
+        // two rows overlap is what says whether the statistic is close or is measuring nothing.
+        println!(
+            "  **they overlap by {:.2}** — {} reads well and scores below {}, which reads badly",
+            best_bad.0 - worst_good.0,
+            worst_good.1,
+            best_bad.1
+        );
+    }
+}
+
+/// Does the prior go wrong in the same places mean match distance does?
+///
+/// The discriminating test #63 specifies, and the reason correlating the two convicts nothing. For
+/// every material, this asks whether the two statistics **rank the candidates the same way** — and
+/// counts the pairs where they disagree, since a statistic that only ever agrees adds nothing no
+/// matter how well it correlates.
+fn independence(trials: &[Trial]) {
+    println!(
+        "\n  where the prior and mean match distance disagree about which candidate is better:"
+    );
+    println!(
+        "  {:<12} {:<28} {:>10} {:>10}",
+        "material", "pair", "by distance", "by prior"
+    );
+
+    let (mut disagreements, mut prior_right, mut distance_right) = (0usize, 0usize, 0usize);
+    for t in trials {
+        let scored: Vec<&Scored> = t
+            .scores
+            .iter()
+            .filter(|s| s.charged_bigram.is_some())
+            .collect();
+        for (index, a) in scored.iter().enumerate() {
+            for b in &scored[index + 1..] {
+                let distance_prefers_a = a.matched_mean < b.matched_mean;
+                let prior_prefers_a = a.charged_bigram > b.charged_bigram;
+                if distance_prefers_a == prior_prefers_a {
+                    continue;
+                }
+                disagreements += 1;
+                // Which of them was right, judged against the only thing that knows: the CER.
+                let truth_prefers_a = a.cer < b.cer;
+                if truth_prefers_a == prior_prefers_a {
+                    prior_right += 1;
+                } else {
+                    distance_right += 1;
+                }
+                if disagreements <= 24 {
+                    println!(
+                        "  {:<12} {:<28} {:>10} {:>10}",
+                        t.material,
+                        format!(
+                            "{} ({:.1}%) vs {} ({:.1}%)",
+                            a.candidate, a.cer, b.candidate, b.cer
+                        ),
+                        if distance_prefers_a {
+                            &a.candidate
+                        } else {
+                            &b.candidate
+                        },
+                        if prior_prefers_a {
+                            &a.candidate
+                        } else {
+                            &b.candidate
+                        }
+                    );
+                }
+            }
+        }
+    }
+    if disagreements > 24 {
+        println!("  ... {} further disagreements not listed", disagreements - 24);
+    }
+    println!(
+        "\n  {disagreements} disagreements; the prior was right in {prior_right} and mean match\n  \
+         distance in {distance_right}. A statistic that never disagreed would add nothing however\n  \
+         well it correlated, and one that disagrees and is usually wrong is worse than nothing."
+    );
 }
 
 /// Where the top candidates disagree, is the winner wrong more often?
@@ -1046,6 +1363,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     report_floor(&trials);
     report_margin(&trials);
     report_agreement(&trials);
+    report_bigram(&trials);
     report_committee(&trials);
     report_character_committee(&trials);
 
@@ -1095,12 +1413,19 @@ mod tests {
             charged_mean: matched_mean + 2.0,
             coverage: 0.9,
             cer,
+            bigram: None,
+            charged_bigram: None,
             lines: Vec::new(),
         }
     }
 
     fn trial_of(material: &str, scores: Vec<Scored>) -> Trial {
-        Trial { material: material.to_owned(), truth_lines: Vec::new(), scores }
+        Trial {
+            material: material.to_owned(),
+            truth_bigram: None,
+            truth_lines: Vec::new(),
+            scores,
+        }
     }
 
     #[test]
