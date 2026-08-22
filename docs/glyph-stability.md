@@ -139,6 +139,92 @@ decision, the per-cell figure would vary smoothly with the ramp rather than in s
 decision would be correspondingly more stable. That is a change to the feature representation in #7,
 not to binarization — and it is the experiment worth running next.
 
+## Carrying grey coverage into the feature vector, and failing differently
+
+The experiment the previous section pointed at. `vectorize` computes per-cell area coverage and then
+thresholds each cell at 50%; the input to that had always been a binary mask, so a pixel was one
+unit of ink or none. `vectorize_coverage` takes a `CoverageMask` instead — opacity times brightness,
+parameter-free, no threshold anywhere on the path — and each source pixel contributes its ink
+*fraction*. Connected components still run on the binary mask, because a component is a yes-or-no
+thing; only the vector changed.
+
+Measured two ways, both of which had to agree before shipping it.
+
+### Head to head on the stability harness
+
+`xtask measure-stability` now renders each variant once and vectorizes it **both** ways, so the two
+columns describe the same sample and any difference belongs to the representation. The anti-aliasing
+axis moved into coverage space to make this exact: the ink levels rescale the ramp rather than
+moving the threshold, which selects precisely the same pixels — so the binary column is bit-for-bit
+the one measured above, and only the grey column is new.
+
+Arial regular, bold and italic, 62 alphanumerics, 90 variants each:
+
+| Distance | Binary | Grey | |
+| :--- | ---: | ---: | :--- |
+| Intra-character p75 (regular upright) | 51 | 52 | worse by 1 |
+| Inter-character p25 (nearest other) | 27 | 24 | **worse by 3** |
+| Margin | −24 | −28 | worse by 4 |
+
+Per axis, the picture is sharper — and it is not uniformly bad:
+
+| Axis of variation | Binary p50 / p95 | Grey p50 / p95 |
+| :--- | ---: | ---: |
+| Rendering size | 11 / 38 | **7 / 32** |
+| Anti-aliasing ramp | 8 / 35 | **7 / 30** |
+| Outline / edge (1px) | 30 / 73 | 30 / 76 |
+| Weight (bold) | 38 / 81 | 37 / 77 |
+
+**Grey coverage does exactly what it was designed to do.** It cuts sensitivity to rendering size by
+roughly a third and to the anti-aliasing ramp with it — the two axes that are purely about how a
+ramp gets sampled. It does nothing for the ±1px edge term, which is the largest of the four, because
+a glyph one pixel fatter is genuinely a different shape rather than a differently-sampled one.
+
+And it costs something the earlier experiments did not: characters move *closer together*. Softening
+the representation blurs small shape differences, and small shape differences are exactly what
+separates one character from its nearest neighbour.
+
+### End to end on accuracy
+
+`xtask accuracy` now scores both representations over one fixture, each against a reference set
+built through its own normalisation — a reference generated the other way would be compared against
+a different transform and every distance would be meaningless.
+
+| Representation | CER | WER |
+| :--- | ---: | ---: |
+| Binary mask | **16.9%** | **62.1%** |
+| Grey coverage | 24.2% | 69.0% |
+
+The failure mode names itself:
+
+```
+binary: The quiCk brown foxjumps
+grey:   The qUiCk brOwn fOxjUmps
+```
+
+Every collapse is a case collapse — `o`→`O`, `u`→`U` — between letters that differ only in small
+details of shape, since letterboxing has already normalised away the size difference that would
+otherwise separate them. That is the inter-character column of the stability table showing up as
+misread characters. **The two instruments agree, and they agree about the mechanism, not just the
+direction.**
+
+**Not shipped.** `Config::grey_coverage` defaults off and is deliberately not exposed as a CLI flag:
+it exists so the harnesses can drive the pipeline both ways, not as something to tune. The
+measurement is the deliverable here.
+
+### What this one says
+
+Two experiments have now failed in the same direction, and together they bound the problem.
+Sensitivity to *sampling* — threshold placement, ramp shape, rendering size — is real but small, and
+grey coverage genuinely reduces it. The dominant term is sensitivity to *shape*: one pixel of extra
+weight on a stroke, which no representation choice can argue away because the shape really is
+different.
+
+So there is no fixed vector per character that survives the variation, and no way to normalise the
+variation away before matching. What is left is the observation that within a single stream the
+variation is small — one authoring tool, one typeface, one resolution. **That is #10, and it is why
+#10 has to become cluster-then-match rather than match-per-glyph.**
+
 ## What follows
 
 - **#10 needs redesigning, not implementing.** It is written as per-glyph matching against a fixed

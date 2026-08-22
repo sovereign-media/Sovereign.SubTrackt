@@ -18,7 +18,7 @@
 
 use subtrackt_core::{FEATURE_GRID, FeatureVector, Rect, Result};
 
-use crate::binarize::BinaryMask;
+use crate::binarize::{BinaryMask, CoverageMask};
 
 /// Fraction of a cell that must be foreground for its bit to be set, in percent.
 ///
@@ -50,6 +50,34 @@ pub enum AspectPolicy {
 /// Returns [`subtrackt_core::Error::Config`] if `bounds` has zero width or height, which means a
 /// component filter let an empty box through.
 pub fn vectorize(mask: &BinaryMask, bounds: Rect, policy: AspectPolicy) -> Result<FeatureVector> {
+    vectorize_with(bounds, policy, |x, y| if mask.get(x, y) { 1.0 } else { 0.0 })
+}
+
+/// Normalise a glyph from a [`CoverageMask`] rather than a binary one.
+///
+/// Identical geometry; the only difference is that each source pixel contributes its ink fraction
+/// instead of a whole unit or nothing. `docs/glyph-stability.md` records why: two renderings of one
+/// letterform differ mostly in their anti-aliasing ramp, and a binary mask turns that gradient into
+/// whole flipped pixels before this function ever sees it. Reading the ramp directly lets the
+/// per-cell figure move smoothly with it, so the 50% decision each cell makes lands in the same
+/// place more often.
+///
+/// # Errors
+/// As [`vectorize`].
+pub fn vectorize_coverage(
+    mask: &CoverageMask,
+    bounds: Rect,
+    policy: AspectPolicy,
+) -> Result<FeatureVector> {
+    vectorize_with(bounds, policy, |x, y| f32::from(mask.get(x, y)) / 255.0)
+}
+
+/// The shared body of both, parameterised by how much ink a source pixel holds.
+fn vectorize_with(
+    bounds: Rect,
+    policy: AspectPolicy,
+    ink: impl Fn(u32, u32) -> f32,
+) -> Result<FeatureVector> {
     if bounds.width == 0 || bounds.height == 0 {
         return Err(subtrackt_core::Error::Config(format!(
             "cannot vectorize a {}x{} glyph box",
@@ -76,7 +104,7 @@ pub fn vectorize(mask: &BinaryMask, bounds: Rect, policy: AspectPolicy) -> Resul
     for cell_y in 0..FEATURE_GRID {
         for cell_x in 0..FEATURE_GRID {
             let coverage = cell_coverage(
-                mask,
+                &ink,
                 bounds,
                 (cell_x as f32 - inner_x) / inner_w,
                 (cell_x as f32 + 1.0 - inner_x) / inner_w,
@@ -96,7 +124,14 @@ pub fn vectorize(mask: &BinaryMask, bounds: Rect, policy: AspectPolicy) -> Resul
 /// The four arguments are the cell's extent in *glyph-relative* coordinates, where 0.0 is the left
 /// or top edge of the bounding box and 1.0 the right or bottom. Anything outside `0.0..=1.0` is
 /// letterbox padding and contributes nothing.
-fn cell_coverage(mask: &BinaryMask, bounds: Rect, u0: f32, u1: f32, v0: f32, v1: f32) -> f32 {
+fn cell_coverage(
+    ink: &impl Fn(u32, u32) -> f32,
+    bounds: Rect,
+    u0: f32,
+    u1: f32,
+    v0: f32,
+    v1: f32,
+) -> f32 {
     let width = bounds.width as f32;
     let height = bounds.height as f32;
 
@@ -123,10 +158,11 @@ fn cell_coverage(mask: &BinaryMask, bounds: Rect, u0: f32, u1: f32, v0: f32, v1:
         }
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         for px in (x0.floor() as u32)..(x1.ceil() as u32) {
-            if !mask.get(bounds.x + px, bounds.y + py) {
+            let value = ink(bounds.x + px, bounds.y + py);
+            if value <= 0.0 {
                 continue;
             }
-            covered += span_overlap(x0, x1, px) * weight_y;
+            covered += span_overlap(x0, x1, px) * weight_y * value;
         }
     }
 
@@ -362,6 +398,139 @@ mod tests {
     #[test]
     fn a_degenerate_box_does_not_divide_by_zero() {
         assert_eq!(aspect_ratio_centi(Rect::new(0, 0, 5, 0)), 0);
+    }
+
+    /// Build a coverage plane from rows of digits 0-9, scaled to 0..=255.
+    fn grey(rows: &[&str]) -> CoverageMask {
+        let height = u32::try_from(rows.len()).unwrap();
+        let width = u32::try_from(rows[0].len()).unwrap();
+        let values = rows
+            .iter()
+            .flat_map(|r| {
+                r.chars()
+                    .map(|c| u8::try_from(c.to_digit(10).unwrap() * 255 / 9).unwrap())
+            })
+            .collect();
+        CoverageMask::from_values(width, height, values).unwrap()
+    }
+
+    #[test]
+    fn a_hard_edged_coverage_plane_gives_the_same_vector_as_the_binary_mask() {
+        // The property that makes the two paths comparable at all: where there is no anti-aliasing
+        // to read, reading it must change nothing.
+        let rows = ["9900", "9900", "0099", "0099"];
+        let binary = mask(&["##..", "##..", "..##", "..##"]);
+        let coverage = grey(&rows);
+
+        for policy in [AspectPolicy::Stretch, AspectPolicy::Letterbox] {
+            let bounds = Rect::new(0, 0, 4, 4);
+            assert_eq!(
+                vectorize(&binary, bounds, policy).unwrap(),
+                vectorize_coverage(&coverage, bounds, policy).unwrap(),
+                "{policy:?} disagrees on a plane with no partial coverage"
+            );
+        }
+    }
+
+    #[test]
+    fn uniform_grey_decides_every_cell_the_same_way_at_the_halfway_point() {
+        let bounds = Rect::new(0, 0, 4, 4);
+        let dim = grey(&["4444", "4444", "4444", "4444"]);
+        let bright = grey(&["5555", "5555", "5555", "5555"]);
+
+        assert_eq!(
+            vectorize_coverage(&dim, bounds, AspectPolicy::Stretch)
+                .unwrap()
+                .popcount(),
+            0,
+            "below half coverage sets nothing"
+        );
+        assert_eq!(
+            vectorize_coverage(&bright, bounds, AspectPolicy::Stretch)
+                .unwrap()
+                .popcount(),
+            u32::try_from(FEATURE_GRID * FEATURE_GRID).unwrap(),
+            "above half coverage sets everything"
+        );
+    }
+
+    #[test]
+    fn the_coverage_path_sees_differences_the_binary_path_cannot() {
+        // The reason the coverage path exists at all, stated as the property that distinguishes it.
+        //
+        // Two planes whose every pixel falls on the same side of the binarizer's threshold produce
+        // *identical* binary masks and therefore identical binary vectors — the difference between
+        // them is invisible. The same two planes carry different amounts of ink, so a cell that
+        // averages several pixels can land on different sides of the 50% decision.
+        //
+        // A cell spans three source pixels here, which is why it takes a downscale: at one pixel
+        // per cell there is nothing to average and the two representations must agree.
+        let size = u32::try_from(FEATURE_GRID * 3).unwrap();
+        let bounds = Rect::new(0, 0, size, size);
+
+        // Every third column is solid; the rest sit at `dim`, always below the threshold.
+        let plane = |dim: u8| {
+            let values: Vec<u8> = (0..size * size)
+                .map(|i| if i % size % 3 == 0 { 255 } else { dim })
+                .collect();
+            CoverageMask::from_values(size, size, values).unwrap()
+        };
+        let binary_of = |dim: u8| {
+            let bits: Vec<bool> = (0..size * size)
+                .map(|i| (if i % size % 3 == 0 { 255 } else { dim }) >= 128u8)
+                .collect();
+            BinaryMask::from_bits(size, size, bits).unwrap()
+        };
+
+        let (faint, near) = (20u8, 120u8);
+        assert_eq!(
+            vectorize(&binary_of(faint), bounds, AspectPolicy::Stretch).unwrap(),
+            vectorize(&binary_of(near), bounds, AspectPolicy::Stretch).unwrap(),
+            "both planes binarize identically, so the binary path cannot tell them apart"
+        );
+        assert_ne!(
+            vectorize_coverage(&plane(faint), bounds, AspectPolicy::Stretch).unwrap(),
+            vectorize_coverage(&plane(near), bounds, AspectPolicy::Stretch).unwrap(),
+            "the coverage path must read the ink the threshold discarded"
+        );
+    }
+
+    #[test]
+    fn more_ink_never_sets_fewer_cells() {
+        let size = u32::try_from(FEATURE_GRID * 3).unwrap();
+        let bounds = Rect::new(0, 0, size, size);
+        let counts: Vec<u32> = (0..=8u8)
+            .map(|step| {
+                let dim = step * 30;
+                let values: Vec<u8> = (0..size * size)
+                    .map(|i| if i % size % 3 == 0 { 255 } else { dim })
+                    .collect();
+                vectorize_coverage(
+                    &CoverageMask::from_values(size, size, values).unwrap(),
+                    bounds,
+                    AspectPolicy::Stretch,
+                )
+                .unwrap()
+                .popcount()
+            })
+            .collect();
+
+        assert!(
+            counts.windows(2).all(|w| w[0] <= w[1]),
+            "coverage must be monotonic in ink: {counts:?}"
+        );
+        assert!(
+            counts[0] < counts[8],
+            "more ink must eventually set more cells: {counts:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_sized_box_is_rejected_on_the_coverage_path_too() {
+        let coverage = grey(&["99", "99"]);
+        assert!(
+            vectorize_coverage(&coverage, Rect::new(0, 0, 0, 2), AspectPolicy::Stretch).is_err()
+        );
     }
 
     #[test]

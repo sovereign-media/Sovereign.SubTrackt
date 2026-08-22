@@ -102,7 +102,8 @@ impl Pipeline {
         // and no colours.
         decoder.configure(&stream.codec_private)?;
         let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?;
-        let segmenter = ImageSegmenter::new(Binarizer::new(self.config.binarize));
+        let segmenter =
+            ImageSegmenter::new(Binarizer::new(self.config.binarize), self.config.grey_coverage);
         let assembler = SpatialAssembler::new(self.config.layout_rules());
 
         let mut report = Report {
@@ -187,11 +188,13 @@ impl Pipeline {
 /// Binarize, label, group and vectorize — the [`Segmenter`] side of `subtrackt-glyph`.
 pub(crate) struct ImageSegmenter {
     binarizer: Binarizer,
+    /// Whether the feature vector reads ink coverage rather than the binary mask.
+    grey_coverage: bool,
 }
 
 impl ImageSegmenter {
-    pub(crate) const fn new(binarizer: Binarizer) -> Self {
-        Self { binarizer }
+    pub(crate) const fn new(binarizer: Binarizer, grey_coverage: bool) -> Self {
+        Self { binarizer, grey_coverage }
     }
 
     /// The foreground mask for an image.
@@ -207,6 +210,9 @@ impl Segmenter for ImageSegmenter {
         use subtrackt_glyph::group::{self, GroupingRules};
 
         let mask = self.mask(image);
+        // Components and lines are yes-or-no questions and need the binary mask. Only the feature
+        // vector reads the coverage plane, and only when asked to.
+        let coverage = self.grey_coverage.then(|| self.binarizer.coverage(image));
         let components = ccl::label(&mask, ComponentFilter::default())?;
         let lines = group::assign_lines(&mask, &components)?;
         let grouped = group::group(&components, &lines, GroupingRules::default())?;
@@ -223,7 +229,10 @@ impl Segmenter for ImageSegmenter {
                 Ok(subtrackt_core::Glyph {
                     bounds,
                     line: glyph.line,
-                    features: feature::vectorize(&mask, bounds, AspectPolicy::default())?,
+                    features: coverage.as_ref().map_or_else(
+                        || feature::vectorize(&mask, bounds, AspectPolicy::default()),
+                        |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
+                    )?,
                 })
             })
             .collect()
@@ -260,7 +269,7 @@ mod tests {
 
     #[test]
     fn the_binarizer_runs_end_to_end_inside_the_segmenter() {
-        let segmenter = ImageSegmenter::new(Binarizer::default());
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
         let bitmap = segmenter.binarize(&image()).unwrap();
         assert_eq!(bitmap.width(), 8);
         assert_eq!(bitmap.get(3, 3), Some(1), "inside the block is foreground");
@@ -269,7 +278,7 @@ mod tests {
 
     #[test]
     fn segmentation_carries_a_component_through_to_a_feature_vector() {
-        let segmenter = ImageSegmenter::new(Binarizer::default());
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
         // Segmentation is complete now, so this no longer fails at all. What the test still
         // pins is that a glyph-sized component makes it all the way to a feature vector.
         let glyphs = segmenter.segment(&image()).unwrap();

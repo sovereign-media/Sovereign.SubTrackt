@@ -19,8 +19,8 @@ use std::path::PathBuf;
 use anyhow::{Context as _, bail};
 use fontdue::{Font, FontSettings};
 use subtrackt_core::Rect;
-use subtrackt_glyph::binarize::BinaryMask;
-use subtrackt_glyph::feature::{AspectPolicy, vectorize};
+use subtrackt_glyph::binarize::{BinaryMask, CoverageMask};
+use subtrackt_glyph::feature::{AspectPolicy, vectorize, vectorize_coverage};
 use subtrackt_glyph::reference::{ReferenceEntry, ReferenceSet, Style};
 
 /// Pixel size glyphs are rasterised at.
@@ -50,7 +50,11 @@ fn charset() -> Vec<char> {
 }
 
 /// Rasterise one character and normalise it exactly as the runtime would.
-fn vector_for(font: &Font, ch: char) -> Option<subtrackt_core::FeatureVector> {
+///
+/// `grey` must match the pipeline's `grey_coverage` setting. A reference built through a different
+/// normalisation than the runtime uses would be compared against a subtly different transform, and
+/// every distance it produced would be meaningless.
+fn vector_for(font: &Font, ch: char, grey: bool) -> Option<subtrackt_core::FeatureVector> {
     let (metrics, coverage) = font.rasterize(ch, RENDER_PX);
     if metrics.width == 0 || metrics.height == 0 {
         return None;
@@ -66,10 +70,19 @@ fn vector_for(font: &Font, ch: char) -> Option<subtrackt_core::FeatureVector> {
     if mask.foreground_count() == 0 {
         return None;
     }
-    vectorize(&mask, Rect::new(0, 0, width, height), AspectPolicy::Letterbox).ok()
+
+    let bounds = Rect::new(0, 0, width, height);
+    if grey {
+        // fontdue hands back per-pixel coverage already, which is exactly what the runtime derives
+        // from a subtitle palette. No thresholding step at all on this path.
+        let plane = CoverageMask::from_values(width, height, coverage).ok()?;
+        return vectorize_coverage(&plane, bounds, AspectPolicy::Letterbox).ok();
+    }
+    vectorize(&mask, bounds, AspectPolicy::Letterbox).ok()
 }
 
 pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
+    let grey = args.iter().any(|a| a == "--grey-coverage");
     let font_path = args
         .first()
         .context("usage: gen-reference <font.ttf> <out> [--name N]")?;
@@ -89,7 +102,7 @@ pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
     let mut entries = Vec::new();
     let mut missing = Vec::new();
     for ch in charset() {
-        match vector_for(&font, ch) {
+        match vector_for(&font, ch, grey) {
             Some(features) => {
                 entries.push(ReferenceEntry { character: ch, style: Style::Regular, features });
             }

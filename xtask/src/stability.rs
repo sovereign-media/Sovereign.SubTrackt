@@ -14,8 +14,8 @@ use std::path::Path;
 use anyhow::{Context as _, bail};
 use fontdue::{Font, FontSettings};
 use subtrackt_core::{FeatureVector, Rect};
-use subtrackt_glyph::binarize::BinaryMask;
-use subtrackt_glyph::feature::{AspectPolicy, vectorize};
+use subtrackt_glyph::binarize::{BinaryMask, CoverageMask};
+use subtrackt_glyph::feature::{AspectPolicy, vectorize, vectorize_coverage};
 use subtrackt_glyph::reference::Style;
 
 /// Rendering sizes, bracketing the 21–50 px glyph heights the survey measured across the library.
@@ -39,11 +39,18 @@ enum Edge {
     Thinner,
 }
 
-/// One rendering of one character.
+/// One rendering of one character, in both feature representations.
+///
+/// Both come from the *same* rasterisation. That is the whole point of measuring them together:
+/// the physical variation is identical, so any difference in spread belongs to the representation
+/// rather than to a differently-generated sample.
 struct Variant {
     style: Style,
     axis: &'static str,
+    /// From the binary mask, as the pipeline built vectors before grey coverage existed.
     vector: FeatureVector,
+    /// From the ink coverage plane, keeping the anti-aliasing ramp as a magnitude.
+    grey: FeatureVector,
 }
 
 /// Grow or shrink the foreground by one pixel, 4-connected.
@@ -74,8 +81,47 @@ fn nudge(mask: &BinaryMask, edge: Edge) -> BinaryMask {
     out
 }
 
+/// Grow or shrink ink by one pixel on a coverage plane.
+///
+/// Grey morphology — a max or min over the same 4-neighbourhood the binary version uses. Choosing
+/// it rather than something smoother is what keeps the comparison exact: thresholding commutes
+/// with a flat structuring element, so the binary vectors this file produces are bit-for-bit the
+/// ones #14 measured, and the grey column is the only thing that is new.
+fn nudge_coverage(mask: &CoverageMask, edge: Edge) -> CoverageMask {
+    if edge == Edge::AsIs {
+        return mask.clone();
+    }
+    let grow = edge == Edge::Thicker;
+    let mut values = Vec::with_capacity((mask.width() * mask.height()) as usize);
+
+    for y in 0..mask.height() {
+        for x in 0..mask.width() {
+            let here = mask.get(x, y);
+            let neighbours = [
+                mask.get(x.wrapping_sub(1), y),
+                mask.get(x + 1, y),
+                mask.get(x, y.wrapping_sub(1)),
+                mask.get(x, y + 1),
+            ];
+            values.push(if grow {
+                neighbours.iter().fold(here, |a, b| a.max(*b))
+            } else {
+                neighbours.iter().fold(here, |a, b| a.min(*b))
+            });
+        }
+    }
+    CoverageMask::from_values(mask.width(), mask.height(), values)
+        .expect("the value count is the pixel count by construction")
+}
+
 /// Rasterise one character under one set of conditions and normalise it.
-fn render(font: &Font, ch: char, size: f32, ink: u8, edge: Edge) -> Option<FeatureVector> {
+fn render(
+    font: &Font,
+    ch: char,
+    size: f32,
+    ink: u8,
+    edge: Edge,
+) -> Option<(FeatureVector, FeatureVector)> {
     let (metrics, coverage) = font.rasterize(ch, size);
     let width = u32::try_from(metrics.width).ok()?;
     let height = u32::try_from(metrics.height).ok()?;
@@ -83,12 +129,28 @@ fn render(font: &Font, ch: char, size: f32, ink: u8, edge: Edge) -> Option<Featu
         return None;
     }
 
-    let bits: Vec<bool> = coverage.iter().map(|c| *c >= ink).collect();
+    // The ink axis models a disc author giving the anti-aliasing ramp more or less weight, so it
+    // belongs to the *rendering* and is applied here, in coverage space. Thresholding the rescaled
+    // ramp at the runtime's fixed 128 selects exactly the pixels that thresholding the original at
+    // `ink` would, so the binary side of this measurement is unchanged from #14 — while the grey
+    // side sees the variation as the change in contrast that it physically is.
+    let scaled: Vec<u8> = coverage
+        .iter()
+        .map(|c| u8::try_from(u32::from(*c) * 128 / u32::from(ink)).unwrap_or(u8::MAX))
+        .collect();
+
+    let bits: Vec<bool> = scaled.iter().map(|c| *c >= CANONICAL_INK).collect();
     let mask = nudge(&BinaryMask::from_bits(width, height, bits).ok()?, edge);
     if mask.foreground_count() == 0 {
         return None;
     }
-    vectorize(&mask, Rect::new(0, 0, width, height), AspectPolicy::Letterbox).ok()
+    let grey = nudge_coverage(&CoverageMask::from_values(width, height, scaled).ok()?, edge);
+
+    let bounds = Rect::new(0, 0, width, height);
+    Some((
+        vectorize(&mask, bounds, AspectPolicy::Letterbox).ok()?,
+        vectorize_coverage(&grey, bounds, AspectPolicy::Letterbox).ok()?,
+    ))
 }
 
 /// Which axis of variation a rendering represents, relative to the canonical one.
@@ -117,11 +179,12 @@ fn variants_of(faces: &[(Style, Font)], ch: char) -> Vec<Variant> {
         for size in SIZES {
             for ink in INK_LEVELS {
                 for edge in [Edge::AsIs, Edge::Thicker, Edge::Thinner] {
-                    if let Some(vector) = render(font, ch, size, ink, edge) {
+                    if let Some((vector, grey)) = render(font, ch, size, ink, edge) {
                         out.push(Variant {
                             style: *style,
                             axis: axis_of(*style, size, ink, edge),
                             vector,
+                            grey,
                         });
                     }
                 }
@@ -174,37 +237,44 @@ struct Findings {
     inter: Vec<u32>,
     /// Movement from canonical, grouped by which axis moved.
     by_axis: BTreeMap<&'static str, Vec<u32>>,
-    characters: usize,
-    per_character: usize,
 }
 
-fn gather(faces: &[(Style, Font)], charset: &[char]) -> Findings {
-    let mut found = Findings { characters: charset.len(), ..Findings::default() };
-    let mut canonical: BTreeMap<char, FeatureVector> = BTreeMap::new();
-    let mut all: BTreeMap<char, Vec<Variant>> = BTreeMap::new();
+/// Render every variant of every character once, so both representations are analysed over
+/// exactly the same sample.
+fn collect_variants(faces: &[(Style, Font)], charset: &[char]) -> BTreeMap<char, Vec<Variant>> {
+    charset
+        .iter()
+        .map(|&ch| (ch, variants_of(faces, ch)))
+        .collect()
+}
 
-    for &ch in charset {
-        let variants = variants_of(faces, ch);
+/// Build the distributions for one feature representation.
+///
+/// `pick` chooses which vector each variant contributes, which is the only thing that differs
+/// between the two columns of the report.
+fn analyse(all: &BTreeMap<char, Vec<Variant>>, pick: fn(&Variant) -> FeatureVector) -> Findings {
+    let mut found = Findings::default();
+    let mut canonical: BTreeMap<char, FeatureVector> = BTreeMap::new();
+
+    for (ch, variants) in all {
         if let Some(base) = variants.iter().find(|v| v.axis == "canonical") {
-            canonical.insert(ch, base.vector);
+            canonical.insert(*ch, pick(base));
         }
-        found.per_character = found.per_character.max(variants.len());
-        all.insert(ch, variants);
     }
 
-    for (ch, variants) in &all {
+    for (ch, variants) in all {
         if let Some(base) = canonical.get(ch) {
             for v in variants {
                 found
                     .by_axis
                     .entry(v.axis)
                     .or_default()
-                    .push(base.distance(&v.vector));
+                    .push(base.distance(&pick(v)));
             }
         }
         for (index, a) in variants.iter().enumerate() {
             for b in &variants[index + 1..] {
-                let distance = a.vector.distance(&b.vector);
+                let distance = pick(a).distance(&pick(b));
                 found.intra.push(distance);
                 // Upright regular is what the bulk of dialogue is; italics are for emphasis and
                 // foreign speech, so this split is the one that matters operationally.
@@ -228,13 +298,9 @@ fn gather(faces: &[(Style, Font)], charset: &[char]) -> Findings {
     found
 }
 
-fn report(found: &mut Findings, faces: usize) {
-    println!(
-        "characters: {}   faces: {faces}   variants per character: {}",
-        found.characters, found.per_character
-    );
-
-    println!("\n--- the two distributions that decide the design ---");
+fn report(label: &str, found: &mut Findings) {
+    println!("\n=== {label} ===");
+    println!("--- the two distributions that decide the design ---");
     print_distribution("intra-character, all styles", &mut found.intra);
     print_distribution("intra-character, regular upright", &mut found.intra_regular);
     print_distribution("inter-character (nearest other)", &mut found.inter);
@@ -255,8 +321,7 @@ fn report(found: &mut Findings, faces: usize) {
         println!("  The distributions separate. One reference vector per character is workable.");
     } else {
         println!(
-            "  The distributions OVERLAP, even restricted to upright regular text.\n  \
-             A single vector per character cannot separate characters under this much variation."
+            "  The distributions OVERLAP, even restricted to upright regular text.\n  \\n             A single vector per character cannot separate characters under this much variation."
         );
     }
 }
@@ -289,8 +354,38 @@ pub fn measure(args: &[String]) -> anyhow::Result<()> {
         .filter(char::is_ascii_alphanumeric)
         .collect();
 
-    let mut found = gather(&faces, &charset);
-    report(&mut found, faces.len());
+    let all = collect_variants(&faces, &charset);
+    let per_character = all.values().map(Vec::len).max().unwrap_or(0);
+    println!(
+        "characters: {}   faces: {}   variants per character: {per_character}",
+        charset.len(),
+        faces.len()
+    );
+
+    let mut binary = analyse(&all, |v| v.vector);
+    let mut grey = analyse(&all, |v| v.grey);
+    report("binary mask", &mut binary);
+    report("grey coverage", &mut grey);
+
+    // The comparison the experiment exists to make. Intra-character spread is what has to fall:
+    // inter-character distance moving with it would just be a rescaling, not an improvement.
+    println!("\n=== binary against grey ===");
+    let margin = |f: &Findings| {
+        let intra = percentiles(&f.intra_regular)[3];
+        let inter = percentiles(&f.inter)[1];
+        (intra, inter, i64::from(inter) - i64::from(intra))
+    };
+    let (bi, be, bm) = margin(&binary);
+    let (gi, ge, gm) = margin(&grey);
+    println!("  binary: intra p75 {bi:<4} inter p25 {be:<4} margin {bm:+}");
+    println!("  grey:   intra p75 {gi:<4} inter p25 {ge:<4} margin {gm:+}");
+    println!(
+        "  intra-character spread {} by {} points; margin {} by {}",
+        if gi <= bi { "FELL" } else { "ROSE" },
+        i64::from(bi).abs_diff(i64::from(gi)),
+        if gm >= bm { "improved" } else { "worsened" },
+        bm.abs_diff(gm)
+    );
     Ok(())
 }
 

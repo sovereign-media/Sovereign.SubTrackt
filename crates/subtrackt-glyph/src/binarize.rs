@@ -146,6 +146,67 @@ impl BinaryMask {
     }
 }
 
+/// How much ink is at each pixel, from none to full, rather than a yes-or-no decision.
+///
+/// #14 measured that a one-pixel shift in a glyph's edge costs as much as the distance to a
+/// different character, and the follow-up experiments showed the cause is the binary decision
+/// itself rather than where the threshold sits. This is the alternative: keep the anti-aliasing
+/// ramp as a magnitude, so the same letterform rendered two ways differs *gradually* instead of by
+/// whole flipped pixels.
+///
+/// Connected components still need a binary mask — a component is a yes-or-no thing — so this runs
+/// alongside [`BinaryMask`] rather than replacing it, and feeds the feature vector only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverageMask {
+    width: u32,
+    height: u32,
+    values: Vec<u8>,
+}
+
+impl CoverageMask {
+    /// Build from a row-major slice of coverage values.
+    ///
+    /// # Errors
+    /// Returns [`Error::Config`] if the value count does not match the dimensions.
+    pub fn from_values(width: u32, height: u32, values: Vec<u8>) -> Result<Self> {
+        let expected = width as usize * height as usize;
+        if values.len() != expected {
+            return Err(Error::Config(format!(
+                "coverage mask is {width}x{height} ({expected} px) but got {} values",
+                values.len()
+            )));
+        }
+        Ok(Self { width, height, values })
+    }
+
+    /// Mask width.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Mask height.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Coverage at `(x, y)`, zero outside the mask so edge scans need no special case.
+    #[must_use]
+    pub fn get(&self, x: u32, y: u32) -> u8 {
+        if x >= self.width || y >= self.height {
+            return 0;
+        }
+        self.values[y as usize * self.width as usize + x as usize]
+    }
+
+    /// Total ink, as a sum of coverage values.
+    #[must_use]
+    pub fn total_coverage(&self) -> u64 {
+        self.values.iter().map(|v| u64::from(*v)).sum()
+    }
+}
+
 /// Applies a [`Threshold`] to a subtitle image.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Binarizer {
@@ -184,6 +245,39 @@ impl Binarizer {
             }
         }
         mask
+    }
+
+    /// Reduce an image to per-pixel ink coverage.
+    ///
+    /// Coverage is opacity times brightness: a fully opaque bright pixel is full ink, a
+    /// transparent one is none, and an anti-aliased edge between fill and outline lands in
+    /// between. Parameter-free on purpose — it is what "how much of this pixel is glyph" means
+    /// physically, and any tunable here would just reintroduce the threshold placement the
+    /// experiments in `docs/glyph-stability.md` showed does not matter.
+    #[must_use]
+    pub fn coverage(&self, image: &SubtitleImage) -> CoverageMask {
+        let bitmap = &image.bitmap;
+
+        // Resolve the palette once, as the binary path does.
+        let ink: Vec<u8> = (0..=u8::MAX)
+            .map(|index| {
+                let entry = image.palette.get(index);
+                let opacity = u32::from(entry.alpha);
+                let brightness = if self.threshold.include_outline {
+                    255
+                } else {
+                    u32::from(entry.y)
+                };
+                u8::try_from(opacity * brightness / 255).unwrap_or(255)
+            })
+            .collect();
+
+        let values = (0..bitmap.height())
+            .flat_map(|y| (0..bitmap.width()).map(move |x| (x, y)))
+            .map(|(x, y)| bitmap.get(x, y).map_or(0, |index| ink[index as usize]))
+            .collect();
+
+        CoverageMask { width: bitmap.width(), height: bitmap.height(), values }
     }
 
     /// Render the mask back to an indexed bitmap, for debug output and reference authoring.
@@ -261,5 +355,81 @@ mod tests {
     fn the_debug_bitmap_mirrors_the_mask() {
         let bitmap = Binarizer::default().mask_as_bitmap(&image()).unwrap();
         assert_eq!(bitmap.pixels(), &[0, 1, 0, 0, 1, 0]);
+    }
+}
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use subtrackt_core::{PaletteEntry, Rect, TimeSpan, Timestamp};
+
+    /// A one-pixel image whose single palette entry has the given alpha and luma.
+    fn pixel(alpha: u8, luma: u8) -> SubtitleImage {
+        let mut palette = Palette::transparent(2);
+        palette.set(1, PaletteEntry { y: luma, cb: 128, cr: 128, alpha });
+        SubtitleImage {
+            span: TimeSpan::new(Timestamp::from_ticks(0), Timestamp::from_ticks(1)),
+            position: Rect::new(0, 0, 1, 1),
+            bitmap: IndexedBitmap::new(1, 1, vec![1]).unwrap(),
+            palette,
+            forced: false,
+        }
+    }
+
+    #[test]
+    fn full_ink_is_opaque_and_bright_and_no_ink_is_transparent() {
+        let binarizer = Binarizer::default();
+        assert_eq!(binarizer.coverage(&pixel(255, 255)).get(0, 0), 255);
+        assert_eq!(
+            binarizer.coverage(&pixel(0, 255)).get(0, 0),
+            0,
+            "transparent is never ink"
+        );
+        assert_eq!(
+            binarizer.coverage(&pixel(255, 0)).get(0, 0),
+            0,
+            "black fill is not fill"
+        );
+    }
+
+    #[test]
+    fn a_half_lit_pixel_lands_between_rather_than_at_an_end() {
+        // The whole point: an anti-aliased edge must be readable as an edge.
+        let value = Binarizer::default().coverage(&pixel(255, 128)).get(0, 0);
+        assert!((100..=160).contains(&value), "got {value}");
+    }
+
+    #[test]
+    fn opacity_and_brightness_both_scale_the_ink() {
+        let binarizer = Binarizer::default();
+        let dim = binarizer.coverage(&pixel(128, 255)).get(0, 0);
+        let dark = binarizer.coverage(&pixel(255, 128)).get(0, 0);
+        assert!(
+            dim.abs_diff(dark) <= 2,
+            "half alpha and half luma must cost the same: {dim} vs {dark}"
+        );
+    }
+
+    #[test]
+    fn including_the_outline_reads_opacity_alone() {
+        // With the outline in the mask, a dark opaque pixel is fully ink rather than nearly none.
+        let binarizer = Binarizer::new(Threshold { include_outline: true, ..Threshold::default() });
+        assert_eq!(binarizer.coverage(&pixel(255, 16)).get(0, 0), 255);
+        assert_eq!(binarizer.coverage(&pixel(0, 16)).get(0, 0), 0);
+    }
+
+    #[test]
+    fn reading_outside_the_mask_is_zero_rather_than_a_panic() {
+        let mask = Binarizer::default().coverage(&pixel(255, 255));
+        assert_eq!(mask.get(9, 0), 0);
+        assert_eq!(mask.get(0, 9), 0);
+        assert_eq!(mask.width(), 1);
+        assert_eq!(mask.height(), 1);
+        assert_eq!(mask.total_coverage(), 255);
+    }
+
+    #[test]
+    fn a_value_count_that_does_not_match_the_dimensions_is_rejected() {
+        assert!(CoverageMask::from_values(2, 2, vec![0; 3]).is_err());
+        assert!(CoverageMask::from_values(2, 2, vec![0; 4]).is_ok());
     }
 }
