@@ -283,6 +283,59 @@ Refusing it would throw away a clean extraction to satisfy a definition. **What 
 detect is a bad read, not an absent typeface** — and what is measured above is that mean distance
 cannot detect one.
 
+## Choosing from a real font directory, which is where the statistic matters
+
+Everything above uses eight typefaces chosen to span the design space. #62 has to decide where a
+fitter's candidates come from, and enumerating installed fonts is the only option that works with no
+setup. This machine has **128** of them.
+
+```console
+$ cargo run -p xtask -- fit-select --pool C:/Windows/Fonts --repeat 4 arial.ttf verdana.ttf ...
+```
+
+Ten materials, 128 candidates each, scored by what following the ranking costs in CER against the
+best candidate available:
+
+| statistic | the argmin alone | best of top 3 |
+| :--- | ---: | ---: |
+| mean match distance | **15.3 mean, 74.8 worst** | 0.2, 1.8 |
+| charging unmatched | **0.7 mean, 2.4 worst** | 0.2, 1.8 |
+
+**Mean match distance collapses at this scale, and the extraction report prints it as `fit`.**
+`SegoeIcons` — a symbol face with almost no Latin coverage — wins Georgia-rendered material and
+reads it at **79.8%**, and wins Comic Sans material and reads it at 79.2%. It wins because a mean
+taken over the glyphs that *matched* rewards a set that recognises a tenth of the track at close
+range over one that recognises all of it at medium range. Eight hand-picked text faces never
+contained such a candidate; a font directory does.
+
+Charging every unmatched glyph the match ceiling removes it: rank 1 on eight of ten materials, and
+0.7 points of CER on average. The two residual cases are not failures of consequence — on Calibri
+material `SansSerifCollection` reads 2.4 points better than Calibri's own set, and on Segoe UI
+material `ebrima` reads 2.2 points better than the argmin's pick. In both the argmin chose the
+material's own font and something else happened to read slightly better.
+
+### What it costs
+
+| | |
+| :--- | ---: |
+| Generating 128 reference sets | 2.7s, 21ms each |
+| Scanning one material against all 128 | 1.0s |
+
+The sets do not depend on the material, so a fitter generates them once and pays only the scan per
+title. And the scan here is a full re-extraction of the fixture per candidate, which is the
+harness's convenience: a fitter would decode once and rescan the glyphs it already has.
+
+### What this settles for #62
+
+- **The candidate list can be an installed font directory.** 128 candidates cost seconds and the
+  ranking survives them.
+- **The selection statistic is not the one the tool reports.** `fit` in `--report` is mean match
+  distance, and it is the wrong number for this job by 74 points of CER in the worst case here.
+- **A top-3 shortlist is a cheap safety net rather than a necessity.** Under the charged statistic
+  the argmin is already within 2.4 points; the shortlist gains 0.5 of that. It is still worth
+  showing, because #63 says nothing checks the answer and a user looking at three scores can see how
+  close the race was.
+
 ## Asking whether anything corroborates the winner
 
 The idea left standing when the floor and the margin both failed: stop asking how good the winner's

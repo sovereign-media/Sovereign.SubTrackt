@@ -802,17 +802,192 @@ fn report_character_committee(trials: &[Trial]) {
     }
 }
 
+/// How deep a shortlist to price, beyond the argmin.
+///
+/// #62 ships the fit as a proposal a user accepts rather than a decision the tool makes, so the
+/// question is not only "is the argmin right" but "is the right answer somewhere a user could
+/// reasonably be shown". A list of three or five is a thing a person can look at; a list of a
+/// hundred and twenty-eight is not.
+const SHORTLIST: [usize; 3] = [1, 3, 5];
+
+/// Every font file in a directory, sorted so a run is reproducible.
+fn pool_fonts(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("ttf"))
+        })
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+/// Does the argmin survive a candidate list the size of a real font directory?
+///
+/// The leave-one-out harness uses eight typefaces chosen to span the design space. A user's machine
+/// has a hundred and more, most of them irrelevant and some of them — symbol faces, script faces —
+/// capable of producing a reference set that matches nothing while scoring well on the glyphs it
+/// does match. Enumerating installed fonts is the only candidate-list option that works with no
+/// setup, and this is the measurement that says whether it is safe.
+///
+/// Reported as the CER cost of following the ranking, which is what a user would actually pay,
+/// rather than as whether the argmin named a particular file.
+fn report_pool(
+    materials: &[PathBuf],
+    sets: &[(String, ReferenceSet)],
+    dir: &Path,
+    repeats: usize,
+) -> anyhow::Result<()> {
+    println!("\n--- a candidate pool the size of a font directory ---");
+    println!("  {} candidates against {} materials", sets.len(), materials.len());
+    println!();
+    println!(
+        "  {:<12} {:>21} {:>9} {:>21} {:>7}",
+        "material", "best available", "ranked by", "its argmin", "rank"
+    );
+    println!(
+        "  {:<12} {:>21} {:>9} {:>21} {:>7}",
+        "", "(lowest CER)", "", "(and its CER)", "of best"
+    );
+
+    // [statistic][shortlist depth] -> what each depth costs in CER against the best candidate.
+    let mut penalties: Vec<Vec<Vec<f64>>> =
+        vec![vec![Vec::new(); SHORTLIST.len()]; STATISTICS.len()];
+
+    for material in materials {
+        let t = trial(material, sets, dir, repeats).with_context(|| stem(material))?;
+        let Some(best) = t.truth() else { continue };
+
+        for (index, (label, pick)) in STATISTICS.iter().enumerate() {
+            let mut ranked: Vec<&Scored> = t.scores.iter().collect();
+            ranked.sort_by(|a, b| pick(a).total_cmp(&pick(b)));
+
+            // Where the genuinely best-reading candidate sits in this ordering. A user shown a
+            // shortlist only benefits if the answer is on it.
+            let rank = ranked
+                .iter()
+                .position(|s| s.candidate == best.candidate)
+                .map_or(0, |slot| slot + 1);
+
+            for (slot, depth) in SHORTLIST.iter().enumerate() {
+                let shortlist_best = ranked
+                    .iter()
+                    .take(*depth)
+                    .map(|s| s.cer)
+                    .fold(f64::MAX, f64::min);
+                penalties[index][slot].push(shortlist_best - best.cer);
+            }
+
+            let leading = if index == 0 {
+                format!("{:<12} {:>13} ({:>4.1}%)", t.material, best.candidate, best.cer)
+            } else {
+                format!("{:<12} {:>21}", "", "")
+            };
+            println!(
+                "  {leading} {:>9} {:>13} ({:>4.1}%) {rank:>7}",
+                short(label),
+                ranked.first().map_or("-", |s| s.candidate.as_str()),
+                ranked.first().map_or(0.0, |s| s.cer),
+            );
+        }
+    }
+
+    println!("\n  what following each ranking costs, in points of CER against the best candidate:");
+    println!("  {:<22} {:<18} {:>8} {:>8}", "statistic", "shortlist", "mean", "worst");
+    for (index, (name, _)) in STATISTICS.iter().enumerate() {
+        for (slot, depth) in SHORTLIST.iter().enumerate() {
+            let costs = &penalties[index][slot];
+            if costs.is_empty() {
+                continue;
+            }
+            let mean = costs.iter().sum::<f64>() / costs.len() as f64;
+            let worst = costs.iter().copied().fold(0.0_f64, f64::max);
+            let label = if *depth == 1 {
+                "the argmin alone".to_owned()
+            } else {
+                format!("best of top {depth}")
+            };
+            println!("  {name:<22} {label:<18} {mean:>7.1} {worst:>7.1}");
+        }
+    }
+    println!("\n  a shortlist is only worth showing if the answer is on it — read the rank column");
+    println!("  before the cost table.");
+    Ok(())
+}
+
+/// A statistic's name, shortened to fit a column.
+fn short(label: &str) -> &str {
+    match label {
+        "mean match distance" => "matched",
+        other => other.split(' ').next_back().unwrap_or(other),
+    }
+}
+
+/// Run the pool-scale selection experiment.
+///
+/// # Errors
+/// As [`run`].
+fn run_pool(pool: &Path, materials: &[PathBuf], dir: &Path, repeats: usize) -> anyhow::Result<()> {
+    let candidates = pool_fonts(pool)?;
+    println!("pool: {} fonts from {}", candidates.len(), pool.display());
+    println!(
+        "materials: {}",
+        materials
+            .iter()
+            .map(|f| stem(f))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    println!("fixture: {repeats} rendering(s) of each cue");
+
+    let generating = Instant::now();
+    let sets = reference_sets(&candidates, dir)?;
+    let generating = generating.elapsed();
+
+    let scanning = Instant::now();
+    report_pool(materials, &sets, dir, repeats)?;
+    let scanning = scanning.elapsed();
+
+    println!(
+        "
+--- what fitting costs at this pool size ---"
+    );
+    println!(
+        "  generating {} reference sets: {:.1}s ({:.0}ms each)",
+        sets.len(),
+        generating.as_secs_f64(),
+        generating.as_secs_f64() * 1000.0 / sets.len().max(1) as f64
+    );
+    println!(
+        "  scanning {} materials against all of them: {:.1}s ({:.1}s per material)",
+        materials.len(),
+        scanning.as_secs_f64(),
+        scanning.as_secs_f64() / materials.len().max(1) as f64
+    );
+    println!("  the sets do not depend on the material, so a fitter caches them once and pays");
+    println!("  only the scan per title.");
+    Ok(())
+}
+
 /// Run the leave-one-out fit selection experiment.
 ///
 /// # Errors
 /// Fails if fewer than two usable fonts are given, or if any stage of generation or extraction
 /// fails.
 pub fn run(args: &[String]) -> anyhow::Result<()> {
-    let flag_value = args.iter().position(|a| a == "--repeat").map(|at| at + 1);
+    let flag_values: Vec<usize> = ["--repeat", "--pool"]
+        .iter()
+        .filter_map(|flag| args.iter().position(|a| a == flag))
+        .map(|at| at + 1)
+        .collect();
     let fonts: Vec<PathBuf> = args
         .iter()
         .enumerate()
-        .filter(|(index, a)| !a.starts_with("--") && Some(*index) != flag_value)
+        .filter(|(index, a)| !a.starts_with("--") && !flag_values.contains(index))
         .map(|(_, a)| a)
         .map(PathBuf::from)
         .filter(|p| p.exists())
@@ -836,8 +1011,17 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         None => 1,
     };
 
+    let pool = match args.iter().position(|a| a == "--pool") {
+        Some(at) => Some(PathBuf::from(args.get(at + 1).context("--pool needs a directory")?)),
+        None => None,
+    };
+
     let dir = std::env::temp_dir().join("subtrackt-fit-select");
     std::fs::create_dir_all(&dir)?;
+
+    if let Some(pool) = pool {
+        return run_pool(&pool, &fonts, &dir, repeats);
+    }
 
     println!("fonts: {}", fonts.iter().map(|f| stem(f)).collect::<Vec<_>>().join(" "));
     println!("fixture: {repeats} rendering(s) of each cue");
@@ -967,6 +1151,31 @@ mod tests {
                 "a floor at {floor} shipped the good read while refusing the bad one"
             );
         }
+    }
+
+    #[test]
+    fn a_set_that_reads_almost_nothing_loses_once_the_unmatched_are_charged() {
+        // The hazard the charged statistic exists for, and the one that only appears at pool scale.
+        // A symbol face matches a tenth of the track at close range, so a mean taken over the
+        // glyphs that matched flatters it above a set that read everything at medium range. On a
+        // real font directory this is not hypothetical: SegoeIcons wins Georgia-rendered material
+        // on mean match distance and reads it at 79.8%.
+        let ceiling = f64::from(MatchThresholds::default().max_distance());
+        let charged = |matched: u64, distance_sum: u64, unmatched: u64| {
+            (distance_sum as f64 + unmatched as f64 * ceiling) / (matched + unmatched) as f64
+        };
+
+        // Reads a tenth of the glyphs, and those very closely.
+        let symbol = charged(100, 400, 900);
+        // Reads all of them, at four times the distance each.
+        let honest = charged(1000, 16_000, 0);
+
+        // On mean-over-matched the symbol face scores 4 cells against the honest set's 16, so it
+        // would win. What follows is that charging the unmatched reverses it.
+        assert!(
+            symbol > honest,
+            "and loses once the unmatched are charged: {symbol:.1} against {honest:.1}"
+        );
     }
 
     #[test]
