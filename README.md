@@ -156,8 +156,8 @@ good.** That is not an oversight; see [Shortcomings](#shortcomings).
 
 ```console
 $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt --report
-822 cues from 822 images (1644 packets); glyphs 19566 matched / 958 unmatched
-  / 3878 ambiguous (95.3% read); fit 11.7; cache 100%; corrections 362 (context)
+822 cues from 822 images (1644 packets); glyphs 20419 matched / 105 unmatched
+  / 3896 ambiguous (99.5% read); fit 10.3; cache 100%; corrections 363 (context)
 ```
 
 | Flag | Default | Meaning |
@@ -201,8 +201,12 @@ leave a trace: `3 corrections` cannot be checked by anybody, and `'I' -> 'l' in 
 The floor is a floor and not a target: it catches a track that could not be *read*, and makes no
 claim about one read *well*. `fail-track` was the default until it was measured — rejecting on a
 *single* unread glyph refused essentially every track in the library, which is a gate that never
-opens. 0.90 is bounded from above by the pipeline's own ceiling case at 93.9% and from below by the
-48 of 56 surveyed titles that clear it. See
+opens. 0.90 was bounded from above by the pipeline's own ceiling case at 93.9% coverage and from below by
+the 48 of 56 surveyed titles that clear it. The ceiling has since moved —
+[`docs/reference-rendering.md`](docs/reference-rendering.md) took a real disc to 99.5% — so the floor
+now has headroom it did not have when it was chosen. Raising it is
+[#13](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/13)'s question, and it needs the
+library re-surveyed rather than a guess. See
 [`docs/architecture.md`](docs/architecture.md#the-accuracy-gate).
 
 ### `subtrackt glyphs` — dump shapes without reading them
@@ -303,16 +307,17 @@ crates.
 
 ### How accurate it is
 
-On a real Blu-ray, with a fitted reference set: **5.5% character error across all 818 scored cues**,
-against **61.6%** for a reference set chosen to be wrong. That eleven-fold gap is the entire argument
-for fitting, and it is why nothing ships embedded.
+On a real Blu-ray, with a fitted reference set: **2.8% character error across all 818 scored cues**,
+at **99.5%** glyph coverage. A reference set chosen to be wrong reads the same track at **61.6%**.
+That gap is the entire argument for fitting, and it is why nothing ships embedded.
 
 Scored against the English subtitle shipped beside the rip; [`docs/reference-set.md`](docs/reference-set.md)
 explains why that is evidence rather than ground truth. [`docs/error-census.md`](docs/error-census.md)
-says character by character where the remaining 5.5% is, and it is far less spread out than that
-number suggests: two error classes account for 73% of it. The pipeline's own ceiling — fixture and
-reference rendered from the same font, so typeface mismatch is excluded by construction — is 93.9%
-coverage, and real material can only do worse.
+says character by character where the error is, and it is far less spread out than the number
+suggests — one character was half of it, until
+[`docs/reference-rendering.md`](docs/reference-rendering.md) halved the rate by fixing that one. The pipeline's own ceiling — fixture and
+reference rendered from the same font, so typeface mismatch is excluded by construction — is 6.4%
+CER, and real material can only do worse.
 
 ---
 
@@ -383,7 +388,8 @@ the plan it was meant to confirm.
 | :--- | :--- |
 | [`library-survey.md`](docs/library-survey.md) | 56 titles, 1950s–2020s, 149,604 glyphs. One glyph cluster covers 43 of 56 titles across seventy years, and fits **Arial or very close** — but a fixed set covers only **46%** of glyph instances, and "or very close" was the expensive half of that sentence. |
 | [`glyph-stability.md`](docs/glyph-stability.md) | Why. Two renderings of the *same* character are typically further apart (median 46 cells) than two *different* characters are (median 31). A one-pixel shift in the binarization threshold costs 30 cells — as much as character identity itself. Rendering size and anti-aliasing cost 11 and 8: the axes normalisation was built to absorb, and it absorbs them. |
-| [`error-census.md`](docs/error-census.md) | Where the remaining 5.5% actually is, per character, on a real disc. **48.8% of it is the full stop**, which matches nothing at all — a 5x5 component sitting 60 cells from the nearest entry in a set built from the material's own typeface, against a 51-cell ceiling. `l` read as `I` is another 24.4%. Everything else is under 4%. |
+| [`error-census.md`](docs/error-census.md) | Where the error actually is, per character, on a real disc. **48.8% of it was the full stop**, which matched nothing at all — a 5x5 component sitting 60 cells from the nearest entry in a set built from the material's own typeface, against a 51-cell ceiling. `l` read as `I` is another 24.4%. Everything else is under 4%. |
+| [`reference-rendering.md`](docs/reference-rendering.md) | Why the full stop matched nothing, and the two-line change that halved the disc's error rate. The reference set letterboxed the *rasteriser's* box; the runtime letterboxes a connected component's. They differ by a pixel — 1.5% of an `M`, **15% of a period** — and controls show the box is the whole effect: a second entry at any size or threshold buys nothing unless it changes the box, and buys 2.7 points when it does. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
 | [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — five statistics, two mechanisms. The last one measures a typeface's style well enough to identify it from its font file 79–85% of the time, and still cannot gate a track: a decoded glyph drifts further from its own typeface than the typefaces sit apart. |

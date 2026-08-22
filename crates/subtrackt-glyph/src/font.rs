@@ -52,37 +52,181 @@ pub fn charset() -> Vec<char> {
     chars
 }
 
-/// Rasterise one character and normalise it exactly as the runtime would.
+/// Rasterise one character and normalise it through the pipeline's own transform.
 ///
 /// `grey` must match the pipeline's `grey_coverage` setting. A reference built through a different
 /// normalisation than the runtime uses would be compared against a subtly different transform, and
 /// every distance it produced would be meaningless.
+///
+/// **One** vector, at [`RENDER_PX`] under the ink threshold, on the rasteriser's box. A generated set carries
+/// [`RENDERINGS`] instead — see [`vectors_for`] — because #99 measured that one box cannot cover
+/// what the material does. This stays because the instruments that compare *typefaces* against each
+/// other need one canonical vector per character rather than a set, and because holding it at the
+/// rendering it has always had keeps every figure they have already recorded comparable.
 #[must_use]
 pub fn vector_for(font: &Font, ch: char, grey: bool) -> Option<FeatureVector> {
-    let (metrics, coverage) = font.rasterize(ch, RENDER_PX);
+    render(font, ch, RENDERINGS[0], grey)
+}
+
+/// One set of conditions a reference glyph can be rasterised under.
+///
+/// Three fields, and between them they are the whole of what #99 found separating the reference
+/// side from the material: the size it is drawn at, the threshold that decides what is ink, and —
+/// the one that turned out to carry the entire effect — which box the result is letterboxed from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rendering {
+    /// Pixel size to rasterise at.
+    pub px: f32,
+    /// Coverage above which a pixel counts as ink.
+    pub ink: u8,
+    /// Which box the normalisation letterboxes.
+    pub crop: Crop,
+}
+
+/// Which box a rendering letterboxes.
+///
+/// The runtime letterboxes a *connected component's* box — the ink that survived thresholding —
+/// while fontdue returns a bitmap that includes every pixel with any coverage at all, down to 1. On
+/// most glyphs those differ by a row or a column, and letterboxing is precisely the operation that
+/// turns one row into a whole grid cell.
+///
+/// [`Crop::Raster`] exists so a bench can still generate what the tool produced before #99. Nothing
+/// should choose it deliberately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Crop {
+    /// The rasteriser's box, which is what the reference side used before #99.
+    Raster,
+    /// The bounding box of what the threshold kept, which is what the runtime uses.
+    Ink,
+}
+
+/// The renderings a generated reference set carries for every character.
+///
+/// Two entries per character, from **one** rasterisation at **one** threshold, differing only in
+/// which box the normalisation letterboxes. #99 swept this against a real Blu-ray and the numbers
+/// are in `docs/reference-rendering.md`: character error **5.5% to 2.8%**, coverage **96.2% to
+/// 99.5%**, and the full stop — 48.8% of that disc's errors and 87% of its unread glyphs before
+/// this — from 660 wrong to 6.
+///
+/// The mechanism is worth stating, because every plausible-sounding alternative was measured and
+/// bought nothing. Rendering size does not matter: a second entry at 21px, 48px or 90px changes the
+/// disc's figures by zero as long as it carries the same box. The ink threshold does not matter
+/// either: 60, 128, 160 and 210 all land within six characters of each other. **The box is the
+/// whole effect**, and it is the ±1px edge shift `docs/glyph-stability.md` already priced at 30
+/// cells — "as much as character identity itself":
+///
+/// - [`Crop::Raster`] is fontdue's box, which includes every pixel with any coverage at all, down
+///   to 1. Its margin is a fixed *fraction* of the glyph, so it is scale-invariant.
+/// - [`Crop::Ink`] is the box of what survived the threshold, which is what the runtime
+///   letterboxes because that is what a connected component's bounds are. Its margin is a fixed
+///   *pixel* inset, so its cost grows as glyphs shrink.
+///
+/// On a 68px `M` a one-pixel inset is 1.5% of the box and nothing changes. On a 13px full stop it
+/// is 15%, and the two vectors are 60 cells apart against a 51-cell ceiling — which is exactly why
+/// `.` matched nothing and why small glyphs were the ones failing.
+///
+/// Neither box is *the* right one, because the material's own box lands somewhere between them and
+/// where depends on the glyph's size in the stream. So both are carried, which is carrying the axis
+/// rather than guessing a point on it. A third box, further inset, was measured and gains nothing.
+///
+/// This costs set size — about 1.7x, not 2x, because where the two boxes normalise to the same
+/// vector the duplicate is dropped, and on a large glyph they usually do — and nothing else. The format already carries several entries per
+/// character — that is how `--italic` puts two cuts in one set — and
+/// [`crate::matcher::HammingMatcher::scan_with`] already treats a second entry for the winning
+/// character as something that can improve the winner and can never become its own runner-up. So
+/// there is no version bump: a v3 reader loads one of these sets unchanged.
+pub const RENDERINGS: [Rendering; 2] = [
+    Rendering { px: RENDER_PX, ink: INK, crop: Crop::Raster },
+    Rendering { px: RENDER_PX, ink: INK, crop: Crop::Ink },
+];
+
+/// Every vector a generated set carries for one character.
+///
+/// Empty when the character has no outline at any of [`RENDERINGS`], which is the same answer
+/// [`vector_for`] gives with `None` and means the same thing: the font cannot draw it.
+#[must_use]
+pub fn vectors_for(font: &Font, ch: char, grey: bool) -> Vec<FeatureVector> {
+    vectors_under(font, ch, grey, &RENDERINGS)
+}
+
+/// As [`vectors_for`], with the renderings chosen rather than defaulted.
+///
+/// Exists for `xtask render-sweep`, which is what chose [`RENDERINGS`]. #45 is the reason it is a
+/// parameter at all: a change to what a reference vector *is* silently re-prices every threshold
+/// measured against the old one, so the list has to be swept end to end rather than reasoned about,
+/// and a sweep that cannot vary the thing it is sweeping is not a sweep.
+#[must_use]
+pub fn vectors_under(
+    font: &Font,
+    ch: char,
+    grey: bool,
+    renderings: &[Rendering],
+) -> Vec<FeatureVector> {
+    let mut out: Vec<FeatureVector> = Vec::with_capacity(renderings.len());
+    for &rendering in renderings {
+        if let Some(vector) = render(font, ch, rendering, grey) {
+            // Two sizes can normalise to the same vector — which is the point of normalisation —
+            // and a duplicate entry is scan cost for no separation.
+            if !out.contains(&vector) {
+                out.push(vector);
+            }
+        }
+    }
+    out
+}
+
+/// Rasterise and normalise one character under one rendering.
+///
+/// The bounds handed to [`vectorize`] are the **ink's** bounding box, not the rasteriser's. That is
+/// not a tuning choice: the runtime letterboxes a connected component's box, and fontdue returns a
+/// bitmap that includes every pixel with any coverage at all — down to 1 — so the two boxes differ
+/// by a row or a column on most glyphs. Letterboxing is precisely the operation that turns one row
+/// into a whole grid cell, so the difference is not small. #99 measured it on its own, with size and
+/// threshold held still, at 6 fewer unread samples and 14 fewer wrong ones out of 973.
+fn render(font: &Font, ch: char, rendering: Rendering, grey: bool) -> Option<FeatureVector> {
+    let (metrics, coverage) = font.rasterize(ch, rendering.px);
     if metrics.width == 0 || metrics.height == 0 {
         return None;
     }
 
     let width = u32::try_from(metrics.width).ok()?;
     let height = u32::try_from(metrics.height).ok()?;
-    let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
+    let bits: Vec<bool> = coverage.iter().map(|c| *c >= rendering.ink).collect();
     let mask = BinaryMask::from_bits(width, height, bits).ok()?;
-
-    // A glyph rendered by itself is already tightly cropped, which is what connected components
-    // hand the runtime vectorizer.
     if mask.foreground_count() == 0 {
         return None;
     }
+    let bounds = match rendering.crop {
+        Crop::Ink => ink_bounds(&mask)?,
+        Crop::Raster => Rect::new(0, 0, width, height),
+    };
 
-    let bounds = Rect::new(0, 0, width, height);
     if grey {
         // fontdue hands back per-pixel coverage already, which is exactly what the runtime derives
-        // from a subtitle palette. No thresholding step at all on this path.
+        // from a subtitle palette. No thresholding step on this path — but the *box* still comes
+        // from the thresholded mask, because that is where the runtime's box comes from.
         let plane = CoverageMask::from_values(width, height, coverage).ok()?;
         return vectorize_coverage(&plane, bounds, AspectPolicy::Letterbox).ok();
     }
     vectorize(&mask, bounds, AspectPolicy::Letterbox).ok()
+}
+
+/// The bounding box of everything the mask calls foreground.
+fn ink_bounds(mask: &BinaryMask) -> Option<Rect> {
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    let mut any = false;
+    for y in 0..mask.height() {
+        for x in 0..mask.width() {
+            if mask.get(x, y) {
+                any = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    any.then(|| Rect::new(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
 }
 
 /// Where a character stands in a line of text, from the font's own metrics.
@@ -171,6 +315,19 @@ pub struct Generated {
 /// # Errors
 /// [`Error::Config`] if a face is not a usable font, or if nothing rendered at all.
 pub fn generate(name: impl Into<String>, faces: &[Face<'_>], grey: bool) -> Result<Generated> {
+    generate_under(name, faces, grey, &RENDERINGS)
+}
+
+/// As [`generate`], with the renderings chosen rather than defaulted.
+///
+/// # Errors
+/// As [`generate`].
+pub fn generate_under(
+    name: impl Into<String>,
+    faces: &[Face<'_>],
+    grey: bool,
+    renderings: &[Rendering],
+) -> Result<Generated> {
     let mut entries = Vec::new();
     let mut missing = Vec::new();
     let mut without_cap_height = Vec::new();
@@ -188,16 +345,28 @@ pub fn generate(name: impl Into<String>, faces: &[Face<'_>], grey: bool) -> Resu
         }
 
         for ch in charset() {
-            match vector_for(&font, ch, grey) {
-                Some(features) => entries.push(ReferenceEntry {
+            let vectors = vectors_under(&font, ch, grey, renderings);
+            if vectors.is_empty() {
+                if face.style == Style::Regular {
+                    missing.push(ch);
+                }
+                continue;
+            }
+            // Metrics and mark come from the canonical render rather than from each entry's own
+            // size, because both are *ratios* — a fraction of the face's cap height, and a
+            // normalised second moment — and measuring them at 21px would quantise them for no
+            // gain. Every entry for a character therefore carries the same pair, which is what
+            // makes the extra entries purely a shape question.
+            let metrics = metrics_for(&font, ch, cap_height);
+            let mark = mark_for(&font, ch);
+            for features in vectors {
+                entries.push(ReferenceEntry {
                     character: ch,
                     style: face.style,
                     features,
-                    metrics: metrics_for(&font, ch, cap_height),
-                    mark: mark_for(&font, ch),
-                }),
-                None if face.style == Style::Regular => missing.push(ch),
-                None => {}
+                    metrics,
+                    mark,
+                });
             }
         }
     }
@@ -279,6 +448,10 @@ mod tests {
         ];
         let generated = generate("two-faces", &faces, false).unwrap();
 
+        // Both cuts present, in face order. How *many* entries each face contributes is
+        // `RENDERINGS`' business and varies by character — see
+        // `a_second_entry_appears_only_where_the_box_actually_changes_the_vector` — so this asks
+        // which styles appear rather than how many entries there are.
         let styles: Vec<Style> = generated
             .set
             .entries()
@@ -286,7 +459,15 @@ mod tests {
             .filter(|e| e.character == 'A')
             .map(|e| e.style)
             .collect();
-        assert_eq!(styles, vec![Style::Regular, Style::Italic]);
+        assert!(
+            styles.contains(&Style::Regular) && styles.contains(&Style::Italic),
+            "{styles:?}"
+        );
+        assert!(
+            styles.iter().position(|s| *s == Style::Italic)
+                > styles.iter().position(|s| *s == Style::Regular),
+            "faces contribute in the order they were given: {styles:?}"
+        );
     }
 
     #[test]
@@ -320,5 +501,95 @@ mod tests {
     fn no_faces_at_all_is_an_error_rather_than_an_empty_set() {
         let error = generate("nothing", &[], false);
         assert!(matches!(error, Err(Error::Config(_))), "got {error:?}");
+    }
+    #[test]
+    fn the_crop_box_costs_a_small_glyph_far_more_than_a_large_one() {
+        // The mechanism behind #99, pinned, because the whole of `RENDERINGS` rests on it and
+        // nothing else in the tree would notice if it stopped being true.
+        //
+        // Both boxes come from one rasterisation at one threshold. The rasteriser's box includes
+        // every pixel with any coverage at all; the ink box is what survived the threshold, which
+        // is what the runtime letterboxes because that is what a connected component's bounds are.
+        // The difference between them is roughly a *pixel*, so its share of the box grows as the
+        // glyph shrinks -- 1.5% of a 68px capital, 15% of a 13px full stop.
+        let bytes = a_font();
+        let font = Font::from_bytes(bytes.as_slice(), FontSettings::default()).unwrap();
+        let raster = |ch| render(&font, ch, RENDERINGS[0], false).unwrap();
+        let ink = |ch| render(&font, ch, RENDERINGS[1], false).unwrap();
+
+        let large = raster('M').distance(&ink('M'));
+        let small = raster('.').distance(&ink('.'));
+        assert!(
+            small > large,
+            "a full stop should be more sensitive to the box than an M: {small} against {large}"
+        );
+        // And the small one clears the ambiguity margin several times over, which is why one box
+        // could not cover both and why two entries are carried rather than one being chosen.
+        assert!(
+            small > crate::matcher::MatchThresholds::default().ambiguity_margin() * 2,
+            "the two boxes put a full stop only {small} cells apart"
+        );
+    }
+
+    #[test]
+    fn a_second_entry_appears_only_where_the_box_actually_changes_the_vector() {
+        // The extra entries are not a flat doubling, and it is the same mechanism that decides
+        // which characters get one: where the two boxes normalise to the same vector, the second is
+        // dropped, because a duplicate entry is scan cost for no separation. A large glyph collapses
+        // to one entry and a full stop keeps both, which is the finding stated as set contents.
+        let bytes = a_font();
+        let generated =
+            generate("two", &[Face { bytes: &bytes, style: Style::Regular }], false).unwrap();
+        let count = |ch: char| {
+            generated
+                .set
+                .entries()
+                .iter()
+                .filter(|e| e.character == ch)
+                .count()
+        };
+        assert_eq!(count('.'), RENDERINGS.len(), "a full stop needs both boxes");
+        assert!(
+            count('M') <= count('.'),
+            "an M cannot need more entries than a full stop"
+        );
+        for ch in charset() {
+            assert!(count(ch) <= RENDERINGS.len(), "{ch:?} has more entries than renderings");
+        }
+    }
+
+    #[test]
+    fn two_renderings_that_normalise_alike_contribute_one_entry_rather_than_two() {
+        // The dedupe itself, asked directly rather than through whichever character happens to
+        // exercise it in whichever font the machine has. A duplicate entry is scan cost for no
+        // separation, and nothing downstream would report it.
+        let bytes = a_font();
+        let font = Font::from_bytes(bytes.as_slice(), FontSettings::default()).unwrap();
+        let twice = [RENDERINGS[0], RENDERINGS[0]];
+        assert_eq!(vectors_under(&font, 'M', false, &twice).len(), 1);
+        assert_eq!(vectors_under(&font, 'M', false, &RENDERINGS[..1]).len(), 1);
+    }
+
+    #[test]
+    fn every_entry_for_one_character_carries_the_same_metrics_and_mark() {
+        // The extra entries are a *shape* question and nothing else. Measuring metrics per
+        // rendering would quantise a ratio for no gain and would make the two entries disagree
+        // about where the character stands in its line, which the matcher would then price.
+        let bytes = a_font();
+        let generated =
+            generate("two", &[Face { bytes: &bytes, style: Style::Regular }], false).unwrap();
+        for ch in ['.', 'e'] {
+            let entries: Vec<_> = generated
+                .set
+                .entries()
+                .iter()
+                .filter(|e| e.character == ch)
+                .collect();
+            assert!(entries.len() > 1, "{ch:?} should have several entries");
+            for entry in &entries[1..] {
+                assert_eq!(entry.metrics, entries[0].metrics, "{ch:?}");
+                assert_eq!(entry.mark, entries[0].mark, "{ch:?}");
+            }
+        }
     }
 }
