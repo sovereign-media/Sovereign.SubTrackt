@@ -174,6 +174,12 @@ impl Pipeline {
         matcher.prepare(&all_glyphs)?;
         report.distinct_shapes = matcher.distinct_shapes();
         report.clusters = matcher.clusters();
+        report.glyphs_without_metrics = all_glyphs
+            .iter()
+            .filter(|g| !g.metrics.known)
+            .count()
+            .try_into()
+            .unwrap_or(u64::MAX);
 
         let mut cues = Vec::with_capacity(images.len());
 
@@ -223,18 +229,25 @@ impl Segmenter for ImageSegmenter {
         use subtrackt_glyph::ccl::{self, ComponentFilter};
         use subtrackt_glyph::feature::{self, AspectPolicy};
         use subtrackt_glyph::group::{self, GroupingRules};
+        use subtrackt_glyph::metrics::{self, MetricRules};
 
         let mask = self.mask(image);
         // Components and lines are yes-or-no questions and need the binary mask. Only the feature
         // vector reads the coverage plane, and only when asked to.
         let coverage = self.grey_coverage.then(|| self.binarizer.coverage(image));
         let components = ccl::label(&mask, ComponentFilter::default())?;
+        let bands = group::line_bands(&mask);
         let lines = group::assign_lines(&mask, &components)?;
         let grouped = group::group(&components, &lines, GroupingRules::default())?;
 
+        // Where each glyph stands in its line, which the feature vector cannot express and which is
+        // the only thing separating `o` from `O`. Measured per line, from that line's own ink.
+        let measured = metrics::measure_all(&bands, &grouped, MetricRules::default());
+
         grouped
             .iter()
-            .map(|glyph| {
+            .zip(measured)
+            .map(|(glyph, line_metrics)| {
                 let bounds = glyph
                     .parts
                     .iter()
@@ -248,6 +261,7 @@ impl Segmenter for ImageSegmenter {
                         || feature::vectorize(&mask, bounds, AspectPolicy::default()),
                         |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
                     )?,
+                    metrics: line_metrics,
                 })
             })
             .collect()

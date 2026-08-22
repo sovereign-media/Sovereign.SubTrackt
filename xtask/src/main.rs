@@ -12,6 +12,7 @@
 
 mod accuracy;
 mod fixture;
+mod separability;
 mod stability;
 mod sweep;
 
@@ -28,7 +29,7 @@ use subtrackt_glyph::reference::{ReferenceEntry, ReferenceSet, Style};
 ///
 /// Larger than any real subtitle glyph on purpose. Normalisation is scale-invariant, so the only
 /// thing size buys here is a cleaner rasterisation to normalise *from*.
-const RENDER_PX: f32 = 96.0;
+pub(crate) const RENDER_PX: f32 = 96.0;
 
 /// Coverage above which a rasterised pixel counts as ink.
 ///
@@ -40,7 +41,7 @@ const INK: u8 = 128;
 ///
 /// ASCII printable, plus the Latin-1 letters that carry the accents #6 works to preserve. There is
 /// no point including a character the segmenter cannot deliver as one glyph.
-fn charset() -> Vec<char> {
+pub(crate) fn charset() -> Vec<char> {
     let mut chars: Vec<char> = (0x21u8..0x7F).map(char::from).collect();
     chars.extend("\u{c0}\u{c1}\u{c2}\u{c4}\u{c7}\u{c8}\u{c9}\u{ca}\u{cb}".chars());
     chars.extend("\u{cc}\u{cd}\u{ce}\u{cf}\u{d1}\u{d2}\u{d3}\u{d4}\u{d6}".chars());
@@ -55,7 +56,11 @@ fn charset() -> Vec<char> {
 /// `grey` must match the pipeline's `grey_coverage` setting. A reference built through a different
 /// normalisation than the runtime uses would be compared against a subtly different transform, and
 /// every distance it produced would be meaningless.
-fn vector_for(font: &Font, ch: char, grey: bool) -> Option<subtrackt_core::FeatureVector> {
+pub(crate) fn vector_for(
+    font: &Font,
+    ch: char,
+    grey: bool,
+) -> Option<subtrackt_core::FeatureVector> {
     let (metrics, coverage) = font.rasterize(ch, RENDER_PX);
     if metrics.width == 0 || metrics.height == 0 {
         return None;
@@ -82,6 +87,30 @@ fn vector_for(font: &Font, ch: char, grey: bool) -> Option<subtrackt_core::Featu
     vectorize(&mask, bounds, AspectPolicy::Letterbox).ok()
 }
 
+/// Where a character stands in a line of text, from the font's own metrics.
+///
+/// This has to mean the same thing as `subtrackt_glyph::metrics`, which derives its anchors from a
+/// rendered line's ink. So the unit here is the *ink* height of a capital H rather than a figure
+/// from a font table: the runtime's cap height is the row the tall glyphs actually reach, and a
+/// table value would include margins the pixels never show.
+fn metrics_for(font: &Font, ch: char, cap_height: i32) -> subtrackt_core::LineMetrics {
+    if cap_height <= 0 {
+        return subtrackt_core::LineMetrics::UNKNOWN;
+    }
+    let metrics = font.metrics(ch, RENDER_PX);
+    if metrics.height == 0 {
+        return subtrackt_core::LineMetrics::UNKNOWN;
+    }
+
+    let height = i32::try_from(metrics.height).unwrap_or(0) * 100 / cap_height;
+    // fontdue reports ymin as the offset of the bitmap's bottom from the baseline: negative for a
+    // descender, positive for a mark floating clear of the baseline. The runtime measures downwards
+    // from the baseline, so the sign flips.
+    let descent = -metrics.ymin * 100 / cap_height;
+
+    subtrackt_core::LineMetrics::new(u32::try_from(height).unwrap_or(0), descent)
+}
+
 pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
     let grey = args.iter().any(|a| a == "--grey-coverage");
     let font_path = args
@@ -100,12 +129,24 @@ pub(crate) fn gen_reference(args: &[String]) -> anyhow::Result<()> {
     let font = Font::from_bytes(bytes.as_slice(), FontSettings::default())
         .map_err(|e| anyhow::anyhow!("{font_path} is not a usable font: {e}"))?;
 
+    // The unit every metric is a fraction of. Without it there is nothing to be relative to, and
+    // the set is written with unknown metrics rather than invented ones.
+    let cap_height = i32::try_from(font.metrics('H', RENDER_PX).height).unwrap_or(0);
+    if cap_height <= 0 {
+        eprintln!("  {font_path} rasterises no capital H; entries will carry no line metrics");
+    }
+
     let mut entries = Vec::new();
     let mut missing = Vec::new();
     for ch in charset() {
         match vector_for(&font, ch, grey) {
             Some(features) => {
-                entries.push(ReferenceEntry { character: ch, style: Style::Regular, features });
+                entries.push(ReferenceEntry {
+                    character: ch,
+                    style: Style::Regular,
+                    features,
+                    metrics: metrics_for(&font, ch, cap_height),
+                });
             }
             None => missing.push(ch),
         }
@@ -141,6 +182,8 @@ fn main() -> anyhow::Result<()> {
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
         Some("cluster-sweep") => return sweep::run(&args[1..]),
+        Some("metric-sweep") => return sweep::run_metric(&args[1..]),
+        Some("separability") => return separability::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");

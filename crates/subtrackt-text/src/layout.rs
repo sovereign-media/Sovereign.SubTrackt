@@ -184,6 +184,8 @@ mod tests {
             bounds: Rect::new(x, 0, width, 10),
             line,
             features: FeatureVector::EMPTY,
+            // Layout works from geometry, not from where a glyph stands in its line.
+            metrics: subtrackt_core::LineMetrics::UNKNOWN,
         }
     }
 

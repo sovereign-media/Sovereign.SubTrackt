@@ -306,15 +306,107 @@ own label decision and behaviour is exactly what it was. The machinery stays bec
 instrument that produced this finding, and because the next experiment changes the feature vector
 and will want the sweep re-run against it.
 
+## Measuring against the text line, and the first thing that works
+
+#37, and the first change aimed at **separation** rather than variance. Every confusable pair —
+`I`/`l`/`|`/`!`/`1`, `o`/`O`, `c`/`C`, `u`/`U`, `s`/`S` — has the same *shape* and differs in how
+tall it stands in its line. `AspectPolicy::Letterbox` normalises exactly that away.
+
+So each glyph gained two figures, both percentages of its line's cap height rather than pixel
+counts: its **height**, and its **baseline offset** — how far its bottom sits below the baseline,
+signed, so a hyphen floating clear of the baseline does not read as an underscore sitting on it.
+
+### Finding the anchors
+
+Neither anchor is in the image. Both are estimated from the line's own glyphs, and both are **modes
+rather than extremes**, because an extreme is decided by one glyph: a single comma drags a minimum
+bottom down, a single `É` pushes a maximum top up, and every measurement on the line shifts with it.
+The cap line is the highest row *enough* glyphs reach, not the highest row anything reaches.
+
+Two cases report nothing rather than a number:
+
+- **Too few glyphs.** Four is the floor; below that there is no mode, only a guess.
+- **No height variety.** A line of one height cannot say which height it is — `NO ONE SAW` and
+  `no one saw` present identically. Measuring either would make every glyph on the line read as a
+  capital, so the line falls back to shape alone.
+
+An unknown metric contributes *nothing* to a distance rather than a default. A glyph on an
+unmeasurable line is compared on shape, which is worse than the full comparison and much better than
+being scored against a fabricated height.
+
+### The check that came first
+
+The idea was cheap to falsify and expensive to build, so `xtask separability` ran first, on font
+metrics alone. The prediction was put in #37 before the measurement, and it held:
+
+```
+o / O   shape  25 ->  39   (heights  76 / 104)   should separate
+c / C   shape  19 ->  33   (heights  76 / 104)   should separate
+u / U   shape  15 ->  28   (heights  75 / 102)   should separate
+I / l   shape   0 ->   0   (heights 100 / 100)   should NOT separate
+```
+
+`I` against `l` stays at zero, and that is not a defect to fix. Arial's lowercase ascender and its
+cap height differ by under 2%: a capital I and a lowercase l are the same mark at the same height.
+Humans read them by context, which is #12's job, not this one's.
+
+One correction to the prediction's arithmetic: `o` measures 76% of cap height, not the 52% #37
+guessed — that figure confused x-height over *em* with x-height over *cap height*. The separation
+held; the magnitude was wrong.
+
+### What it is worth
+
+`xtask metric-sweep` scores the weight across the same four conditions as #10:
+
+| weight | plain, exact | varied, exact | plain, near miss | varied, near miss |
+| :--- | ---: | ---: | ---: | ---: |
+| 0 (shape only) | 16.9% | 23.9% | 32.3% | 28.5% |
+| 25 | 16.1% | 19.4% | 29.8% | 24.7% |
+| **50** | **16.1%** | **17.0%** | **24.2%** | **22.8%** |
+| 75 | 16.1% | 17.0% | 25.0% | 23.1% |
+| 150 | 16.1% | 18.3% | 25.0% | 26.0% |
+| 250 | 16.9% | 22.6% | 31.5% | 31.1% |
+
+CER, lower is better. **Fifty is best or tied-best in all four**, which is a clean choice rather than
+a fitted one, and it is what ships. At that weight a full cap-height difference is worth 14 cells —
+twice the ambiguity margin, comfortably inside the 51-cell match ceiling.
+
+The gains land where they should. The ceiling case improves by 0.8 points because it was never
+failing on this; the realistic cases — varied rendering, mismatched typeface — improve by **5.8 to
+8.1 points**. Ambiguous glyphs fall with them, 40 to 24 on the plain fixture.
+
+Two other results worth recording. Zero-distance pairs in the reference set drop from **three to
+one**, the survivor being `I`/`l` as predicted. And grey coverage, which #35 measured 7.3 points
+worse, now scores *identically* to the binary mask — its failure was collapsing `o` onto `O`, and
+that failure is what this fixes. The diagnosis in #35 was right.
+
+Clustering was re-swept against the new vector and still does not help: the best cell is −1.0 and
+everything else is worse, so #10's conclusion stands unchanged.
+
+### What is left
+
+The remaining fixture errors are two classes, and neither is a shape problem:
+
+```
+! The quick brown foxjumps      want: The quick brown fox jumps
+! over the Iazy dog.            want: over the lazy dog.
+```
+
+Word spacing (#11) and `l`/`I` (#12). The first is a gap threshold; the second needs context, and
+the matcher now flags it as ambiguous rather than answering silently, which is what makes #12
+tractable.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
   and **measured worse at every radius** — see above. The premise was that within-stream variation
   is small enough to group safely; the measurement found the nearest different character is at
   distance *zero*, so no radius exists. Clustering ships off.
-- **The next experiment is a line-relative size feature**, and it is the first one aimed at
-  separation rather than variance. Every confusable pair differs in height relative to its text
-  line, which letterboxing normalises away.
+- ~~**The next experiment is a line-relative size feature**~~ — **done, and it works**: #37, see
+  above. 5.8 to 8.1 points of CER on realistic conditions, and zero-distance pairs down from three
+  to one. The first change to aim at separation rather than variance, and the first to pay.
+- **What remains is not shape.** Word spacing is #11 and `l`/`I` is #12, which now receives those
+  glyphs flagged as ambiguous rather than answered silently.
 - **#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds labels;
   it will not carry the load alone.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two

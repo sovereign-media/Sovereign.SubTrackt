@@ -97,6 +97,28 @@ fn every_glyph_is_unmatched_without_a_reference_set() {
 }
 
 #[test]
+fn glyphs_are_measured_against_their_own_text_line() {
+    // The feature #37 added, pinned end to end. Without it `o` and `O` normalise to nearly the same
+    // vector; with it they are separated by how tall each stands in its line.
+    let outcome = extract();
+    let measured = outcome
+        .track
+        .cues
+        .iter()
+        .flat_map(|c| c.lines.iter())
+        .count();
+    assert!(measured > 0, "the fixture produces lines to measure");
+
+    // Every cue in the fixture is a full line of mixed-case text, which is exactly the case the
+    // anchors can be found for. A fixture that stopped producing measurable lines would silently
+    // disable the feature rather than fail, so it is worth asserting.
+    assert_eq!(
+        outcome.report.glyphs_without_metrics, 0,
+        "every glyph in the fixture sits on a measurable line"
+    );
+}
+
+#[test]
 fn the_default_gate_refuses_a_track_it_cannot_read() {
     // With no reference set nothing matches, so FailTrack must reject rather than emit placeholders.
     let err = Pipeline::new(Config::default())

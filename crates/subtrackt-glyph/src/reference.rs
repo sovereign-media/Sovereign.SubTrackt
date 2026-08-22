@@ -9,7 +9,7 @@
 //! The on-disk format below is what the generator writes and what the binary will eventually
 //! embed.
 
-use subtrackt_core::{Error, FEATURE_GRID, FeatureVector, Result};
+use subtrackt_core::{Error, FEATURE_GRID, FeatureVector, LineMetrics, Result};
 
 /// Typographic variant of a reference glyph.
 ///
@@ -62,6 +62,12 @@ pub struct ReferenceEntry {
     pub style: Style,
     /// The normalised vector.
     pub features: FeatureVector,
+    /// How tall this character stands in a line of text, relative to that line.
+    ///
+    /// The shape vector cannot express this — see [`LineMetrics`] — and without it a reference set
+    /// places `o` and `O` at almost the same point. Generated from font metrics rather than from
+    /// the rasterisation, because a glyph rendered on its own has no line to be relative to.
+    pub metrics: LineMetrics,
 }
 
 /// A named collection of reference glyphs.
@@ -126,10 +132,19 @@ impl ReferenceSet {
 }
 
 /// Magic at the head of a serialised reference set, last byte being the format version.
-const MAGIC: &[u8; 8] = b"SUBTREF\x01";
+///
+/// Version 2 added line metrics. Version 1 sets still load — their entries report metrics as
+/// unknown, which is the truth about them rather than a default standing in for one.
+const MAGIC: &[u8; 8] = b"SUBTREF\x02";
 
-/// Bytes per entry: codepoint, style, two reserved, then the vector.
-const ENTRY_LEN: usize = 4 + 1 + 2 + 32;
+/// The version 1 magic, still readable.
+const MAGIC_V1: &[u8; 8] = b"SUBTREF\x01";
+
+/// Bytes per entry: codepoint, style, metrics-known flag, height, descent, then the vector.
+const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + 32;
+
+/// Bytes per entry in version 1: codepoint, style, two reserved, then the vector.
+const ENTRY_LEN_V1: usize = 4 + 1 + 2 + 32;
 
 /// Bytes before the name.
 const HEADER_LEN: usize = 16;
@@ -154,7 +169,17 @@ impl ReferenceSet {
         for entry in &self.entries {
             out.extend_from_slice(&(entry.character as u32).to_le_bytes());
             out.push(entry.style.to_byte());
-            out.extend_from_slice(&[0, 0]);
+            out.push(u8::from(entry.metrics.known));
+            out.extend_from_slice(
+                &u16::try_from(entry.metrics.height_percent)
+                    .unwrap_or(u16::MAX)
+                    .to_le_bytes(),
+            );
+            out.extend_from_slice(
+                &i16::try_from(entry.metrics.descent_percent)
+                    .unwrap_or(0)
+                    .to_le_bytes(),
+            );
             for word in entry.features.words() {
                 out.extend_from_slice(&word.to_le_bytes());
             }
@@ -176,9 +201,14 @@ impl ReferenceSet {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let bad = |what: &str| Error::Config(format!("reference set: {what}"));
 
-        if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
-            return Err(bad("bad magic or too short for a header"));
+        if bytes.len() < HEADER_LEN {
+            return Err(bad("too short for a header"));
         }
+        let entry_len = match &bytes[..8] {
+            m if m == MAGIC => ENTRY_LEN,
+            m if m == MAGIC_V1 => ENTRY_LEN_V1,
+            _ => return Err(bad("bad magic")),
+        };
         let grid = usize::from(u16::from_le_bytes([bytes[8], bytes[9]]));
         let name_len = usize::from(u16::from_le_bytes([bytes[10], bytes[11]]));
         let count = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
@@ -187,31 +217,43 @@ impl ReferenceSet {
         let body = bytes.get(name_end..).ok_or_else(|| bad("truncated name"))?;
         let name = String::from_utf8_lossy(&bytes[HEADER_LEN..name_end]).into_owned();
 
-        if body.len() != count * ENTRY_LEN {
+        if body.len() != count * entry_len {
             return Err(bad(&format!(
                 "declares {count} entries ({} bytes) but holds {}",
-                count * ENTRY_LEN,
+                count * entry_len,
                 body.len()
             )));
         }
 
         let mut entries = Vec::with_capacity(count);
-        for chunk in body.chunks_exact(ENTRY_LEN) {
+        for chunk in body.chunks_exact(entry_len) {
             let code = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             let character =
                 char::from_u32(code).ok_or_else(|| bad(&format!("codepoint U+{code:04X}")))?;
             let style = Style::from_byte(chunk[4])
                 .ok_or_else(|| bad(&format!("style byte {}", chunk[4])))?;
 
+            // A version 1 entry has no metrics, so it reports unknown rather than a stand-in.
+            let metrics = if entry_len == ENTRY_LEN && chunk[5] != 0 {
+                LineMetrics::new(
+                    u32::from(u16::from_le_bytes([chunk[6], chunk[7]])),
+                    i32::from(i16::from_le_bytes([chunk[8], chunk[9]])),
+                )
+            } else {
+                LineMetrics::UNKNOWN
+            };
+
+            let words_at = if entry_len == ENTRY_LEN { 10 } else { 7 };
             let mut words = [0u64; 4];
             for (index, word) in words.iter_mut().enumerate() {
-                let at = 7 + index * 8;
+                let at = words_at + index * 8;
                 *word = u64::from_le_bytes(chunk[at..at + 8].try_into().expect("8 bytes"));
             }
             entries.push(ReferenceEntry {
                 character,
                 style,
                 features: FeatureVector::from_words(words),
+                metrics,
             });
         }
 
@@ -240,11 +282,18 @@ mod tests {
         ReferenceSet::new(
             "fitted-2026",
             vec![
-                ReferenceEntry { character: 'A', style: Style::Regular, features: a },
+                ReferenceEntry {
+                    character: 'A',
+                    style: Style::Regular,
+                    features: a,
+                    metrics: LineMetrics::new(100, 0),
+                },
                 ReferenceEntry {
                     character: '\u{e9}',
                     style: Style::Italic,
                     features: FeatureVector::EMPTY,
+                    // An accented lowercase: taller than x-height, sitting on the baseline.
+                    metrics: LineMetrics::new(96, -3),
                 },
             ],
         )
