@@ -64,6 +64,13 @@ pub struct Config {
     pub format: SubtitleFormat,
     /// Foreground/background thresholding.
     pub binarize: Threshold,
+    /// Whether the feature vector is built from ink coverage rather than the binary mask.
+    ///
+    /// #14 found that a glyph's vector moves further between two renderings of the same character
+    /// than between two different characters, and the binarizer experiments in
+    /// `docs/glyph-stability.md` showed the threshold's *placement* was not the cause. This is the
+    /// alternative: keep the anti-aliasing ramp as a magnitude all the way into the vector.
+    pub grey_coverage: bool,
     /// Glyph matching thresholds.
     pub matching: MatchThresholds,
     /// Text reconstruction rules.

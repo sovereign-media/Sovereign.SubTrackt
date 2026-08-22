@@ -38,10 +38,18 @@ fn find_font(explicit: Option<&String>) -> Option<PathBuf> {
 }
 
 /// Extract a `.sup` with a reference set and return the text, one cue line per line.
-fn extract(sup: &Path, reference: ReferenceSet) -> anyhow::Result<(String, subtrackt::Report)> {
+fn extract(
+    sup: &Path,
+    reference: ReferenceSet,
+    grey_coverage: bool,
+) -> anyhow::Result<(String, subtrackt::Report)> {
     // Placeholder rather than the default gate: the point is to score what was read, and a policy
     // that refuses the track would score nothing at all.
-    let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        grey_coverage,
+        ..Config::default()
+    };
 
     let outcome = Pipeline::new(config)
         .with_reference(reference)
@@ -118,30 +126,71 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         "accuracy-fixture".to_owned(),
     ])?;
 
-    let reference = ReferenceSet::decode(&std::fs::read(dir.join("reference.subtref"))?)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let truth = std::fs::read_to_string(dir.join("synthetic.txt"))?;
-    let (text, run_report) = extract(&dir.join("synthetic.sup"), reference)?;
+    let sup = dir.join("synthetic.sup");
 
-    let score = score_text(truth.trim(), text.trim());
-    println!("\n--- accuracy on generated ground truth ---");
-    report(&score, &run_report, truth.trim(), text.trim());
+    // Both feature representations, over one fixture, each against a reference set built through
+    // its own normalisation. Scoring them together is the only way to attribute a difference to
+    // the representation rather than to the fixture or the font.
+    let mut scored = Vec::new();
+    for (label, grey) in [("binary mask", false), ("grey coverage", true)] {
+        let path = dir.join(if grey {
+            "reference-grey.subtref"
+        } else {
+            "reference.subtref"
+        });
+        let mut gen_args = vec![
+            font.display().to_string(),
+            path.display().to_string(),
+            "--name".to_owned(),
+            "accuracy-fixture".to_owned(),
+        ];
+        if grey {
+            gen_args.push("--grey-coverage".to_owned());
+        }
+        crate::gen_reference(&gen_args)?;
 
-    println!("\n--- extracted ---");
-    for (expected, got) in truth.trim().lines().zip(text.trim().lines()) {
-        let mark = if expected == got { ' ' } else { '!' };
-        println!("  {mark} {got}");
-        if mark == '!' {
-            println!("      want: {expected}");
+        let reference =
+            ReferenceSet::decode(&std::fs::read(&path)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let (text, run_report) = extract(&sup, reference, grey)?;
+        let score = score_text(truth.trim(), text.trim());
+
+        println!("\n--- {label}: accuracy on generated ground truth ---");
+        report(&score, &run_report, truth.trim(), text.trim());
+        scored.push((label, grey, score, text));
+    }
+
+    for (label, _, _, text) in &scored {
+        println!("\n--- {label}: extracted ---");
+        for (expected, got) in truth.trim().lines().zip(text.trim().lines()) {
+            let mark = if expected == got { ' ' } else { '!' };
+            println!("  {mark} {got}");
+            if mark == '!' {
+                println!("      want: {expected}");
+            }
         }
     }
 
-    // A ceiling case that reads worse than half its characters correctly means something is broken
-    // rather than merely imperfect, and the harness should say so rather than print a number.
+    println!("\n--- binary against grey ---");
+    for (label, _, score, _) in &scored {
+        println!(
+            "  {label:<14} CER {:>5.1}%   WER {:>5.1}%",
+            score.character_error_rate() * 100.0,
+            score.word_error_rate() * 100.0
+        );
+    }
+
+    // The gate applies to whichever representation the pipeline actually ships with, since that is
+    // the number a user would get. A ceiling case reading worse than half its characters correctly
+    // means something is broken rather than merely imperfect.
+    let shipped = Config::default().grey_coverage;
+    let (_, _, score, _) = scored
+        .iter()
+        .find(|(_, grey, _, _)| *grey == shipped)
+        .context("the shipped representation was not scored")?;
     if score.character_error_rate() > 0.5 {
         bail!(
-            "character error rate {:.1}% on a same-font fixture; this is the ceiling case and \
-             should be far better",
+            "character error rate {:.1}% on a same-font fixture; this is the ceiling case and              should be far better",
             score.character_error_rate() * 100.0
         );
     }

@@ -80,7 +80,10 @@ impl crate::Pipeline {
         // VOBSUB carries its palette out of band; without this a subpicture has colour indices
         // and no colours.
         decoder.configure(&stream.codec_private)?;
-        let segmenter = ImageSegmenter::new(Binarizer::new(self.config().binarize));
+        let segmenter = ImageSegmenter::new(
+            Binarizer::new(self.config().binarize),
+            self.config().grey_coverage,
+        );
 
         let mut glyphs = Vec::new();
         let mut cues = 0usize;
