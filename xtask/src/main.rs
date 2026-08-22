@@ -13,6 +13,7 @@
 mod accuracy;
 mod fit;
 mod fixture;
+mod mark;
 mod separability;
 mod spacing;
 mod stability;

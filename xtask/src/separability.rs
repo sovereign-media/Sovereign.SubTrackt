@@ -41,13 +41,13 @@ use subtrackt_glyph::matcher::MatchThresholds;
 /// These are the range `docs/library-survey.md` measured real subtitle glyphs at — 21 to 50 px —
 /// rather than the 96px this harness rasterises references at. The whole risk being tested is that
 /// a counter closes at the small end, so testing at the comfortable end would answer nothing.
-const SURVEY_SIZES: [f32; 6] = [21.0, 24.0, 30.0, 36.0, 42.0, 50.0];
+pub(crate) const SURVEY_SIZES: [f32; 6] = [21.0, 24.0, 30.0, 36.0, 42.0, 50.0];
 
 /// Ink thresholds the count is checked across, bracketing the binarizer's default of half.
 ///
 /// This is the ±1px edge variation of `docs/glyph-stability.md` expressed at its source: moving the
 /// threshold is what thickens or thins a stroke, and a thickened stroke is what closes a counter.
-const INK_LEVELS: [u8; 3] = [96, 128, 160];
+pub(crate) const INK_LEVELS: [u8; 3] = [96, 128, 160];
 
 /// Smallest enclosed region that counts as a hole, in permille of the glyph's bounding box.
 ///
@@ -247,6 +247,25 @@ fn report(measured: &[Measured], weight_percent: u32) {
             x.height, y.height
         );
     }
+}
+
+/// The pairs the shipped matcher would call ambiguous, closest first.
+///
+/// Shared with the mark bench in [`crate::mark`] so both halves of this harness ask about exactly
+/// the same set, rather than each deriving "confused" from a threshold of its own.
+fn ambiguous_pairs(measured: &[Measured], weight_percent: u32) -> Vec<(u32, char, char)> {
+    let margin = MatchThresholds::default().ambiguity_margin();
+    let mut pairs: Vec<(u32, char, char)> = Vec::new();
+    for (index, a) in measured.iter().enumerate() {
+        for b in &measured[index + 1..] {
+            let with = combined(a, b, weight_percent);
+            if with <= margin {
+                pairs.push((with, a.character, b.character));
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs
 }
 
 /// Does the hole count say anything about the pairs that are still confused?
@@ -475,5 +494,11 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     report_hole_separation(&measured, weight_percent);
     report_hole_stability(&font, &measured);
     report_hole_portability(&font, &reference_name, &others);
+    crate::mark::report(
+        &font,
+        &reference_name,
+        &others,
+        &ambiguous_pairs(&measured, weight_percent),
+    );
     Ok(())
 }

@@ -577,6 +577,105 @@ at the same *fraction* of the vector at both sizes is the new unit's own argumen
 also still a retune: the fixture has moved under the number #37 chose, and re-choosing it belongs in
 its own issue rather than smuggled into a change whose entire claim is that it changes nothing.
 
+## The accent's own direction, and a mark that has to reach its body first
+
+#48, measured before anything was built, the way #37 and #46 were. #46 went looking for a hole count
+and turned up a different fact on the way past: of the 21 pairs the shipped matcher calls ambiguous,
+**sixteen are one base letter differing only in which way its accent leans** — `À`/`Á`, `È`/`Ê`,
+`è`/`é`, `ò`/`ó`. Five are the vertical bars, which are #12's territory. So `l`/`I` is one pair and
+accent direction is sixteen, and accented lowercase is ordinary Spanish, French and Italian text.
+
+The shape vector cannot see the difference for a structural reason. Letterboxing scales the merged
+bounding box — base plus mark — to fill the grid, so a mark occupying the top sixth of the glyph
+lands in one or two rows of cells and its direction is largely sub-cell, while everything below it
+is identical between the pair. But the pipeline *knows* which pixels are the accent: `group`
+identifies the component as a mark and attaches it to a body before `feature` merges the boxes and
+throws that away. Three candidates, cheapest first, and the prediction for each was
+[recorded on the issue][48-prediction] before the bench was run.
+
+[48-prediction]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/48#issuecomment-5377570156
+
+| | Candidate | What it stores |
+| :--- | :--- | :--- |
+| **A** | placement | The mark's box as four fractions of the body's |
+| **B** | shape | The mark's own ink, letterboxed onto the same grid by the same `vectorize` |
+| **C** | slope | `Cxy / sqrt(Cxx · Cyy)` over the mark's ink, as a percentage. One signed number |
+
+### The question nobody had asked, which came first
+
+A mark only becomes a mark if `group` attaches it to a body, and `group` works inside one text line.
+`line_bands` cuts a line at any row carrying no ink **across its whole width** — and the accent on a
+*capital* sits above every letterform the charset can spell. So the row between `À`'s grave and its
+`A` is blank for the width of the line, and the accent bands as a line of its own.
+
+Rendering each subject between the tallest available neighbour, at the most generous of the three
+ink thresholds — more generous than the runtime's, which is fill-only and excludes the outline:
+
+| Neighbour | Reaches above baseline | Marks that reach their body |
+| :--- | ---: | :--- |
+| `$`, the tallest ASCII character | 76 px | 44 of 51 |
+| `f`, the tallest **letter** | 70 px | 25 of 51 |
+| a capital `H`, for scale | 69 px | — |
+
+Arial draws its ascenders to cap height, so in a line of nothing but letters and spaces there is
+nothing above the capitals at all, and **every accented capital fails to group**. `$` and the
+brackets overshoot on purpose and rescue it; ordinary subtitle text does not contain them. The seven
+that fail even in the best case are `"` and `%` and `:`, which `group` documents, and `Î Ï î ï`,
+where the mark is wider than the narrow `i` beneath it and the 50% overlap rule rejects it.
+
+This is a segmentation fact rather than a matching one, and it lands *before* anything below: a mark
+that does not reach its body is not a mark. The letter under it is matched bare and the accent is
+matched as a glyph in its own right, which is a different failure from the one #48 set out to
+measure. It is #6's territory, not #48's.
+
+### Separation, measured against each character's own noise
+
+Not against a fixed threshold. #14 is the reason: two renderings of one character sit further apart
+than two different characters do, so a gap only counts when it is wider than the wobble either
+character shows on its own across the survey range. All sixteen pairs, best-case neighbour:
+
+| Candidate | Separates | Typical gap | Typical noise | Ratio |
+| :--- | ---: | ---: | ---: | ---: |
+| A placement | 11 of 16 | 7–28 | 7–14 | ~1–3× |
+| B mark shape | 16 of 16 | 88 cells, 34% of the vector | 56 cells, 21% | **1.6×** |
+| C mark slope | 16 of 16 | 64–135 | 6 | **10–20×** |
+
+Both B and C separate everything. The distance between them is the ratio. B clears its own noise
+floor by a factor of 1.6, which is the margin #14 says is not enough to rely on; C clears it by ten
+to twenty, in one signed byte rather than a second 32-byte vector.
+
+The sign is what does the work, and it does it across three marks rather than two: an acute reads
+about −65, a grave about +67, and a circumflex sits at 0 — *between* them, because it is symmetric
+about its vertical axis and its cross term cancels. Every mark that leans at all holds its sign in
+**100%** of renderings across six sizes and three ink thresholds. Nothing reverses direction between
+Arial and Verdana or Arial and Tahoma; the largest move is 10 points on a ±100 scale.
+
+### The predictions, scored
+
+Three of five, with both misses in the informative direction.
+
+- **B separates, mean gap at least 60 cells.** Right: 88, and 16 of 16.
+- **A separates fewer than 4 of 16.** Wrong: 11. Placement carries more than expected, because a
+  circumflex is a visibly wider box than an acute — it is the acute-against-grave pairs, whose boxes
+  really are near-identical, that A misses.
+- **C separates on sign, at least 14 of 16.** Right: 16, and the circumflex-sits-between mechanism
+  held.
+- **B fails stability — same-mark spread over 60 cells, swamping the gap.** Wrong: 56, which stays
+  under the 88 gap. B holds, but only just, and "only just" is what decides between B and C.
+- **C wins over B.** Right, on the ratio rather than on B failing outright.
+
+### What it says
+
+Carry the mark's slope, not the mark's vector. One signed number, priced against the shape vector
+the way #45 established every term must be, separates all sixteen pairs at a signal-to-noise ratio
+an order of magnitude better than the obvious candidate — and the obvious candidate costs 32 bytes a
+reference entry to do the same job worse.
+
+The measurement is a ceiling, in the same sense `xtask accuracy` is: it is font renders, and the
+reference typeface is the material's own. What it establishes is the necessary condition. Whether it
+pays is a CER question, and answering it needs a fixture carrying accented text in more than the one
+line it has today.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
@@ -601,6 +700,15 @@ its own issue rather than smuggled into a change whose entire claim is that it c
   stable (99%) and portable (1 character in 139), and it separates *none* of the 21 pairs the
   matcher calls ambiguous, because sixteen of those are accent-direction pairs that carry the same
   count by construction. Not built; the harness stays.
+- **Those sixteen pairs have an answer, and it is one byte** — #48, measured before building, see
+  above. The mark's slope separates all sixteen at ten to twenty times its own noise, holds its sign
+  in 100% of renderings, and does not reverse across three typefaces. The mark's own feature vector
+  separates them too, at 1.6 times its noise and 32 bytes an entry, so it is the one that loses.
+- **A mark on a capital never reaches its body in ordinary text** — found while setting the
+  measurement above up, and it belongs to #6 rather than #48. `line_bands` cuts a line at any blank
+  row and the accent on a capital sits above every letter Arial draws, so `À` segments as an `A` and
+  a floating grave. 25 of 51 marks group in a letters-only line against 44 of 51 with a `$` on it.
+  The accuracy fixture has never caught this because its accented text is all lowercase.
 - **A 32×32 grid is not proven** — see above. One instrument makes it 3.6 to 4.7 points better on
   near-miss typefaces, another makes it a one-point wash across four of them with coverage down on
   every one, and the shape vector's own separation statistic slightly worsens. `FEATURE_GRID` stays
