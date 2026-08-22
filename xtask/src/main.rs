@@ -14,6 +14,7 @@ mod accuracy;
 mod fit;
 mod fixture;
 mod separability;
+mod spacing;
 mod stability;
 mod sweep;
 
@@ -186,6 +187,7 @@ fn main() -> anyhow::Result<()> {
         Some("cluster-sweep") => return sweep::run(&args[1..]),
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("separability") => return separability::run(&args[1..]),
+        Some("spacing-margin") => return spacing::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -194,5 +196,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
+    eprintln!("  xtask spacing-margin [font.ttf]...");
     std::process::exit(2);
 }

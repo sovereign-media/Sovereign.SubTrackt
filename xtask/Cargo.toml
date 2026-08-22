@@ -17,6 +17,7 @@ subtrackt-core.workspace = true
 subtrackt.workspace = true
 subtrackt-decode.workspace = true
 subtrackt-glyph.workspace = true
+subtrackt-text.workspace = true
 
 anyhow.workspace = true
 fontdue = "0.9"
