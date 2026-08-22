@@ -106,7 +106,10 @@ over-long input and wrong-length input. Prefer a round trip over a hand-written 
 encoder exists.
 
 Pin surprising behaviour with a named test so the decision is visible rather than accidental —
-8-connectivity fusing characters that touch at a corner, one display set becoming one cue.
+8-connectivity fusing characters that touch at a corner, one display set becoming one cue. The
+first of those is now *recovered* rather than merely pinned (#106), and the pin is what made the
+recovery a bounded change rather than a rewrite: the test said what the behaviour was, so the fix
+had something to be measured against.
 
 ## Accuracy
 

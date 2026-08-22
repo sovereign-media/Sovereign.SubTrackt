@@ -156,8 +156,8 @@ good.** That is not an oversight; see [Shortcomings](#shortcomings).
 
 ```console
 $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt --report
-822 cues from 822 images (1644 packets); glyphs 20419 matched / 105 unmatched
-  / 3896 ambiguous (99.5% read); fit 10.3; cache 100%; corrections 363 (context)
+822 cues from 822 images (1644 packets); glyphs 20598 matched / 16 unmatched
+  / 3896 ambiguous (99.9% read); fit 10.2; cache 100%; defused 87; corrections 363 (context)
 ```
 
 | Flag | Default | Meaning |
@@ -169,6 +169,7 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
 | `--on-unmatched <POLICY>` | `threshold` | What to do about glyphs the matcher cannot identify. See below. |
 | `--min-matched <RATIO>` | `0.90` | With `threshold`, the fraction that must match. Rejected at parse time outside `0.0..=1.0`. |
 | `--report` | off | Print the extraction summary to stderr. |
+| `--defuse` / `--no-defuse` | on | Retry a component the matcher cannot read as two characters that touched. |
 | `--post-correct` / `--no-post-correct` | off | Resolve ambiguous reads from surrounding characters. |
 | `--track-vocabulary` / `--no-track-vocabulary` | off | Also resolve word-edge glyphs from words the same track read clearly. Needs `--post-correct`. |
 | `--vocab-min-occurrences <N>` | library default | How often a word must be read clearly before it counts as evidence. |
@@ -296,6 +297,10 @@ it, and none of them is clever:
 - **`fit` samples rather than reads.** A typeface does not change halfway through a film, so ranking
   candidates touches 400 cues and finishes in about three seconds against a 1.8 GB file instead of
   seventy.
+- **Recovery work is rare enough to be free.** The de-fusing pass of
+  [`error-census.md`](docs/error-census.md) recomputes an image's foreground mask only when
+  something in that image failed to read — about a hundred images in a feature film — so it costs
+  **2.4 seconds on a 1.7 GB rip**, 14.8 to 17.2, for 0.7 points of character error.
 - **Startup is free.** Cold start, process spawn to exit, is **15.8–16.3 ms** — measured on Windows,
   which has the slowest process creation of the platforms here. Against a 22-second extraction, that
   settled the "CLI or `cdylib`" question outright: a caller can spawn one process per track and not
@@ -307,8 +312,8 @@ crates.
 
 ### How accurate it is
 
-On a real Blu-ray, with a fitted reference set: **2.8% character error across all 818 scored cues**,
-at **99.5%** glyph coverage. A reference set chosen to be wrong reads the same track at **61.6%**.
+On a real Blu-ray, with a fitted reference set: **2.1% character error across all 818 scored cues**,
+at **99.9%** glyph coverage. A reference set chosen to be wrong reads the same track at **61.6%**.
 That gap is the entire argument for fitting, and it is why nothing ships embedded.
 
 Scored against the English subtitle shipped beside the rip; [`docs/reference-set.md`](docs/reference-set.md)
@@ -391,7 +396,7 @@ the plan it was meant to confirm.
 | :--- | :--- |
 | [`library-survey.md`](docs/library-survey.md) | 56 titles, 1950s–2020s, 149,604 glyphs. One glyph cluster covers 43 of 56 titles across seventy years, and fits **Arial or very close** — but a fixed set covers only **46%** of glyph instances, and "or very close" was the expensive half of that sentence. |
 | [`glyph-stability.md`](docs/glyph-stability.md) | Why. Two renderings of the *same* character are typically further apart (median 46 cells) than two *different* characters are (median 31). A one-pixel shift in the binarization threshold costs 30 cells — as much as character identity itself. Rendering size and anti-aliasing cost 11 and 8: the axes normalisation was built to absorb, and it absorbs them. |
-| [`error-census.md`](docs/error-census.md) | Where the error actually is, per character, on a real disc. **48.8% of it was the full stop**, which matched nothing at all — a 5x5 component sitting 60 cells from the nearest entry in a set built from the material's own typeface, against a 51-cell ceiling. `l` read as `I` is another 24.4%. Everything else is under 4%. |
+| [`error-census.md`](docs/error-census.md) | Where the error actually is, per character, on a real disc, and what closing each class was worth. Half of it was the full stop and a quarter was two characters touching and fusing into one component nothing could read; between them, fixing those took the disc from 5.5% to **2.1%**. What is left is two thirds `l` read as `I`, which is the pair #10 measured at distance *zero*. |
 | [`reference-rendering.md`](docs/reference-rendering.md) | Why the full stop matched nothing, and the two-line change that halved the disc's error rate. The reference set letterboxed the *rasteriser's* box; the runtime letterboxes a connected component's. They differ by a pixel — 1.5% of an `M`, **15% of a period** — and controls show the box is the whole effect: a second entry at any size or threshold buys nothing unless it changes the box, and buys 2.7 points when it does. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |

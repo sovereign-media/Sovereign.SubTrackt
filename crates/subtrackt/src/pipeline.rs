@@ -11,12 +11,14 @@ use std::path::Path;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_core::{
-    Error, GlyphMatcher, LineMetrics, Rect, Result, Segmenter, SubtitleImage, TextTrack,
+    Error, GlyphMatcher, LineMetrics, MarkSlope, Rect, Result, Segmenter, SubtitleImage, TextTrack,
 };
 use subtrackt_demux::{StreamInfo, SubtitleSource};
 use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
+use subtrackt_glyph::feature;
 use subtrackt_glyph::matcher::HammingMatcher;
 use subtrackt_glyph::reference;
+use subtrackt_glyph::split::{self, SplitRules};
 use subtrackt_text::correct::{ContextCorrector, CorrectionLog, NoopCorrector, PostCorrector};
 use subtrackt_text::layout::SpatialAssembler;
 use subtrackt_text::writer_for;
@@ -311,10 +313,28 @@ impl Pipeline {
         let mut read_cues = Vec::with_capacity(images.len());
         done = 0;
         progress.begin(Phase::Read, Some(total));
-        for (cue, (image, glyphs)) in images.iter().zip(per_image).enumerate() {
+        for (cue, (image, mut glyphs)) in images.iter().zip(per_image).enumerate() {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
                 identified.push(stages.matcher.match_glyph(glyph)?);
+            }
+
+            // Two characters that touched became one component the matcher could not read, and
+            // #106 measured that at 28% of a real disc's remaining errors. Recovering them needs
+            // the answer, so it happens here rather than in the segmenter -- and only when
+            // something actually failed, which is why the mask is recomputed rather than kept for
+            // every image in the film.
+            if self.config.defuse == crate::config::Defusing::On
+                && identified.iter().any(|m| m.character.is_none())
+            {
+                let mask = stages.segmenter.mask(image);
+                let recovered =
+                    defuse(&mask, &glyphs, &identified, stages.matcher, self.config.split)?;
+                if let Some((new_glyphs, new_matches)) = recovered {
+                    glyphs = new_glyphs;
+                    identified = new_matches;
+                    report.defused += 1;
+                }
             }
 
             // Named here rather than counted, because this is the one place a glyph and the answer
@@ -391,6 +411,143 @@ impl Pipeline {
     }
 }
 
+/// Try to read every unmatched component as two characters that touched.
+///
+/// Returns the rebuilt glyph and match lists when at least one component was recovered, and `None`
+/// when nothing changed — so the caller can leave its own vectors alone in the overwhelmingly
+/// common case.
+///
+/// The safety argument is entirely in the acceptance rule, and it is worth restating where the code
+/// is. This runs **only** over components the matcher already returned `unmatched` for, and a cut is
+/// kept **only** if every part matches within the ceiling. So the failure mode is bounded to
+/// unmatched → matched: it cannot turn a match into a wrong answer, which is the direction
+/// `docs/post-correction.md` says a recovery stage has to fail in.
+fn defuse(
+    mask: &BinaryMask,
+    glyphs: &[subtrackt_core::Glyph],
+    answers: &[subtrackt_core::GlyphMatch],
+    matcher: &mut HammingMatcher,
+    rules: SplitRules,
+) -> Result<Option<(Vec<subtrackt_core::Glyph>, Vec<subtrackt_core::GlyphMatch>)>> {
+    let mut out_glyphs = Vec::with_capacity(glyphs.len());
+    let mut out_answers = Vec::with_capacity(answers.len());
+    let mut changed = false;
+
+    for (glyph, answer) in glyphs.iter().zip(answers) {
+        let recovered = if answer.character.is_some() {
+            None
+        } else {
+            recover(mask, glyph, matcher, rules, rules.max_cuts)?
+        };
+        if let Some(parts) = recovered {
+            changed = true;
+            for (part, part_answer) in parts {
+                out_glyphs.push(part);
+                out_answers.push(part_answer);
+            }
+        } else {
+            out_glyphs.push(glyph.clone());
+            out_answers.push(answer.clone());
+        }
+    }
+    Ok(changed.then_some((out_glyphs, out_answers)))
+}
+
+/// Cut one component and read the parts, or give up.
+///
+/// Recursive on the left part only in the sense that `cuts` bounds the total depth: a part that is
+/// itself unreadable gets one more chance to be two characters, which is what a three-character
+/// fusion needs. `docs/error-census.md` found exactly one on the disc.
+fn recover(
+    mask: &BinaryMask,
+    glyph: &subtrackt_core::Glyph,
+    matcher: &mut HammingMatcher,
+    rules: SplitRules,
+    cuts: usize,
+) -> Result<Option<Vec<(subtrackt_core::Glyph, subtrackt_core::GlyphMatch)>>> {
+    if cuts == 0 || !glyph.metrics.known {
+        // An unmeasurable line gives the parts no metrics to be scored against, and the parts are
+        // exactly where the metric term matters most -- an `r` and a `t` differ in height and in
+        // nothing else the shape vector keeps. Refusing is the same choice `LineMetrics::UNKNOWN`
+        // makes everywhere else.
+        return Ok(None);
+    }
+
+    for column in split::cut_columns(mask, glyph.bounds, rules) {
+        let Some((left, right)) = split::parts_at(mask, glyph.bounds, column) else {
+            continue;
+        };
+        let mut parts = Vec::with_capacity(2);
+        let mut all_read = true;
+        for bounds in [left, right] {
+            let Some(part) = part_glyph(mask, glyph, bounds) else {
+                all_read = false;
+                break;
+            };
+            let answer = matcher.match_glyph(&part)?;
+            if answer.character.is_some() {
+                parts.push((part, answer));
+                continue;
+            }
+            // One more cut, for the three-character case. Anything still unread after that fails
+            // the whole cut rather than being kept as a partial recovery: half a fusion read and
+            // half not is a wrong answer with a plausible shape, which is worse than the
+            // placeholder it replaced.
+            if let Some(deeper) = recover(mask, &part, matcher, rules, cuts - 1)? {
+                parts.extend(deeper);
+            } else {
+                all_read = false;
+                break;
+            }
+        }
+        if all_read && parts.len() >= 2 {
+            return Ok(Some(parts));
+        }
+    }
+    Ok(None)
+}
+
+/// One part of a cut component, with metrics rescaled to the same line the parent was measured
+/// against.
+///
+/// The parent carries its height and descent as percentages of its line's cap height, so the cap
+/// height in pixels is recoverable from the pair — and that is the only way to give a part metrics
+/// without carrying the line's anchors down here. Re-measuring the line would be the alternative
+/// and would mean re-running `metrics::measure_all` over a segmentation that no longer matches the
+/// one it produced.
+fn part_glyph(
+    mask: &BinaryMask,
+    parent: &subtrackt_core::Glyph,
+    bounds: Rect,
+) -> Option<subtrackt_core::Glyph> {
+    if parent.metrics.height_percent == 0 {
+        return None;
+    }
+    let cap = i64::from(parent.bounds.height) * 100 / i64::from(parent.metrics.height_percent);
+    if cap <= 0 {
+        return None;
+    }
+    // The baseline, in plane coordinates: the parent's bottom edge less however far it descended.
+    let baseline =
+        i64::from(parent.bounds.bottom()) - i64::from(parent.metrics.descent_percent) * cap / 100;
+    let height = i64::from(bounds.height) * 100 / cap;
+    let descent = (i64::from(bounds.bottom()) - baseline) * 100 / cap;
+
+    Some(subtrackt_core::Glyph {
+        bounds,
+        line: parent.line,
+        features: feature::vectorize(mask, bounds, feature::AspectPolicy::default()).ok()?,
+        metrics: LineMetrics::new(
+            u32::try_from(height).unwrap_or(0),
+            i32::try_from(descent).unwrap_or(0),
+        ),
+        // A part of a fused component has no mark: the fusion is two bodies touching, and anything
+        // `group` had attached as a mark travelled with the whole component. Saying `NONE` is the
+        // honest answer and costs nothing, since the term is off.
+        mark: MarkSlope::NONE,
+    })
+}
+
 /// The stage instances one run is assembled from.
 ///
 /// Grouped rather than passed one by one because they travel together and always will: they are
@@ -415,7 +572,7 @@ impl ImageSegmenter {
     }
 
     /// The foreground mask for an image.
-    fn mask(&self, image: &SubtitleImage) -> BinaryMask {
+    pub(crate) fn mask(&self, image: &SubtitleImage) -> BinaryMask {
         self.binarizer.mask(image)
     }
 
@@ -513,6 +670,7 @@ impl Segmenter for ImageSegmenter {
 mod tests {
     use super::*;
     use subtrackt_core::{IndexedBitmap, Palette, PaletteEntry, Rect, TimeSpan, Timestamp};
+    use subtrackt_glyph::matcher::MatchThresholds;
 
     /// An 8x8 image holding one 4x4 block: big enough to survive the component area filter, and
     /// small enough relative to the image to survive the coverage filter.
@@ -601,5 +759,172 @@ mod tests {
     fn an_unknown_extension_is_refused_before_anything_is_read() {
         let err = Pipeline::list("subtitles.avi").unwrap_err();
         assert!(matches!(err, Error::Demux(_)), "got {err:?}");
+    }
+
+    /// Two 6x10 blocks in a 24x14 image, joined by a two-pixel bridge or not.
+    ///
+    /// `bridged` is the shape a corner touch makes: one connected component that is two characters,
+    /// with **no empty column** between them, because if there were one they would never have been
+    /// labelled together in the first place. Without it the same two characters segment normally,
+    /// which is what the reference set is built from.
+    fn two_blocks(bridged: bool) -> SubtitleImage {
+        let mut palette = Palette::transparent(2);
+        palette.set(1, PaletteEntry { y: 235, cb: 128, cr: 128, alpha: 255 });
+
+        let ink = move |x: u32, y: u32| {
+            let inside = (2..12).contains(&y);
+            let left = (4..10).contains(&x);
+            let right = (12..18).contains(&x);
+            let bridge = bridged && (10..12).contains(&x) && y == 7;
+            (inside && (left || right)) || bridge
+        };
+        let pixels: Vec<u8> = (0..14)
+            .flat_map(|y| (0..24).map(move |x| u8::from(ink(x, y))))
+            .collect();
+
+        SubtitleImage {
+            span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(1_000)),
+            position: Rect::new(0, 0, 24, 14),
+            bitmap: IndexedBitmap::new(24, 14, pixels).unwrap(),
+            palette,
+            forced: false,
+        }
+    }
+
+    fn fused_image() -> SubtitleImage {
+        two_blocks(true)
+    }
+
+    /// The reference set the two blocks produce when they do **not** touch.
+    ///
+    /// Not circular, and worth saying why: this is exactly what `gen-reference` writes — a
+    /// character's vector as the pipeline's own normalisation produces it. The question the test
+    /// asks is whether a *cut* half lands close enough to that to be read, which is the same
+    /// question a real fusion asks.
+    fn block_set() -> subtrackt_glyph::ReferenceSet {
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let glyphs = segmenter.segment(&two_blocks(false)).unwrap();
+        assert_eq!(glyphs.len(), 2, "without a bridge they are two components");
+        subtrackt_glyph::ReferenceSet::new(
+            "blocks",
+            glyphs
+                .iter()
+                .map(|g| subtrackt_glyph::reference::ReferenceEntry {
+                    character: 'x',
+                    style: subtrackt_glyph::reference::Style::Regular,
+                    features: g.features,
+                    metrics: LineMetrics::UNKNOWN,
+                    mark: MarkSlope::NONE,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn two_characters_that_touched_are_read_as_two_rather_than_left_unread() {
+        // The whole of #106 as one assertion. The fused component matches nothing, both halves
+        // match the block, so the pass replaces one unread glyph with two read ones.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (mut glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
+        assert_eq!(glyphs.len(), 1, "the bridge makes it one component");
+        // A line of one glyph has no measurable anchors, and the pass refuses a glyph whose line
+        // could not be measured -- see `recover`. Standing the glyph on a measured line is what a
+        // real cue does; there is nothing else in this image to make one out of.
+        glyphs[0].metrics = LineMetrics::new(100, 0);
+
+        let mut matcher = HammingMatcher::new(block_set(), MatchThresholds::default()).unwrap();
+        let answers: Vec<subtrackt_core::GlyphMatch> = glyphs
+            .iter()
+            .map(|g| matcher.match_glyph(g).unwrap())
+            .collect();
+        assert!(answers[0].character.is_none(), "a fused pair reads as nothing");
+
+        let recovered = defuse(&mask, &glyphs, &answers, &mut matcher, SplitRules::default())
+            .unwrap()
+            .expect("the fusion is recoverable");
+        assert_eq!(recovered.0.len(), 2, "one component became two glyphs");
+        assert!(
+            recovered.1.iter().all(|m| m.character == Some('x')),
+            "and both of them read"
+        );
+        assert!(
+            recovered.0[0].bounds.right() <= recovered.0[1].bounds.x + 1,
+            "in left-to-right order: {:?}",
+            recovered.0
+        );
+    }
+
+    #[test]
+    fn a_component_that_already_read_is_never_cut() {
+        // The safety property, and the reason this pass is allowed to be permissive about *where*
+        // it cuts. It never sees a glyph the matcher answered, so it cannot turn a match into a
+        // wrong answer however wrong a cut would have been.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
+        let answers = vec![subtrackt_core::GlyphMatch {
+            character: Some('q'),
+            distance: 0,
+            runner_up_distance: 99,
+        }];
+        let mut matcher = HammingMatcher::new(block_set(), MatchThresholds::default()).unwrap();
+        assert_eq!(
+            defuse(&mask, &glyphs, &answers, &mut matcher, SplitRules::default()).unwrap(),
+            None,
+            "nothing was unread, so nothing is proposed"
+        );
+    }
+
+    #[test]
+    fn a_cut_whose_parts_do_not_both_read_is_refused_outright() {
+        // Half a fusion read and half not is a wrong answer with a plausible shape, which is worse
+        // than the placeholder it would replace. An empty reference set makes every part unread, so
+        // every candidate cut has to be rejected and the glyph left exactly as it was.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
+        let mut matcher = HammingMatcher::new(
+            subtrackt_glyph::ReferenceSet::new("empty", Vec::new()),
+            MatchThresholds::default(),
+        )
+        .unwrap();
+        let answers: Vec<subtrackt_core::GlyphMatch> = glyphs
+            .iter()
+            .map(|g| matcher.match_glyph(g).unwrap())
+            .collect();
+        assert_eq!(
+            defuse(&mask, &glyphs, &answers, &mut matcher, SplitRules::default()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_part_is_measured_against_the_same_line_its_parent_was() {
+        // The parts have to carry line metrics or the matcher scores them on shape alone -- and an
+        // `r` against a `t` differs in height and in little else the shape vector keeps. The cap
+        // height is recovered from the parent's own pair, so a part half the parent's height
+        // reports half the height percentage.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
+        let mut parent = glyphs[0].clone();
+        parent.metrics = LineMetrics::new(100, 0);
+
+        let half = Rect::new(parent.bounds.x, parent.bounds.y, parent.bounds.width, 5);
+        let part = part_glyph(&mask, &parent, half).expect("the box has ink");
+        assert_eq!(part.metrics.height_percent, 50, "half the cap height");
+        assert!(part.metrics.known, "and measured rather than fabricated");
+    }
+
+    #[test]
+    fn a_part_of_a_glyph_on_an_unmeasurable_line_is_refused() {
+        // `LineMetrics::UNKNOWN` carries no cap height, so there is nothing to scale a part
+        // against. Inventing one would be exactly the fabrication `LineMetrics` exists to refuse.
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
+        let mut matcher = HammingMatcher::new(block_set(), MatchThresholds::default()).unwrap();
+        let mut glyph = glyphs[0].clone();
+        glyph.metrics = LineMetrics::UNKNOWN;
+        assert_eq!(
+            recover(&mask, &glyph, &mut matcher, SplitRules::default(), 2).unwrap(),
+            None
+        );
     }
 }

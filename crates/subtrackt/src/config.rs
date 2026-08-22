@@ -4,6 +4,7 @@ use subtrackt_core::{Confidence, SubtitleFormat};
 use subtrackt_glyph::binarize::Threshold;
 use subtrackt_glyph::cluster::ClusterRules;
 use subtrackt_glyph::matcher::MatchThresholds;
+use subtrackt_glyph::split::SplitRules;
 use subtrackt_text::correct::VocabularyRules;
 use subtrackt_text::layout::LayoutRules;
 
@@ -107,6 +108,30 @@ impl UnmatchedPolicy {
 /// The bool count is what a configuration is. Each one is an independent switch a caller sets on
 /// its own — `grey_coverage` is a vectoriser decision, `post_correct` a text-stage one,
 /// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
+/// Whether an unreadable component is retried as two characters that touched.
+///
+/// #106. 8-connected labelling fuses characters that touch at a corner — an `r`'s arm reaches over
+/// the letter after it — and [`ccl`](subtrackt_glyph::ccl) pins that as accepted behaviour with no
+/// pass anywhere in the tree that undoes it. `docs/error-census.md` measures the cost on a real
+/// Blu-ray at **28% of its remaining errors**, second only to `l` read as `I`.
+///
+/// An enum rather than a `bool` so that **on** can be the default while [`Config`] keeps its
+/// derived one, and so a caller reads `Defusing::Off` rather than `defuse: false` at the call site.
+///
+/// On by default, which is unusual for a recovery stage here and is earned by the acceptance rule
+/// rather than by the size of the gain. It fires only where the matcher already returned
+/// `unmatched`, and it keeps a cut only if **every** part matches within the ceiling — so it can
+/// move a glyph from unread to read and can never turn a match into a wrong answer. That is the
+/// direction `docs/post-correction.md` requires a recovery stage to fail in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Defusing {
+    /// Cut an unreadable component and keep the cut if every part reads.
+    #[default]
+    On,
+    /// Leave it unread.
+    Off,
+}
+
 /// combinations that do not exist and hide the ones that do.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -124,6 +149,10 @@ pub struct Config {
     /// `docs/glyph-stability.md` showed the threshold's *placement* was not the cause. This is the
     /// alternative: keep the anti-aliasing ramp as a magnitude all the way into the vector.
     pub grey_coverage: bool,
+    /// Whether a component the matcher cannot read is retried as two characters that touched.
+    pub defuse: Defusing,
+    /// How a component is offered up for cutting when [`Config::defuse`] is [`Defusing::On`].
+    pub split: SplitRules,
     /// Glyph matching thresholds.
     pub matching: MatchThresholds,
     /// How the stream's own shapes are grouped before any is matched.
