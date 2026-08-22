@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use fontdue::{Font, FontSettings};
+use subtrackt_core::{Palette, PaletteEntry};
 use subtrackt_decode::pgs::rle;
 
 /// Palette indices, matching how subtitles are conventionally authored.
@@ -26,7 +27,7 @@ const FILL: u8 = 1;
 const OUTLINE: u8 = 2;
 
 /// Coverage above which a rasterised pixel is glyph fill.
-const FILL_INK: u8 = 160;
+pub(crate) const FILL_INK: u8 = 160;
 /// Coverage above which a pixel is at least outline; below it the pixel is background.
 const OUTLINE_INK: u8 = 24;
 
@@ -34,14 +35,14 @@ const OUTLINE_INK: u8 = 24;
 const MARGIN: u32 = 8;
 
 /// A rendered line of text as a palette-indexed bitmap.
-struct Rendered {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
+pub(crate) struct Rendered {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) pixels: Vec<u8>,
 }
 
 /// Draw one line of text, imitating a real subtitle: anti-aliased fill inside a dark outline.
-fn render_line(font: &Font, text: &str, px: f32) -> anyhow::Result<Rendered> {
+pub(crate) fn render_line(font: &Font, text: &str, px: f32) -> anyhow::Result<Rendered> {
     // Lay the glyphs out first so the canvas can be sized to them.
     let mut placed = Vec::new();
     let mut pen = 0i32;
@@ -189,6 +190,19 @@ fn palette() -> Vec<u8> {
     b.extend_from_slice(&[FILL, 235, 128, 128, 255]);
     b.extend_from_slice(&[OUTLINE, 16, 128, 128, 255]);
     b
+}
+
+/// The same palette [`palette`] encodes, as the core type.
+///
+/// One source for both, so a caller that wants to binarize a rendering without going through a
+/// `.sup` cannot end up measuring a different palette than the fixture ships. #99 is that caller:
+/// its whole question is whether the reference side and the material side agree, and a second copy
+/// of these numbers would be a way for the answer to be wrong for a reason nobody was measuring.
+pub(crate) fn core_palette() -> Palette {
+    let mut entries = vec![PaletteEntry::default(); 3];
+    entries[FILL as usize] = PaletteEntry { y: 235, cb: 128, cr: 128, alpha: 255 };
+    entries[OUTLINE as usize] = PaletteEntry { y: 16, cb: 128, cr: 128, alpha: 255 };
+    Palette::new(entries)
 }
 
 /// Object id used throughout; the composition and the definition must agree on it.

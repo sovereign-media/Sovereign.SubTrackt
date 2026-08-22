@@ -16,6 +16,8 @@ mod fixture;
 mod fontid;
 mod mark;
 mod pairs;
+mod refmatch;
+mod rendersweep;
 mod select;
 mod separability;
 mod spacing;
@@ -26,8 +28,38 @@ mod unread;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
-use subtrackt_glyph::font::{Face, generate};
+use subtrackt_glyph::font::{Crop, Face, Rendering, generate_under};
 use subtrackt_glyph::reference::Style;
+
+/// Parse `--renderings 21:160,50:160` into a rendering list.
+///
+/// xtask only, and deliberately not on the shipped CLI. #99 chose `font::RENDERINGS` by sweeping
+/// candidates against a real disc, and that sweep needs to generate sets the tool would never write
+/// — including the pre-#99 rendering, spelled `96:128:raster`. A user has no such question; a user
+/// wants the set the measurement chose.
+fn parse_renderings(spec: &str) -> anyhow::Result<Vec<Rendering>> {
+    spec.split(',')
+        .map(|item| {
+            let mut parts = item.split(':');
+            let px: f32 = parts
+                .next()
+                .context("a rendering needs a size")?
+                .trim()
+                .parse()
+                .with_context(|| format!("{item:?} is not px[:ink[:raster|ink]]"))?;
+            let ink: u8 = match parts.next() {
+                Some(value) => value.trim().parse()?,
+                None => 160,
+            };
+            let crop = match parts.next() {
+                Some("raster") => Crop::Raster,
+                Some("ink") | None => Crop::Ink,
+                Some(other) => anyhow::bail!("unknown crop {other:?}; use `raster` or `ink`"),
+            };
+            Ok(Rendering { px, ink, crop })
+        })
+        .collect()
+}
 
 // Re-exported so the benches keep spelling these `crate::charset()` and `crate::RENDER_PX`.
 // They are the same items the CLI uses; there is no second copy to keep in step.
@@ -71,7 +103,11 @@ fn gen_reference(args: &[String]) -> anyhow::Result<()> {
         .map(|(_, style, bytes)| Face { bytes, style: *style })
         .collect();
 
-    let generated = generate(name, &faces, grey)
+    let renderings = match args.iter().position(|a| a == "--renderings") {
+        Some(at) => parse_renderings(args.get(at + 1).context("--renderings needs a value")?)?,
+        None => subtrackt_glyph::font::RENDERINGS.to_vec(),
+    };
+    let generated = generate_under(name, &faces, grey, &renderings)
         .with_context(|| format!("generating a reference set from {font_path}"))?;
     for style in &generated.without_cap_height {
         eprintln!(
@@ -105,6 +141,8 @@ fn main() -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("gen-reference") => return gen_reference(&args[1..]),
         Some("measure-stability") => return stability::measure(&args[1..]),
+        Some("reference-render") => return refmatch::run(&args[1..]),
+        Some("render-sweep") => return rendersweep::run(&args[1..]),
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
         Some("reference-fit") => return fit::run(&args[1..]),
@@ -122,9 +160,11 @@ fn main() -> anyhow::Result<()> {
     }
     eprintln!("usage:");
     eprintln!(
-        "  xtask gen-reference <font.ttf> <out.subtref> [--name NAME] [--italic F] [--bold F]"
+        "  xtask gen-reference <font.ttf> <out.subtref> [--name NAME] [--italic F] [--bold F] [--renderings px:ink:crop,...]"
     );
     eprintln!("  xtask measure-stability <regular.ttf> [bold] [italic] [bold-italic]");
+    eprintln!("  xtask reference-render [font.ttf]");
+    eprintln!("  xtask render-sweep [font.ttf]");
     eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
