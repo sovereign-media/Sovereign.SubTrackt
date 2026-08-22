@@ -283,6 +283,32 @@ Refusing it would throw away a clean extraction to satisfy a definition. **What 
 detect is a bad read, not an absent typeface** — and what is measured above is that mean distance
 cannot detect one.
 
+## Fitted against deliberately wrong, end to end
+
+The comparison #62 asks for, run through `subtrackt fit` itself rather than by picking the answer by
+hand. Same disc, same pipeline, post-correction on; the only variable is which set was used.
+
+```console
+$ subtrackt fit '10 Cloverfield Lane (2016).mkv' --references ./sets
+  arial-ri                     12.5      96.5%
+  arial                        13.6      95.6%
+  tahoma                       20.8      93.0%
+```
+
+| reference set | read | upright | italic | **all** |
+| :--- | ---: | ---: | ---: | ---: |
+| **what `fit` chose** (arial + italic) | 96.2% | 5.5% | 4.4% | **5.5%** |
+| chosen to be wrong (times) | 73.4% | 61.1% | 68.7% | **61.6%** |
+
+**Eleven-fold.** That gap is the entire argument for fitting, and it is why the tool ships with
+nothing embedded: a set that is merely *plausible* lands somewhere in between and says nothing about
+which.
+
+Worth noting what the fitter did without being told: the candidate directory held both `arial` and
+`arial-ri`, and it preferred the combined set — 12.5 against 13.6 — because reading the italic act
+properly is worth a cell of mean distance across the track. The style work of #66 pays here without
+anything in `fit` knowing that styles exist.
+
 ## Carrying two cuts of a typeface in one set
 
 #66. The disc above reads its upright dialogue at 7.1% and its 43-cue italic act at 35.7%; an

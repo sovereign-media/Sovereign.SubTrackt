@@ -22,9 +22,9 @@ $ subtrackt fit '10 Cloverfield Lane (2016).mkv' --references ./sets -o clover.s
 400 cues, 10195 glyphs, 134 distinct shapes
 
   reference set               score       read
+  arial-ri                     12.5      96.5%
   arial                        13.6      95.6%
   tahoma                       20.8      93.0%
-  trebuc                       22.3      94.0%
 
   score is mean distance per glyph, charging unread glyphs the 51-cell ceiling.
   Lower fits better. Nothing here checks whether the winner is good enough --
