@@ -113,7 +113,10 @@ jobs:
           # Binary size is an acceptance criterion of #16, so each build states its own rather than
           # leaving it to be read off the release page later.
           ls -l "dist/${name}"
-          ( cd dist && sha256sum "${name}" > "${name}.sha256" )
+          # -b so every line is written in binary mode. Without it the Windows and Linux
+          # runners disagree on the separator (`*name` against two spaces) and SHA256SUMS comes
+          # out looking like two files stapled together, though both forms verify.
+          ( cd dist && sha256sum -b "${name}" > "${name}.sha256" )
 
       - uses: actions/upload-artifact@v4
         with:

@@ -129,9 +129,16 @@ Tagged releases carry a self-contained binary for Linux and Windows, x86-64 and 
 glibc version to match and no runtime to install — the artifact is the whole dependency.
 
 ```console
-$ curl -LO https://github.com/sovereign-media/Sovereign.SubTrackt/releases/latest/download/subtrackt-v0.1.0-x86_64-unknown-linux-musl
-$ chmod +x subtrackt-*-x86_64-unknown-linux-musl && mv subtrackt-*-x86_64-unknown-linux-musl subtrackt
+$ tag=v0.0.1-alpha
+$ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
+$ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
+$ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
+$ install -m 755 subtrackt-$tag-x86_64-unknown-linux-musl /usr/local/bin/subtrackt
 ```
+
+The tag is named rather than resolved through `/releases/latest/`, because that path skips
+pre-releases and every tag so far is one — and because the asset filename carries the version, so a
+`latest` URL would have to guess it.
 
 It ships with no reference sets, and the reasoning is in
 [`docs/reference-set.md`](docs/reference-set.md): a shipped set trades a detectable failure for an
