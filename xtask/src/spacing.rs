@@ -23,7 +23,7 @@
 //! from one direction — if it fails here it would certainly fail on real media — and #49 stays open
 //! for the corpus run.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use fontdue::{Font, FontSettings};
@@ -84,6 +84,8 @@ struct Line {
     cluster: u32,
     /// Whether the shipped rule, both tests included, would place spaces here.
     fires: bool,
+    /// How many glyphs stood on the line.
+    glyphs: usize,
 }
 
 impl Line {
@@ -173,6 +175,7 @@ fn measure(font: &Font, name: &str, px: f32, texts: &[&str]) -> anyhow::Result<V
             width,
             cluster,
             fires: split_threshold(&gaps, width, rules).is_some(),
+            glyphs: boxes.len(),
         });
     }
     Ok(out)
@@ -197,15 +200,174 @@ fn spread(label: &str, values: &mut [u32]) {
     );
 }
 
+/// Measure the lines of a real subtitle track rather than a generated one.
+///
+/// The half of #49 that generated text cannot supply, and the half that turned out to matter. There
+/// is no ground truth here — nobody has transcribed the film — but the question is distributional
+/// rather than about correctness: where does the cut sit relative to a glyph, and how much would
+/// move if the threshold moved. Real dialogue supplies both populations by itself, since it is full
+/// of single-word lines in a way a fixture is not.
+///
+/// A reference set is built from a font so the text is legible enough to eyeball where the spaces
+/// landed. It will be a near miss for whatever the disc was authored in — that is #43's problem and
+/// not this one's, and it does not touch the geometry these numbers come from.
+fn media(path: &Path, font: &Path) -> anyhow::Result<()> {
+    let dir = std::env::temp_dir().join("subtrackt-spacing-margin");
+    std::fs::create_dir_all(&dir)?;
+    let reference_path = dir.join("reference.subtref");
+    crate::gen_reference(&[
+        font.display().to_string(),
+        reference_path.display().to_string(),
+        "--name".to_owned(),
+        "spacing-margin".to_owned(),
+    ])?;
+    let reference = subtrackt_glyph::ReferenceSet::decode(&std::fs::read(&reference_path)?)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
+    let survey = Pipeline::new(config)
+        .with_reference(reference.clone())
+        .survey(path, None)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let rules = LayoutRules::default();
+    let mut keys: Vec<(usize, usize)> = survey.glyphs.iter().map(|g| (g.cue, g.line)).collect();
+    keys.sort_unstable();
+    keys.dedup();
+
+    let mut measured: Vec<Line> = Vec::new();
+    for (cue, line) in keys {
+        let mut boxes: Vec<_> = survey
+            .glyphs
+            .iter()
+            .filter(|g| g.cue == cue && g.line == line)
+            .map(|g| g.bounds)
+            .collect();
+        if boxes.len() < 3 {
+            continue;
+        }
+        boxes.sort_by_key(|b| b.x);
+        let gaps: Vec<u32> = boxes
+            .windows(2)
+            .map(|pair| pair[1].x.saturating_sub(pair[0].right()))
+            .collect();
+        let mut widths: Vec<u32> = boxes.iter().map(|b| b.width).collect();
+        widths.sort_unstable();
+        let width = widths[widths.len() / 2];
+        let mut sorted = gaps.clone();
+        sorted.sort_unstable();
+        let Some((cut, cluster)) = widest_jump(&sorted) else {
+            continue;
+        };
+        measured.push(Line {
+            text: format!("cue {cue} line {line}"),
+            has_break: false,
+            cut,
+            width,
+            cluster,
+            fires: split_threshold(&gaps, width, rules).is_some(),
+            glyphs: boxes.len(),
+        });
+    }
+
+    report_media(path, &measured, survey.cues, survey.glyphs.len());
+
+    let outcome = Pipeline::new(config)
+        .with_reference(reference)
+        .run(path)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!("  first cues as extracted, to see where the spaces landed:");
+    for cue in outcome.track.cues.iter().take(10) {
+        for line in &cue.lines {
+            println!("    {line}");
+        }
+    }
+    Ok(())
+}
+
+/// Print what a real track's lines say about the two thresholds.
+fn report_media(path: &Path, measured: &[Line], cues: usize, glyphs: usize) {
+    let rules = LayoutRules::default();
+    println!();
+    println!("--- {} ---", path.display());
+    println!("  {cues} cues, {glyphs} glyphs, {} lines measurable", measured.len());
+
+    let mut ratios: Vec<u32> = measured.iter().map(Line::width_ratio).collect();
+    spread("  cut / glyph width", &mut ratios);
+    let mut cluster_ratios: Vec<u32> = measured.iter().map(Line::cluster_ratio).collect();
+    spread("  cut / low cluster", &mut cluster_ratios);
+
+    println!("  distribution of cut / glyph width, in bands of ten:");
+    for band in 0..14u32 {
+        let (low, high) = (band * 10, band * 10 + 9);
+        let count = ratios.iter().filter(|r| **r >= low && **r <= high).count();
+        if count > 0 {
+            let bar: String =
+                std::iter::repeat_n('#', (count * 60 / measured.len().max(1)).max(1)).collect();
+            println!("    {low:>3}-{high:<3} {count:>5}  {bar}");
+        }
+    }
+
+    let fires = measured.iter().filter(|l| l.fires).count();
+    println!(
+        "  the rule places spaces on {fires} lines and declines {}",
+        measured.len() - fires
+    );
+
+    let disagree = measured
+        .iter()
+        .filter(|l| {
+            let by_width = l.width_ratio() >= rules.split_min_width_percent;
+            let by_cluster = l.cluster_ratio() >= rules.split_min_cluster_percent;
+            by_width != by_cluster
+        })
+        .count();
+    println!("  lines where the two tests disagree: {disagree}");
+
+    // A declined line is the right answer for a one-word cue and the wrong one for a whole
+    // sentence. Length is the cheap proxy: single words rarely run to fifteen glyphs, so a long
+    // declined line is a run-together failure rather than a word left intact.
+    let (short, long): (Vec<_>, Vec<_>) = measured
+        .iter()
+        .filter(|l| !l.fires)
+        .partition(|l| l.glyphs < 15);
+    println!(
+        "  of {} declined, {} are short enough to be one word and {} long enough to be a miss",
+        short.len() + long.len(),
+        short.len(),
+        long.len()
+    );
+
+    println!("  how many lines change answer if the width floor moves:");
+    for floor in [30, 40, 50, 60, 70, 80] {
+        let would = measured
+            .iter()
+            .filter(|l| {
+                l.width_ratio() >= floor && l.cluster_ratio() >= rules.split_min_cluster_percent
+            })
+            .count();
+        let mark = if floor == rules.split_min_width_percent {
+            "  <- shipped"
+        } else {
+            ""
+        };
+        println!("    {floor:>3}   {would:>5} lines get spaces{mark}");
+    }
+}
+
 /// Run the margin check.
 ///
 /// # Errors
 /// Fails if no usable font can be found, or if a fixture cannot be built or read back.
 pub fn run(args: &[String]) -> anyhow::Result<()> {
+    // The value after `--media` is a path, not a font; excluding it keeps the positional arguments
+    // meaning one thing.
+    let media_at = args.iter().position(|a| a == "--media").map(|at| at + 1);
     let mut fonts: Vec<PathBuf> = args
         .iter()
-        .filter(|a| !a.starts_with("--"))
-        .map(PathBuf::from)
+        .enumerate()
+        .filter(|(index, a)| !a.starts_with("--") && Some(*index) != media_at)
+        .map(|(_, a)| PathBuf::from(a))
         .collect();
     if fonts.is_empty() {
         fonts = [
@@ -222,6 +384,16 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     }
     if fonts.is_empty() {
         fonts = vec![crate::accuracy::find_font(None).context("no font found")?];
+    }
+
+    if let Some(at) = args.iter().position(|a| a == "--media") {
+        let media_path = args.get(at + 1).context("--media needs a path")?;
+        let font = fonts
+            .first()
+            .cloned()
+            .or_else(|| crate::accuracy::find_font(None))
+            .context("no font found to build a reference set from")?;
+        return media(Path::new(media_path), &font);
     }
 
     let mut lines = Vec::new();
