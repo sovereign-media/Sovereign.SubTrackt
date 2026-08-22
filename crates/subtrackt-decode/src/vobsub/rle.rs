@@ -67,7 +67,7 @@ impl<'a> Nibbles<'a> {
 
     fn next_nibble(&mut self) -> Option<u8> {
         let byte = *self.data.get(self.at / 2)?;
-        let value = if self.at % 2 == 0 {
+        let value = if self.at.is_multiple_of(2) {
             byte >> 4
         } else {
             byte & 0x0F

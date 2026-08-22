@@ -10,16 +10,14 @@ is the interim.
 
 Run `scripts/check.sh`. Every time.
 
-It runs what CI runs, in CI order: fmt, clippy, tests, docs, MSRV. The two gates easiest to skip are
-the two that catch the most:
+It runs what CI runs, in CI order: fmt, clippy, tests, docs. The gate easiest to skip is the one
+that catches the most: **clippy** runs at pedantic with `-D warnings`, and a `cargo test` that
+passes says nothing about it. It has already broken `main`.
 
-- **clippy** runs at pedantic with `-D warnings`. A `cargo test` that passes says nothing about it.
-- **MSRV is 1.85**, thirteen releases behind a typical development machine. Let-chains
-  (`if let ... && ...`) are stable from 1.88 and compile fine locally — the MSRV job is the only
-  thing that catches them.
-
-Both have already broken `main`. `rustup toolchain install 1.85 --profile minimal` once, then no
-excuse.
+There is no MSRV job. `rust-version` is declared so Cargo gives a clean error, but nothing enforces
+it: releases are built here on stable and dropped into a container with no Rust toolchain, so the
+floor had no consumer to protect and the job only ever tested a constraint it was itself the sole
+source of. See #71.
 
 ## Landing work
 

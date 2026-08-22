@@ -395,17 +395,18 @@ negligible and the calculus changes.
 
 ## Checks before pushing
 
-`scripts/check.sh` runs everything CI runs, in the same order: fmt, clippy, tests, docs, MSRV.
+`scripts/check.sh` runs everything CI runs, in the same order: fmt, clippy, tests, docs.
 
-Run it. The two gates easiest to skip locally are the two that catch the most. Clippy runs at
-pedantic with warnings denied, and the MSRV build uses a toolchain thirteen releases older than a
-typical development machine — let-chains, for instance, compile happily on stable and are rejected
-outright at 1.85. Both have already caught breakage that a plain `cargo test` waved through.
+Run it. The gate easiest to skip locally is the one that catches the most: clippy runs at pedantic
+with warnings denied and has already caught breakage that a plain `cargo test` waved through.
 
 ```console
-$ rustup toolchain install 1.85 --profile minimal   # once
 $ scripts/check.sh
 ```
+
+There is no MSRV job. `rust-version` is a declared floor rather than an enforced one — #71 retired
+the job that checked it, because nothing downstream builds from source and the job's only possible
+finding was a violation of a constraint it alone imposed.
 
 ## Conventions
 

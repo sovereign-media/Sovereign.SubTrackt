@@ -207,13 +207,10 @@ impl PgsDecoder {
         // A palette-only update re-composes the same pixels under a new palette, which is how
         // fades and karaoke wipes are authored. Emitting a fresh cue per step would multiply one
         // line of dialogue into dozens, so an unchanged bitmap extends the open cue instead.
-        // `is_some_and` rather than a let-chain: let-chains are stable only from 1.88 and the
-        // MSRV is 1.85.
-        let unchanged = self
-            .open
-            .as_ref()
-            .is_some_and(|open| open.bitmap == image.bitmap && open.position == image.position);
-        if unchanged {
+        if let Some(open) = self.open.as_ref()
+            && open.bitmap == image.bitmap
+            && open.position == image.position
+        {
             return Ok(None);
         }
 

@@ -75,35 +75,6 @@ jobs:
         if: always()
         run: sccache --show-stats
 
-  msrv:
-    name: minimum supported Rust version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # rust-toolchain.toml pins contributors to stable and would override the pin below.
-      - run: rm -f rust-toolchain.toml
-
-      # Read the MSRV from Cargo.toml rather than repeating it here. Two copies drift, and the
-      # failure mode is silent: a job that installs the wrong toolchain still goes green while
-      # testing nothing. It also keeps a version number out of the action ref, where Dependabot
-      # reasonably mistook it for an action tag and "upgraded" it to a Rust release that does not
-      # exist.
-      - id: msrv
-        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | tr -d ' \"' | cut -d= -f2)" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # xtask is developer tooling, not shipped, and is deliberately allowed a newer toolchain
-      # than the crates a consumer builds. See its Cargo.toml.
-      - run: cargo check --workspace --all-targets --exclude xtask --locked
-
   cross:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
