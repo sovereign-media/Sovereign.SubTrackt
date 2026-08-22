@@ -21,6 +21,7 @@ mod separability;
 mod spacing;
 mod stability;
 mod sweep;
+mod unread;
 
 use std::path::PathBuf;
 
@@ -116,6 +117,7 @@ fn main() -> anyhow::Result<()> {
         Some("set-pairs") => return pairs::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
+        Some("unread") => return unread::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -132,5 +134,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
+    eprintln!("  xtask unread <media> <reference.subtref>");
     std::process::exit(2);
 }

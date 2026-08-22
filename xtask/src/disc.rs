@@ -233,6 +233,7 @@ fn score(got_path: &str, want_path: &str) -> anyhow::Result<()> {
     let (pairs, unpaired) = pair(&got, &want);
 
     let (mut upright, mut italic) = (Tally::default(), Tally::default());
+    let mut census = Census::new();
     for p in &pairs {
         let tally = if p.want.italic {
             &mut italic
@@ -240,6 +241,7 @@ fn score(got_path: &str, want_path: &str) -> anyhow::Result<()> {
             &mut upright
         };
         tally.add(&p.got.text, &p.want.text);
+        census.add(&p.got.text, &p.want.text, p.want.italic);
     }
     let mut all = upright;
     all.merge(italic);
@@ -262,6 +264,7 @@ fn score(got_path: &str, want_path: &str) -> anyhow::Result<()> {
             tally.raw_cer()
         );
     }
+    census.print();
     Ok(())
 }
 
@@ -347,6 +350,245 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     score(got, want)
 }
 
+/// What the pipeline writes where a glyph matched nothing.
+///
+/// Named so the census can report it as `unread` rather than as a lozenge nobody can search for.
+/// It is the same character `UnmatchedPolicy::Placeholder` emits.
+const REPLACEMENT: char = '\u{FFFD}';
+
+/// One edit operation in an alignment, named from the release's point of view.
+///
+/// The direction decides what each bucket means, so it is worth stating. `want` is the release
+/// subtitle and `got` is what this pipeline read, so:
+///
+/// - a **substitution** is a character the release has and the extraction read as something else;
+/// - an **insertion** is a character the extraction produced that the release does not have — a
+///   shattered glyph read as two characters, or a space put where no space belongs;
+/// - a **deletion** is a character the release has that the extraction never produced — two
+///   characters fused into one component, or a word space that was never split.
+///
+/// #98 predicted these two directional buckets the other way round, filing a missed word space
+/// under insertions. It is a deletion: a space the extraction failed to emit is a release character
+/// with no counterpart. The buckets are labelled by what they are rather than by the prediction,
+/// and the prediction is scored against the labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Op {
+    /// The release had the first character; the extraction read the second.
+    Substitute(char, char),
+    /// The extraction produced a character the release does not have.
+    Insert(char),
+    /// The release has a character the extraction never produced.
+    Delete(char),
+}
+
+/// Align two strings, returning the edit operations that turn `want` into `got`.
+///
+/// A second pass rather than a widening of [`edit`]. #98 named both options and this is the safer
+/// one: the score keeps its rolling row, so nothing about the census can move a CER figure by
+/// changing how a distance is computed. The cost is one full matrix per cue, and a cue is tens of
+/// characters.
+///
+/// `a_census_accounts_for_exactly_the_errors_the_score_counted` is what makes the two provably
+/// agree — the operation count returned here equals the distance [`edit`] reports on the same
+/// input, which is the only guarantee that a census row corresponds to a scored error.
+fn align(want: &str, got: &str) -> Vec<Op> {
+    let want: Vec<char> = want.chars().collect();
+    let got: Vec<char> = got.chars().collect();
+
+    // The full matrix, because a traceback needs every row: `cost[i][j]` is the distance between
+    // the first `i` characters of the release and the first `j` of the extraction.
+    let mut cost = vec![vec![0usize; got.len() + 1]; want.len() + 1];
+    for (i, row) in cost.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in cost[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=want.len() {
+        for j in 1..=got.len() {
+            let substitution = cost[i - 1][j - 1] + usize::from(want[i - 1] != got[j - 1]);
+            let deletion = cost[i - 1][j] + 1;
+            let insertion = cost[i][j - 1] + 1;
+            cost[i][j] = substitution.min(deletion).min(insertion);
+        }
+    }
+
+    // Walk back from the corner, breaking ties towards the diagonal. A run of characters read
+    // wrongly is then counted as substitutions rather than as an insertion and a deletion that
+    // happen to cost the same, which is the reading a confusion table exists to give.
+    let (mut i, mut j) = (want.len(), got.len());
+    let mut ops = Vec::new();
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 {
+            let step = usize::from(want[i - 1] != got[j - 1]);
+            if cost[i][j] == cost[i - 1][j - 1] + step {
+                if step == 1 {
+                    ops.push(Op::Substitute(want[i - 1], got[j - 1]));
+                }
+                i -= 1;
+                j -= 1;
+                continue;
+            }
+        }
+        if i > 0 && cost[i][j] == cost[i - 1][j] + 1 {
+            ops.push(Op::Delete(want[i - 1]));
+            i -= 1;
+            continue;
+        }
+        ops.push(Op::Insert(got[j - 1]));
+        j -= 1;
+    }
+    ops.reverse();
+    ops
+}
+
+/// Counts for one bucket, split into the two populations the existing output splits by.
+///
+/// A `Vec` of pairs rather than a map. The alphabet a subtitle uses is small, and every table here
+/// is printed in rank order, so a hash map would need an ordering pass before printing anyway.
+struct Counter<K> {
+    /// Column 0 is upright, column 1 italic.
+    counts: Vec<(K, [usize; 2])>,
+}
+
+impl<K: PartialEq + Clone> Counter<K> {
+    const fn new() -> Self {
+        Self { counts: Vec::new() }
+    }
+
+    fn add(&mut self, key: &K, italic: bool) {
+        let column = usize::from(italic);
+        if let Some((_, counts)) = self.counts.iter_mut().find(|(k, _)| k == key) {
+            counts[column] += 1;
+            return;
+        }
+        let mut counts = [0usize; 2];
+        counts[column] = 1;
+        self.counts.push((key.clone(), counts));
+    }
+
+    /// The entries, most frequent first.
+    fn ranked(&self) -> Vec<(K, [usize; 2])> {
+        let mut ranked = self.counts.clone();
+        ranked.sort_by_key(|(_, c)| std::cmp::Reverse(c[0] + c[1]));
+        ranked
+    }
+
+    /// Column totals.
+    fn totals(&self) -> [usize; 2] {
+        self.counts
+            .iter()
+            .fold([0, 0], |acc, (_, c)| [acc[0] + c[0], acc[1] + c[1]])
+    }
+}
+
+/// Every confusion the alignment saw, split upright from italic.
+struct Census {
+    substitutions: Counter<(char, char)>,
+    insertions: Counter<char>,
+    deletions: Counter<char>,
+}
+
+/// Rows printed per table before the remainder is summarised.
+///
+/// The remainder is *stated* rather than dropped silently: a table that stops at twenty rows with
+/// no tail line reads as a complete census, which is the kind of quiet truncation #98 exists to
+/// replace.
+const ROWS: usize = 20;
+
+impl Census {
+    const fn new() -> Self {
+        Self {
+            substitutions: Counter::new(),
+            insertions: Counter::new(),
+            deletions: Counter::new(),
+        }
+    }
+
+    /// Record one cue's worth of operations.
+    ///
+    /// Scored on the flattened text, for the same reason the quoted CER is: the two releases wrap
+    /// their lines differently, and a line break in a different place would otherwise dominate
+    /// every bucket with operations on a newline.
+    fn add(&mut self, got: &str, want: &str, italic: bool) {
+        for op in align(&flatten(want), &flatten(got)) {
+            match op {
+                Op::Substitute(want, got) => self.substitutions.add(&(want, got), italic),
+                Op::Insert(c) => self.insertions.add(&c, italic),
+                Op::Delete(c) => self.deletions.add(&c, italic),
+            }
+        }
+    }
+
+    fn print(&self) {
+        println!("\n--- confusion census (#98) ---");
+        println!("  {:<38} {:>8} {:>7} {:>7}", "", "upright", "italic", "all");
+        for (label, totals) in [
+            ("substitutions", self.substitutions.totals()),
+            ("insertions (read, not in the release)", self.insertions.totals()),
+            ("deletions (in the release, not read)", self.deletions.totals()),
+        ] {
+            println!(
+                "  {label:<38} {:>8} {:>7} {:>7}",
+                totals[0],
+                totals[1],
+                totals[0] + totals[1]
+            );
+        }
+
+        table("substitutions: release -> read", &self.substitutions, |(want, got)| {
+            format!("{} -> {}", show(want), show(got))
+        });
+        table(
+            "insertions: characters read that the release does not have",
+            &self.insertions,
+            show,
+        );
+        table("deletions: release characters never read", &self.deletions, show);
+    }
+}
+
+/// Print one ranked table, naming what it left out.
+fn table<K: PartialEq + Clone>(title: &str, counter: &Counter<K>, label: impl Fn(K) -> String) {
+    let ranked = counter.ranked();
+    println!("\n  {title}");
+    if ranked.is_empty() {
+        println!("    nothing");
+        return;
+    }
+    println!("    {:<24} {:>8} {:>7} {:>7}", "", "upright", "italic", "all");
+    for (key, counts) in ranked.iter().take(ROWS) {
+        println!(
+            "    {:<24} {:>8} {:>7} {:>7}",
+            label(key.clone()),
+            counts[0],
+            counts[1],
+            counts[0] + counts[1]
+        );
+    }
+    if ranked.len() > ROWS {
+        let tail: usize = ranked.iter().skip(ROWS).map(|(_, c)| c[0] + c[1]).sum();
+        println!(
+            "    {:<24} {:>24}",
+            format!("... {} more kinds", ranked.len() - ROWS),
+            tail
+        );
+    }
+}
+
+/// A character as it should appear in a table cell.
+///
+/// A space is among the most common things in these tables and an unquoted one would be invisible,
+/// which would hide the spacing rule — the thing #49 is asking about — behind a blank cell.
+fn show(c: char) -> String {
+    match c {
+        ' ' => "space".to_owned(),
+        REPLACEMENT => "unread".to_owned(),
+        c if c.is_control() => format!("U+{:04X}", c as u32),
+        c => c.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,5 +669,91 @@ mod tests {
         let b = "Just talk to me,\nokay? I can't believe you just left.";
         assert!(edit(a, b) > 0, "the break moved");
         assert_eq!(edit(&flatten(a), &flatten(b)), 0);
+    }
+
+    #[test]
+    fn a_census_accounts_for_exactly_the_errors_the_score_counted() {
+        // The property the whole design of #98 turns on. The score keeps its rolling row and the
+        // census runs a second, traceback-capable pass, so the only thing that makes a census row
+        // correspond to a scored error is that the two agree on every input. A traceback that
+        // emitted one operation too many would inflate every table without moving a single CER
+        // figure, and nothing else here would notice.
+        let cases = [
+            ("", ""),
+            ("abc", "abc"),
+            ("abc", ""),
+            ("", "abc"),
+            ("Michelle", "Mlchelle"),
+            ("Is it 1 or l?", "IsiI4orI?"),
+            ("over the lazy dog.", "over Ihe I?zy dog?"),
+            ("a quick brown fox", "aquick brownfox"),
+            ("hello", "he\u{fffd}lo"),
+            ("\"quoted\"", "''quoted''"),
+        ];
+        for (want, got) in cases {
+            assert_eq!(
+                align(want, got).len(),
+                edit(got, want),
+                "alignment of {want:?} -> {got:?} disagrees with the score"
+            );
+        }
+    }
+
+    #[test]
+    fn a_substitution_is_recorded_in_the_direction_the_release_reads() {
+        // `(want, got)`, not `(got, want)`. A table printed the wrong way round would name the
+        // character the pipeline produced as the one it should have produced, and every conclusion
+        // drawn from it would be backwards.
+        assert_eq!(align("lazy", "Iazy"), vec![Op::Substitute('l', 'I')]);
+    }
+
+    #[test]
+    fn a_word_space_the_extraction_never_produced_is_a_deletion() {
+        // #98 predicted this bucket as an insertion. It is not: a space in the release with no
+        // counterpart in the read is a release character the extraction never produced, which is
+        // what a deletion is. Pinned because the prediction is scored against these labels.
+        assert_eq!(align("two words", "twowords"), vec![Op::Delete(' ')]);
+    }
+
+    #[test]
+    fn a_glyph_read_as_two_characters_is_an_insertion() {
+        // The documented `"` case from `group.rs`: one component read as two single quotes. The
+        // extraction has a character the release does not, which is the other direction.
+        assert_eq!(align("\"a", "''a"), vec![Op::Insert('\''), Op::Substitute('"', '\'')]);
+    }
+
+    #[test]
+    fn a_run_read_wrongly_is_counted_as_substitutions_rather_than_as_a_shift() {
+        // Tie-breaking towards the diagonal, pinned. Substituting two characters and
+        // inserting-then-deleting two both cost 2, so an aligner with the opposite preference
+        // would report the same CER and a confusion table full of unrelated insertions.
+        assert_eq!(align("to", "Io"), vec![Op::Substitute('t', 'I')]);
+        assert_eq!(
+            align("ab", "xy"),
+            vec![Op::Substitute('a', 'x'), Op::Substitute('b', 'y')]
+        );
+    }
+
+    #[test]
+    fn the_census_splits_the_two_populations_the_score_splits() {
+        // Upright and italic read fifteen points apart on real material, so a table that pooled
+        // them would attribute the italic act's confusions to the whole track.
+        let mut census = Census::new();
+        census.add("Iazy", "lazy", false);
+        census.add("Iazy", "lazy", true);
+        census.add("Iazy", "lazy", true);
+        let ranked = census.substitutions.ranked();
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].0, ('l', 'I'));
+        assert_eq!(ranked[0].1, [1, 2], "one upright, two italic");
+    }
+
+    #[test]
+    fn a_space_is_named_rather_than_printed_as_itself() {
+        // An unquoted space in a table cell is invisible, and spaces are the bucket #49 is asking
+        // about.
+        assert_eq!(show(' '), "space");
+        assert_eq!(show(REPLACEMENT), "unread");
+        assert_eq!(show('l'), "l");
     }
 }
