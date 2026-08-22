@@ -326,11 +326,14 @@ material with Liberation Sans — metric-compatible, openly licensed, the obviou
 **11 points of CER**, which is Verdana's cost to within noise.
 
 **Nothing can tell a good fit from a bad one.**
-[#63](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/63) tested four statistics and
-all four failed, for one mechanism rather than four: a systematically wrong reference set is *by
-construction* a low-distance one, and a systematically shared confusion is *by construction* an
-agreed one. Both times the thing that makes the answer wrong is the thing that makes the evidence
-look right. So `fit` proposes and you decide — **read a few cues before trusting a track to a set.**
+[#63](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/63) tested five statistics and
+all five failed, for two mechanisms. Four were functions of the matcher's own answer, and a
+systematically wrong reference set is *by construction* a low-distance one — the thing that makes
+the answer wrong is the thing that makes the evidence look right. The fifth escaped that by never
+consulting a character at all, and broke on the channel instead: a typeface's style is measurable in
+its font file and does not survive being decoded off a subtitle plane. So `fit` proposes and you
+decide — **read a few cues before trusting a track to a set.** See
+[`docs/fit-confidence.md`](docs/fit-confidence.md).
 
 **Style is finer-grained than typeface.** An italic reference set reads one film's italic act at
 10.8% CER and its upright dialogue at 40.5%; the upright set does the exact reverse. A fit that is
@@ -380,6 +383,7 @@ the plan it was meant to confirm.
 | [`glyph-stability.md`](docs/glyph-stability.md) | Why. Two renderings of the *same* character are typically further apart (median 46 cells) than two *different* characters are (median 31). A one-pixel shift in the binarization threshold costs 30 cells — as much as character identity itself. Rendering size and anti-aliasing cost 11 and 8: the axes normalisation was built to absorb, and it absorbs them. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
+| [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — five statistics, two mechanisms. The last one measures a typeface's style well enough to identify it from its font file 79–85% of the time, and still cannot gate a track: a decoded glyph drifts further from its own typeface than the typefaces sit apart. |
 | [`distribution.md`](docs/distribution.md) | CLI over `cdylib`, static musl over glibc, and the binary-size and cold-start numbers behind both. |
 | [`architecture.md`](docs/architecture.md) | How the workspace is laid out, and where each decision lives. |
 

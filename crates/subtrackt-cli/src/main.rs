@@ -251,7 +251,7 @@ fn fit(args: &FitArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
         ));
     }
 
-    // The point of the whole command, and the sentence that keeps it honest. #63 measured four
+    // The point of the whole command, and the sentence that keeps it honest. #63 measured five
     // statistics and none of them separates a good read from a bad one, so the score below ranks
     // candidates against each other and says nothing about whether the winner is any good.
     ui.plain(format_args!(
