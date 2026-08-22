@@ -397,6 +397,131 @@ the matcher made available by flagging the glyph as ambiguous rather than answer
 has since taken that up and cleared most of the second class, though not this line: see
 `docs/post-correction.md` for why `Iazy` is the case it deliberately declines.
 
+## Counting holes, and a feature that works but has nothing left to do
+
+#37 left a question standing. If the shape vector cannot separate certain pairs, what *else* could
+be measured that it does not encode? Hole count — how many enclosed background regions a glyph
+carries — is the obvious candidate. It is topological rather than geometric, so it is exact at any
+resolution, orthogonal to the shape vector, and immune to the ±1px edge term the table above
+measures as the dominant source of variance. `O` carries one hole, `C` none, `B` two, and no amount
+of rasterisation noise changes that.
+
+`xtask separability` gained three sections to check it, on font renders alone, before anything was
+built. Two had to pass, and the wrong one failed.
+
+### It is a good feature
+
+| Test | Result | |
+| :--- | ---: | :--- |
+| Stability across 21–50px × 3 ink thresholds | 99% agreement with the modal count | passes |
+| Portability across Times, Verdana, Tahoma, Segoe UI | 1 of 139 characters disagrees | passes |
+| **Separation of the pairs the matcher calls ambiguous** | **0 of 21** | **fails** |
+
+The risk that looked fatal beforehand — that a counter closes at the 21px heights the library survey
+measured, making the count a confident lie — is essentially absent. One character wavers, `Ô`, in
+one rendering out of eighteen. Portability is better still: the only cross-typeface disagreement is
+Times' double-storey `g` reporting two counters against Arial's one, which is a real letterform
+difference rather than a measurement artefact.
+
+The census validates the instrument itself: `$%&8B` at two holes, `#0469@ADOPQRabdegopq` and the
+accented round capitals at one, everything else at none. Background is walked **4-connected** as the
+dual of `ccl`'s 8-connected foreground — two strokes touching at a corner are joined by the
+foreground pass, and an 8-connected background walk would leak a counter out through that same
+corner, under-counting precisely the tight counters the measurement exists to interrogate.
+
+### It separates nothing that is actually confused
+
+Not one of the 21 ambiguous pairs has differing hole counts. Widening the band past the shipped
+margin does not rescue it — still zero out to 15 cells, and the pairs that do differ appear only
+past 24, where nothing was confused to begin with.
+
+The reason is that the confusion set this idea was aimed at no longer exists. `c`/`e`, `O`/`Q`,
+`B`/`R` — the pairs holes would fix — are not ambiguous. `c` sits 33 cells from `C`, nearly five
+times the margin. The shape vector separates them comfortably, and #37 cleared the rest.
+
+What is left is two families, and holes are constant within both *by construction*:
+
+- **Vertical bars** — `I`/`l`, `!`/`I`, `!`/`l`, `I`/`i`, `i`/`l`. Zero holes, all of them.
+- **Accent direction** — `Ò`/`Ó`, `À`/`Á`, `È`/`É`, `Ó`/`Ô`, `à`/`á`, `ò`/`ó`, `ù`/`ú`. The same
+  base letter, therefore the same count necessarily.
+
+Sixteen of the twenty-one are the second kind, and that is the finding worth carrying forward. The
+dominant residual confusion is **not** `I`/`l`, which is one pair. It is **diacritic direction** — a
+mark occupying the top sixth of the glyph, whose *slope* is the entire distinction. Accented
+lowercase is ordinary text in Spanish, French and Italian subtitles, so this is not an edge case.
+
+**Not built.** The harness stays: it is the instrument that produced the finding, and it is what the
+next proposal should have to survive.
+
+## Doubling the grid, and two instruments that disagree
+
+`docs/architecture.md` has carried 16×16 versus 32×32 as an open decision from the start, deferred
+until #9 landed. It has landed, and the accent-direction finding above is exactly the shape of
+problem more cells ought to fix: a fine spatial detail in a small region, sub-cell at 16 and
+resolvable at 32.
+
+The answer is **not proven**, and how the measurement says so matters more than the verdict.
+
+### One instrument says yes
+
+`xtask metric-sweep`, each grid scored at its own best weight — see #45 for why the weight has to
+move at all:
+
+| condition | 16×16 (w=50) | 32×32 (w=250) | |
+| :--- | ---: | ---: | :--- |
+| plain, reference typeface exact | 15.9% | 15.9% | tie |
+| varied, reference typeface exact | 16.7% | 16.1% | −0.6 |
+| plain, reference typeface a near miss | 25.6% | **22.0%** | −3.6 |
+| varied, reference typeface a near miss | 24.2% | **19.5%** | −4.7 |
+
+That is the #37 signature exactly: ceiling unchanged, realistic conditions improving by several
+points. On this table alone it would ship.
+
+### The other says no
+
+`xtask reference-fit` scores four near-miss typefaces instead of one. Both rows measured on the same
+tree, and the 16×16 row reproduces `docs/reference-set.md` exactly:
+
+| reference set | 16×16 | 32×32 | |
+| :--- | ---: | ---: | :--- |
+| arial (ceiling) | 15.9% | 15.9% | tie |
+| verdana | 27.4% | 29.3% | +1.9 worse |
+| tahoma | 29.3% | 36.0% | +6.7 worse |
+| trebuc | 36.0% | 34.8% | −1.2 better |
+| segoeui | 37.8% | **26.2%** | −11.6 better |
+| **mean of the four** | **32.6%** | **31.6%** | −1.0 |
+
+Two better, two worse, per-typeface deltas from −11.6 to +6.7, and a one-point mean against that
+spread is noise. **Coverage falls on every candidate** — 92.4→87.8, 84.0→77.1, 87.8→84.7,
+93.9→87.0 — which is the predicted cost showing up: a finer grid places a mismatched typeface
+further away, so fewer glyphs land inside the ceiling at all.
+
+### Why they disagree, which is the useful part
+
+The two harnesses mismatch typefaces in opposite directions. `metric-sweep` renders material in
+Verdana and reads it with an Arial reference; `reference-fit` renders material in Arial and reads it
+with a Verdana one. Same pair, reversed, opposite answer. **A gain that depends on which side of the
+mismatch you are standing on is not a gain.**
+
+The summary statistic agrees with the pessimistic reading. Intra-character p75 against
+inter-character p25, as a fraction of the vector, is −9.4% at 16×16 and −10.0% at 32×32: the
+separation the shape vector achieves does not improve with resolution, it very slightly worsens.
+Zero-distance pairs do fall from three to one, `I`/`|` and `l`/`|` finally separating, but the
+accent pairs that dominate the residual confusions stay proportionally as close — `Ò`/`Ó` moves from
+2.0% of the vector to 2.1%.
+
+### What it says
+
+Four experiments have now attacked **variance** — threshold placement, ramp representation,
+clustering, and now resolution — and none has paid. One attacked **separation**, #37, and it paid
+immediately. Granularity looked like a separation lever because the accent pairs are a spatial-detail
+problem; measured, it behaves like every other variance lever, because a finer grid records the
+letterform's noise as faithfully as its signal.
+
+**Not shipped.** `FEATURE_GRID` stays at 16. What the attempt did buy is that the constant can now
+actually be changed — see #45 — so the next person to ask is a one-line experiment away rather than
+an afternoon of hardcode archaeology.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
@@ -417,6 +542,14 @@ has since taken that up and cleared most of the second class, though not this li
   not be embedded at all: a near-identical typeface costs 11 points of CER, which is a
   visibly-different one's cost to within noise, and nothing the accuracy gate can see detects it.
   The set has to be fitted to the title — #43. See `docs/reference-set.md`.
+- **Hole count is a good feature with nothing to do** — measured before building, see above. It is
+  stable (99%) and portable (1 character in 139), and it separates *none* of the 21 pairs the
+  matcher calls ambiguous, because sixteen of those are accent-direction pairs that carry the same
+  count by construction. Not built; the harness stays.
+- **A 32×32 grid is not proven** — see above. One instrument makes it 3.6 to 4.7 points better on
+  near-miss typefaces, another makes it a one-point wash across four of them with coverage down on
+  every one, and the shape vector's own separation statistic slightly worsens. `FEATURE_GRID` stays
+  at 16. The attempt exposed #45.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two
   approaches measured neutral-to-worse. The lever is the binary mask itself, not the threshold
   placement, which makes it a #7 question about carrying grey coverage into the feature vector.
