@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use subtrackt::score::{Score, score_text};
-use subtrackt::{Config, Pipeline, UnmatchedPolicy};
+use subtrackt::{Config, LayoutRules, Pipeline, SpacingRule, UnmatchedPolicy};
 use subtrackt_glyph::ReferenceSet;
 
 /// Fonts to try when none is named, so the harness runs unattended on both developer machines
@@ -47,12 +47,27 @@ pub(crate) fn extract(
     grey_coverage: bool,
     post_correct: bool,
 ) -> anyhow::Result<(String, subtrackt::Outcome)> {
+    extract_spaced(sup, reference, grey_coverage, post_correct, SpacingRule::default())
+}
+
+/// As [`extract`], with the word-spacing rule chosen rather than defaulted.
+///
+/// Split out for #40: scoring one spacing rule against another needs the rest of the pipeline held
+/// still, and a rule selected anywhere but here would be comparing two different extractions.
+pub(crate) fn extract_spaced(
+    sup: &Path,
+    reference: ReferenceSet,
+    grey_coverage: bool,
+    post_correct: bool,
+    spacing: SpacingRule,
+) -> anyhow::Result<(String, subtrackt::Outcome)> {
     // Placeholder rather than the default gate: the point is to score what was read, and a policy
     // that refuses the track would score nothing at all.
     let config = Config {
         unmatched: UnmatchedPolicy::Placeholder,
         grey_coverage,
         post_correct,
+        layout: LayoutRules { spacing, ..LayoutRules::default() },
         ..Config::default()
     };
 
@@ -179,6 +194,153 @@ fn report(score: &Score, report: &subtrackt::Report, reference: &str, hypothesis
 ///
 /// # Errors
 /// Fails if no usable font can be found, or if any stage of generation or extraction fails.
+/// Where a line's spaces sit, as offsets into the same line with its spaces removed.
+///
+/// Comparing space *counts* would let one invented space cancel one missed space and report a line
+/// as correct. Comparing positions cannot: it says which spaces are in the wrong place, which is
+/// the number that decides whether a splitting rule is safe to ship.
+fn space_positions(line: &str) -> Vec<usize> {
+    let mut positions = Vec::new();
+    let mut seen = 0;
+    for character in line.chars() {
+        if character == ' ' {
+            positions.push(seen);
+        } else {
+            seen += 1;
+        }
+    }
+    positions
+}
+
+/// Strip every space, so two readings can be compared on their characters alone.
+fn despaced(line: &str) -> String {
+    line.chars().filter(|c| *c != ' ').collect()
+}
+
+/// One spacing rule's showing.
+struct Spacing {
+    label: &'static str,
+    rule: SpacingRule,
+    score: Score,
+    /// Spaces in the right place, missed, and put where none belonged.
+    found: usize,
+    missed: usize,
+    invented: usize,
+    /// Lines whose characters matched well enough for the three counts above to mean anything.
+    comparable: usize,
+    text: String,
+}
+
+/// Score the word-spacing rules against each other (#40).
+///
+/// # Errors
+/// Fails if any extraction fails, or if the shipped rule invents spaces the old one did not — an
+/// aggregate CER gain would otherwise hide a rule that cuts words in half.
+fn word_spacing(
+    sup: &Path,
+    reference: &ReferenceSet,
+    grey: bool,
+    truth: &str,
+) -> anyhow::Result<()> {
+    let mut measured = Vec::new();
+    for (label, rule) in [
+        ("median multiple", SpacingRule::MedianMultiple),
+        ("widest split", SpacingRule::WidestSplit),
+        ("otsu split", SpacingRule::OtsuSplit),
+    ] {
+        // Post-correction off: it rewrites characters, and this comparison is about where the
+        // spaces went.
+        let (text, _) = extract_spaced(sup, reference.clone(), grey, false, rule)?;
+        let score = score_text(truth, text.trim());
+
+        let (mut found, mut missed, mut invented, mut comparable) = (0, 0, 0, 0);
+        for (want, got) in truth.lines().zip(text.trim().lines()) {
+            // Positions mean the same thing on both sides as long as the same number of glyphs
+            // stands between them; whether each was *read* correctly is a different stage's
+            // problem, and requiring correct characters here would score spacing on the one line
+            // in eight the matcher happens to get right. A line that lost or gained a glyph is
+            // counted nowhere rather than counted wrongly.
+            if despaced(want).chars().count() != despaced(got).chars().count() {
+                continue;
+            }
+            comparable += 1;
+            let (wanted, placed) = (space_positions(want), space_positions(got));
+            found += placed.iter().filter(|at| wanted.contains(at)).count();
+            missed += wanted.iter().filter(|at| !placed.contains(at)).count();
+            invented += placed.iter().filter(|at| !wanted.contains(at)).count();
+        }
+        measured.push(Spacing { label, rule, score, found, missed, invented, comparable, text });
+    }
+
+    // The headroom: what the same read would score if spacing were free. Anything the spacing rule
+    // cannot reach lives below this line.
+    let ceiling = measured
+        .first()
+        .map(|m| score_text(&despaced(truth), &despaced(m.text.trim())));
+
+    println!(
+        "
+--- word spacing (#40) ---"
+    );
+    if let Some(ceiling) = ceiling {
+        println!(
+            "  spacing ignored entirely: CER {:>5.1}%  <- the headroom a spacing rule plays for",
+            ceiling.character_error_rate() * 100.0
+        );
+    }
+    println!("  rule               CER     WER   spaces: right  missed  invented   (lines scored)");
+    for m in &measured {
+        println!(
+            "  {:<16} {:>5.1}%  {:>5.1}%           {:>5}   {:>5}     {:>5}   ({} of {})",
+            m.label,
+            m.score.character_error_rate() * 100.0,
+            m.score.word_error_rate() * 100.0,
+            m.found,
+            m.missed,
+            m.invented,
+            m.comparable,
+            truth.lines().count()
+        );
+    }
+
+    let shipped = LayoutRules::default().spacing;
+    for m in &measured {
+        if m.rule != shipped {
+            continue;
+        }
+        println!(
+            "
+  the shipped rule, line by line:"
+        );
+        for (want, got) in truth.lines().zip(m.text.trim().lines()) {
+            let mark = if want == got { ' ' } else { '!' };
+            println!("  {mark} {got}");
+            if mark == '!' {
+                println!("      want: {want}");
+            }
+        }
+    }
+
+    // An invented space cuts a word in two and is the failure this rule could introduce that #11
+    // could not, so it is gated separately from the aggregate.
+    let baseline = measured
+        .iter()
+        .find(|m| m.rule == SpacingRule::MedianMultiple)
+        .context("the median rule was not scored")?;
+    let chosen = measured
+        .iter()
+        .find(|m| m.rule == shipped)
+        .context("the shipped rule was not scored")?;
+    if chosen.invented > baseline.invented {
+        bail!(
+            "the shipped spacing rule invents {} spaces against the median rule's {}",
+            chosen.invented,
+            baseline.invented
+        );
+    }
+    Ok(())
+}
+
 pub fn run(args: &[String]) -> anyhow::Result<()> {
     let font = find_font(args.first()).context(
         "no font found; pass one explicitly, e.g. xtask accuracy C:/Windows/Fonts/arial.ttf",
@@ -264,6 +426,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     // Post-correction is measured against the representation the pipeline ships with, for the same
     // reason the gate is: it is the number a user would actually get.
     post_correction(&sup, reference, shipped, truth.trim())?;
+    word_spacing(&sup, reference, shipped, truth.trim())?;
 
     if score.character_error_rate() > 0.5 {
         bail!(

@@ -2,19 +2,104 @@
 //!
 //! The hard part is spacing. A proportional typeface has no single space width, and the gap inside
 //! a kerned pair can be wider than the gap around a real space elsewhere on the same line. So the
-//! threshold is derived per line from the gaps actually observed — the median gap stands in for
-//! "normal letter spacing", and anything several times wider than that is a word break.
+//! threshold is derived per line from the gaps actually observed.
 //!
 //! Deriving it per line rather than fixing it matters twice over: it survives the same title
-//! shipping at 480p and 1080p, and it survives one cue being set larger than another.
+//! shipping at 480p and 1080p, and it survives one cue being set larger than another. That property
+//! is the one thing no spacing rule here may lose, and every rule below is a ranking over the
+//! line's own gaps for exactly that reason — nothing is expressed in pixels.
+//!
+//! *Which* ranking is #40. #11 took the median gap to stand in for "normal letter spacing" and
+//! called anything several times wider a word break; #15 later made it scorable, and it finds 21 of
+//! the fixture's 29 spaces. See [`SpacingRule`] for why, and for what replaced it.
 
 use subtrackt_core::{
     Confidence, Cue, Error, Glyph, GlyphMatch, Result, SubtitleImage, TextAssembler,
 };
 
+/// How a line's word breaks are found.
+///
+/// Every variant ranks the line's own gaps, so every variant survives a resolution change. They
+/// differ in what they do with the ranking, and #40 measured the difference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpacingRule {
+    /// #11's rule: a gap wider than [`LayoutRules::space_gap_percent`] of the line's median gap.
+    ///
+    /// It rests on the median estimating *normal letter spacing*, which holds only while letter
+    /// gaps are the majority of the line's gaps. Short words break it outright — `- Is it 1 or l?`
+    /// has nine gaps of which five are word gaps, so the median **is** a word gap, the threshold
+    /// lands above everything present, and the line comes back as one word. Short words are
+    /// ordinary in dialogue.
+    ///
+    /// It also cuts in the wrong place even where the median is sound: a fixed multiple has no
+    /// reason to land in the empty band between two separated clusters, and on
+    /// `The quick brown fox jumps` it falls at 12 against a word gap of 11.
+    ///
+    /// Kept because it is the baseline every replacement is scored against, not because it is a
+    /// setting worth choosing.
+    MedianMultiple,
+    /// Cut at the widest jump between consecutive sorted gaps.
+    ///
+    /// Finds the split rather than assuming a multiple of anything. A line's gaps are bimodal —
+    /// letter gaps and word gaps, with an empty band between — and the widest jump is that band.
+    /// Ties go to the lower cut, which is the direction that finds a space a higher cut would miss;
+    /// the two decisiveness tests on [`LayoutRules`] are what stop that becoming a licence to
+    /// invent.
+    ///
+    /// **What ships**, on the measurement in #40: 23 of 23 scorable spaces against the median
+    /// rule's 15, none invented, CER 15.9% to 11.0% and WER 56.8% to 32.4%.
+    #[default]
+    WidestSplit,
+    /// Cut where the two classes separate best, by Otsu's between-class variance.
+    ///
+    /// The same idea as [`WidestSplit`](Self::WidestSplit) with a criterion that weighs how many
+    /// gaps fall either side of the cut and not only how wide the jump is, so a single freak gap is
+    /// less able to carry the split on its own.
+    ///
+    /// Measured **identically** to `WidestSplit` on every fixture line — same spaces, same CER,
+    /// same WER. It is kept for the same reason `ClusterRules` keeps its machinery: a second
+    /// criterion agreeing to the character is what says the cut is in the data rather than in one
+    /// criterion's arithmetic. `WidestSplit` ships because it is the simpler of two equals and
+    /// needs no floating point.
+    OtsuSplit,
+}
+
 /// Rules for reconstructing text from glyph geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayoutRules {
+    /// How word breaks are found.
+    pub spacing: SpacingRule,
+    /// Fraction of the line's median glyph width a cut must reach to be a word break, in percent.
+    ///
+    /// The first half of the decisiveness test, and the reason a split rule cannot invent spaces
+    /// inside a single word. A widest jump exists on every line, including one holding no word gap
+    /// at all, so something has to say whether the split means anything.
+    ///
+    /// It is measured against a *glyph* rather than against another gap because at subtitle
+    /// resolutions no ratio between two gaps can do the job: rasterisation quantises kerning to
+    /// one and two pixels, and one against two is the same 2:1 ratio a real word break shows. A
+    /// character is the only thing on the line whose size is not that small. Typographically it is
+    /// also the right question — a word space is a sizeable fraction of a character and a kerning
+    /// gap is not.
+    ///
+    /// Fifty comes from the fixture: real word gaps run 0.61 to 1.60 of the median glyph width,
+    /// and the widest kerning gap on any line reaches 0.5. Both are ratios of two pixel counts
+    /// from the same line, so the 480p/1080p property survives.
+    pub split_min_width_percent: u32,
+    /// Multiple of the low cluster's median gap a cut must reach to be a word break, in percent.
+    ///
+    /// The second half, and it catches what the first cannot: a line whose gaps are large but
+    /// uniform passes a test against glyph width and still holds no word break. A word space runs
+    /// to several times the inter-letter gap, and the fixture's tightest real break reaches 2.2.
+    ///
+    /// Against the low cluster rather than the whole line on purpose. The whole-line median is
+    /// precisely what [`SpacingRule::MedianMultiple`] gets wrong on a line of short words; the
+    /// median of the gaps *below* the cut asks the same question of a population that word gaps
+    /// cannot contaminate.
+    ///
+    /// A line failing either test gets **no spaces**, not a guess — the same choice
+    /// `LineMetrics::UNKNOWN` makes, and for the same reason.
+    pub split_min_cluster_percent: u32,
     /// A gap wider than this multiple of the line's median inter-glyph gap, in percent, is a space.
     pub space_gap_percent: u32,
     /// Character substituted for a glyph the matcher could not identify.
@@ -33,6 +118,9 @@ pub struct LayoutRules {
 impl Default for LayoutRules {
     fn default() -> Self {
         Self {
+            spacing: SpacingRule::default(),
+            split_min_width_percent: 50,
+            split_min_cluster_percent: 200,
             space_gap_percent: 250,
             placeholder: '\u{fffd}',
             preserve_speaker_dash: true,
@@ -67,18 +155,23 @@ impl SpatialAssembler {
             .windows(2)
             .map(|pair| pair[1].0.bounds.x.saturating_sub(pair[0].0.bounds.right()))
             .collect();
-        let median = median_gap(&gaps);
+        // The yardstick the decisiveness test measures against. A word space is a sizeable
+        // fraction of a character; a kerning gap is not, and no ratio between two *gaps* can tell
+        // those apart once rasterisation has quantised them to single pixels.
+        let mut widths: Vec<u32> = line.iter().map(|(g, _)| g.bounds.width).collect();
+        widths.sort_unstable();
+        let width = median_of_sorted(&widths);
+        let breaks = word_breaks(&gaps, width, self.rules);
 
         let mut out = String::new();
         let mut origins = Vec::with_capacity(line.len());
         for (index, (_, matched)) in line.iter().enumerate() {
             if index > 0 {
-                let gap = gaps[index - 1];
                 let opens_with_dash = self.rules.preserve_speaker_dash
                     && index == 1
                     && line[0].1.character == Some('-');
 
-                if opens_with_dash || is_space(gap, median, self.rules) {
+                if opens_with_dash || breaks[index - 1] {
                     out.push(' ');
                     origins.push(None);
                 }
@@ -175,7 +268,110 @@ fn median_gap(gaps: &[u32]) -> u32 {
     }
     let mut sorted = gaps.to_vec();
     sorted.sort_unstable();
-    sorted[sorted.len() / 2]
+    median_of_sorted(&sorted)
+}
+
+/// Median of an already-sorted slice, or zero when it is empty.
+fn median_of_sorted(sorted: &[u32]) -> u32 {
+    sorted.get(sorted.len() / 2).copied().unwrap_or(0)
+}
+
+/// Which of a line's gaps are word breaks.
+///
+/// Computed for the whole line at once because every rule but #11's needs the distribution rather
+/// than one gap at a time — that is the substance of #40.
+fn word_breaks(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Vec<bool> {
+    if rules.spacing == SpacingRule::MedianMultiple {
+        let median = median_gap(gaps);
+        return gaps
+            .iter()
+            .map(|gap| is_space(*gap, median, rules))
+            .collect();
+    }
+    let threshold = split_threshold(gaps, glyph_width, rules);
+    gaps.iter()
+        .map(|gap| threshold.is_some_and(|cut| *gap >= cut))
+        .collect()
+}
+
+/// The gap at or above which a break is a word break, or `None` when the line's gaps do not
+/// separate into two classes decisively enough to say.
+///
+/// `None` is a real answer and not a failure: a line holding one word has no word gaps, every
+/// splitting criterion will still find *a* split in it, and reporting one would insert a space into
+/// the middle of a word. Saying nothing leaves the word intact.
+///
+/// # Panics
+/// Does not. The cut index returned by either criterion is always less than `sorted.len() - 1`, so
+/// both the indexing and the slice below are in bounds.
+#[must_use]
+pub fn split_threshold(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Option<u32> {
+    if gaps.len() < 2 || glyph_width == 0 {
+        return None;
+    }
+    let mut sorted = gaps.to_vec();
+    sorted.sort_unstable();
+
+    let cut = match rules.spacing {
+        SpacingRule::OtsuSplit => otsu_cut(&sorted),
+        _ => widest_jump_cut(&sorted),
+    }?;
+    let threshold = sorted[cut + 1];
+
+    // Both decisiveness tests, against two different yardsticks. Either one alone admits a split
+    // that is not there; see the field documentation for which case each of them catches.
+    let cluster = median_of_sorted(&sorted[..=cut]).max(1);
+    let decisive = threshold * 100 >= rules.split_min_width_percent * glyph_width
+        && threshold * 100 >= rules.split_min_cluster_percent * cluster;
+    decisive.then_some(threshold)
+}
+
+/// Index of the gap below the widest jump between consecutive sorted gaps.
+///
+/// Strictly-greater comparison, so a tie goes to the **lower** cut. That is deliberate: on
+/// `The quick brown fox jumps` the jumps 6 to 11 and 11 to 16 are both five wide, and only the
+/// lower of them puts `fox jumps` on the far side of the boundary.
+fn widest_jump_cut(sorted: &[u32]) -> Option<usize> {
+    let mut best = None;
+    let mut widest = 0;
+    for index in 0..sorted.len() - 1 {
+        let jump = sorted[index + 1] - sorted[index];
+        if jump > widest {
+            widest = jump;
+            best = Some(index);
+        }
+    }
+    best
+}
+
+/// Index of the gap below the cut that maximises Otsu's between-class variance.
+///
+/// Equal neighbouring values are skipped as cut points, since a class boundary drawn through
+/// identical gaps would put the same measurement on both sides of it.
+// Gap widths are pixel counts on a subtitle plane and their sums stay far inside the range f64
+// represents exactly, so the precision-loss lint has nothing to warn about here.
+#[allow(clippy::cast_precision_loss)]
+fn otsu_cut(sorted: &[u32]) -> Option<usize> {
+    let total: f64 = sorted.iter().map(|gap| f64::from(*gap)).sum();
+    let count = sorted.len() as f64;
+
+    let (mut best, mut best_score) = (None, 0.0);
+    let mut low_sum = 0.0;
+    for index in 0..sorted.len() - 1 {
+        low_sum += f64::from(sorted[index]);
+        if sorted[index] == sorted[index + 1] {
+            continue;
+        }
+        let low_count = (index + 1) as f64;
+        let high_count = count - low_count;
+        let separation = low_sum / low_count - (total - low_sum) / high_count;
+        let score = low_count * high_count * separation * separation;
+        if score > best_score {
+            best_score = score;
+            best = Some(index);
+        }
+    }
+    best
 }
 
 impl TextAssembler for SpatialAssembler {
@@ -266,6 +462,100 @@ mod tests {
         // One glyph on a line means no median to compare against; guessing here would produce
         // spurious spaces in short cues.
         assert!(!is_space(50, 0, LayoutRules::default()));
+    }
+
+    /// The gaps `- Is it 1 or l?` actually produces, from the table in #40, and the median glyph
+    /// width of that line. Real numbers rather than invented ones, so a test that passes here says
+    /// something about the fixture rather than about the arithmetic.
+    const SHORT_WORDS: [u32; 9] = [4, 4, 5, 6, 15, 17, 17, 18, 21];
+    const SHORT_WORDS_WIDTH: u32 = 11;
+
+    /// The gaps `The quick brown fox jumps` actually produces. Two jumps of five, 6 to 11 and
+    /// 11 to 16, which is the tie the cut has to resolve downwards.
+    const TIED_JUMPS: [u32; 20] = [
+        1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 11, 16, 16, 16,
+    ];
+    const TIED_JUMPS_WIDTH: u32 = 18;
+
+    fn split(gaps: &[u32], width: u32, spacing: SpacingRule) -> Option<u32> {
+        split_threshold(gaps, width, LayoutRules { spacing, ..LayoutRules::default() })
+    }
+
+    #[test]
+    fn a_line_whose_gaps_do_not_separate_gets_no_spaces_rather_than_an_invented_one() {
+        // Every splitting criterion finds *a* split, including in a line holding one word, so the
+        // decisiveness test is the only thing standing between this rule and a space in the middle
+        // of a word. These are one word's kerning gaps: varied, but nowhere near a word break.
+        for spacing in [SpacingRule::WidestSplit, SpacingRule::OtsuSplit] {
+            // Kerning quantised to one and two pixels. The 2:1 ratio here is the same ratio a real
+            // word break shows, which is why glyph width has to be the yardstick.
+            assert_eq!(split(&[1, 2, 1, 2, 3, 2, 1], 18, spacing), None);
+            // Large but uniform: passes against glyph width, and there is still no break in it.
+            assert_eq!(split(&[9, 9, 9, 10, 10, 11], 18, spacing), None, "uniformly loose");
+            assert_eq!(split(&[0, 0, 1, 1], 19, spacing), None, "glyphs that nearly touch");
+            assert_eq!(split(&SHORT_WORDS, 0, spacing), None, "no width to measure against");
+        }
+    }
+
+    #[test]
+    fn a_line_of_short_words_finds_the_spaces_the_median_rule_cannot() {
+        // Five of these nine gaps are word gaps, so the median *is* one and #11's threshold lands
+        // above everything on the line. This is the failure #40 exists for.
+        let median = median_gap(&SHORT_WORDS);
+        assert_eq!(median, 15, "the median is itself a word gap");
+        assert!(
+            !SHORT_WORDS
+                .iter()
+                .any(|gap| is_space(*gap, median, LayoutRules::default())),
+            "the median rule finds nothing at all on this line"
+        );
+
+        for spacing in [SpacingRule::WidestSplit, SpacingRule::OtsuSplit] {
+            assert_eq!(split(&SHORT_WORDS, SHORT_WORDS_WIDTH, spacing), Some(15));
+            let found = SHORT_WORDS.iter().filter(|gap| **gap >= 15).count();
+            assert_eq!(found, 5, "all five word gaps, and none of the letter gaps");
+        }
+    }
+
+    #[test]
+    fn a_tie_between_two_jumps_cuts_at_the_lower_one() {
+        // 6 to 11 and 11 to 16 are both five wide. Cutting high loses the space in `fox jumps`,
+        // and there is no evidence on the line for preferring it.
+        assert_eq!(split(&TIED_JUMPS, TIED_JUMPS_WIDTH, SpacingRule::WidestSplit), Some(11));
+        assert_eq!(
+            TIED_JUMPS.iter().filter(|gap| **gap >= 11).count(),
+            4,
+            "four word gaps on a five-word line"
+        );
+    }
+
+    #[test]
+    fn the_two_split_criteria_agree_on_the_lines_that_motivated_them() {
+        // They are independent arithmetic over the same ranking. Agreement is what says the cut is
+        // in the data; if this ever diverges, one of them is fitting noise.
+        for (gaps, width) in [
+            (SHORT_WORDS.as_slice(), SHORT_WORDS_WIDTH),
+            (TIED_JUMPS.as_slice(), TIED_JUMPS_WIDTH),
+        ] {
+            assert_eq!(
+                split(gaps, width, SpacingRule::WidestSplit),
+                split(gaps, width, SpacingRule::OtsuSplit)
+            );
+        }
+    }
+
+    #[test]
+    fn a_split_is_a_ranking_and_so_survives_a_change_of_resolution() {
+        // The property #11 was built for and #40 must not lose: scaling every gap must not move
+        // the decision, because the same title ships at 480p and 1080p.
+        for spacing in [SpacingRule::WidestSplit, SpacingRule::OtsuSplit] {
+            for scale in [2, 3, 7] {
+                let scaled: Vec<u32> = SHORT_WORDS.iter().map(|gap| gap * scale).collect();
+                assert_eq!(split(&scaled, SHORT_WORDS_WIDTH * scale, spacing), Some(15 * scale));
+                let tight: Vec<u32> = [1, 2, 1, 2, 3].iter().map(|gap| gap * scale).collect();
+                assert_eq!(split(&tight, 18 * scale, spacing), None, "and no split stays no split");
+            }
+        }
     }
 
     #[test]
