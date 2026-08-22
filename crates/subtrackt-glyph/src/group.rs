@@ -136,6 +136,63 @@ pub fn line_bands(mask: &BinaryMask) -> Vec<LineBand> {
     bands
 }
 
+/// The bands that are actually text lines.
+///
+/// [`line_bands`] cuts at any row carrying no ink across the whole width, which is the right rule
+/// for a line break and the wrong one for an accent. The accent on a *capital* sits above every
+/// letterform this charset can spell, so in a line of nothing but letters the row beneath it is
+/// blank and it bands on its own — `À` then segments as a bare `A` and a floating grave, which is
+/// #57.
+///
+/// **A band holding nothing but mark-height components is not a line.** That is the test, and it is
+/// about what is *in* the band rather than how far it sits from its neighbour — which is why it
+/// cannot merge two lines of text however tightly they are set. A text line always carries at least
+/// one full-height letterform.
+///
+/// The gap is a second condition rather than the first. A cue whose opening line is genuinely all
+/// marks — an ellipsis, a row of dashes — is mark-only too, and only the distance keeps it from
+/// being swallowed by the paragraph under it. Line leading is wider than the space above an accent,
+/// so [`GroupingRules::max_gap_percent`] separates them.
+///
+/// Both thresholds are the ones grouping already uses, applied at band scale rather than at
+/// component scale.
+#[must_use]
+pub fn text_lines(
+    mask: &BinaryMask,
+    components: &[Component],
+    rules: GroupingRules,
+) -> Vec<LineBand> {
+    let centre = |c: &Component| c.bounds.y + c.bounds.height / 2;
+    let mut merged: Vec<LineBand> = Vec::new();
+
+    for band in line_bands(mask) {
+        let Some(previous) = merged.last().copied() else {
+            merged.push(band);
+            continue;
+        };
+
+        // A mark is short relative to the line it belongs to, so the *lower* band is what its
+        // height is a fraction of.
+        let tall = band.height().max(1);
+        let mut above = components
+            .iter()
+            .filter(|c| previous.contains(centre(c)))
+            .peekable();
+        let holds_anything = above.peek().is_some();
+        let mark_only =
+            above.all(|c| c.bounds.height * 100 <= tall * rules.diacritic_max_height_percent);
+        let gap = band.top.saturating_sub(previous.bottom);
+
+        if holds_anything && mark_only && gap * 100 <= tall * rules.max_gap_percent {
+            merged.pop();
+            merged.push(LineBand { top: previous.top, bottom: band.bottom });
+        } else {
+            merged.push(band);
+        }
+    }
+    merged
+}
+
 /// Assign each component to a text line, counting from the top.
 ///
 /// The returned vector is index-aligned with `components`.
@@ -144,11 +201,23 @@ pub fn line_bands(mask: &BinaryMask) -> Vec<LineBand> {
 /// Returns [`Error::Config`] if the mask holds no text at all while components were supplied,
 /// which means the two arguments came from different images.
 pub fn assign_lines(mask: &BinaryMask, components: &[Component]) -> Result<Vec<usize>> {
+    assign_to(&text_lines(mask, components, GroupingRules::default()), components)
+}
+
+/// Assign components to bands that have already been worked out.
+///
+/// Split out so a caller measuring line metrics can use the *same* bands the assignment used. Two
+/// calls to [`text_lines`] would agree today, but a caller that banded separately and then indexed
+/// glyphs by line would be one refactor away from indexing into a different set.
+///
+/// # Errors
+/// Returns [`Error::Config`] if there are no bands while components were supplied, which means the
+/// two arguments came from different images.
+pub fn assign_to(bands: &[LineBand], components: &[Component]) -> Result<Vec<usize>> {
     if components.is_empty() {
         return Ok(Vec::new());
     }
 
-    let bands = line_bands(mask);
     if bands.is_empty() {
         return Err(Error::Config(
             "components were supplied but the mask has no foreground rows; they cannot be from \
@@ -166,7 +235,7 @@ pub fn assign_lines(mask: &BinaryMask, components: &[Component]) -> Result<Vec<u
             bands
                 .iter()
                 .position(|b| b.contains(centre))
-                .unwrap_or_else(|| nearest_band(&bands, centre))
+                .unwrap_or_else(|| nearest_band(bands, centre))
         })
         .collect())
 }
@@ -356,6 +425,81 @@ mod tests {
     fn group_line(components: &[Component]) -> Vec<GroupedGlyph> {
         let lines = vec![0; components.len()];
         group(components, &lines, GroupingRules::default()).unwrap()
+    }
+
+    /// A mask with ink in the given row ranges, full width.
+    fn banded(height: u32, runs: &[(u32, u32)]) -> BinaryMask {
+        let mut mask = BinaryMask::blank(40, height);
+        for (top, bottom) in runs {
+            for y in *top..*bottom {
+                for x in 0..40 {
+                    mask.set(x, y, true);
+                }
+            }
+        }
+        mask
+    }
+
+    #[test]
+    fn two_lines_of_text_are_never_merged_however_close_they_are_set() {
+        // The case that decides whether merging mark-only bands is safe, and the reason the test is
+        // about band *contents* rather than the gap: a text line always carries a full-height
+        // letterform, so it is never mark-only however tight the leading.
+        let rules = GroupingRules::default();
+        for leading in [2u32, 4, 8, 16] {
+            let mask = banded(200, &[(10, 50), (50 + leading, 90 + leading)]);
+            let components = [component(0, 10, 40, 40), component(0, 50 + leading, 40, 40)];
+            assert_eq!(
+                text_lines(&mask, &components, rules).len(),
+                2,
+                "two full-height lines {leading}px apart must stay two lines"
+            );
+        }
+    }
+
+    #[test]
+    fn a_band_of_nothing_but_accents_joins_the_line_beneath_it() {
+        // #57. In a line of nothing but letters the row under a capital's accent is blank across the
+        // whole width, so it bands alone and `À` segments as a bare `A` plus a floating grave.
+        let rules = GroupingRules::default();
+        let mask = banded(200, &[(10, 18), (22, 90)]);
+        let components = [component(0, 10, 8, 8), component(0, 22, 40, 68)];
+
+        let lines = text_lines(&mask, &components, rules);
+        assert_eq!(lines.len(), 1, "the accent row is not a line of its own");
+        assert_eq!(lines[0], LineBand { top: 10, bottom: 90 });
+    }
+
+    #[test]
+    fn a_line_of_genuine_punctuation_is_not_swallowed_by_the_paragraph_under_it() {
+        // The risk the gap condition exists for. An ellipsis is mark-height throughout, so the
+        // contents test alone would merge it into the line below; ordinary line leading is what
+        // keeps them apart.
+        let rules = GroupingRules::default();
+        let mask = banded(200, &[(10, 18), (50, 118)]);
+        let components = [component(0, 10, 8, 8), component(0, 50, 40, 68)];
+
+        assert_eq!(
+            text_lines(&mask, &components, rules).len(),
+            2,
+            "32px of leading over a 68px line is a line break, not an accent"
+        );
+    }
+
+    #[test]
+    fn an_empty_band_is_left_alone_rather_than_treated_as_all_marks() {
+        // A band the components do not reach — the projection saw ink the filter rejected — is not
+        // a band of marks. Treating "no components" as "all of them are short" would merge on the
+        // strength of an empty set being vacuously true.
+        let rules = GroupingRules::default();
+        let mask = banded(200, &[(10, 18), (22, 90)]);
+        let components = [component(0, 22, 40, 68)];
+
+        assert_eq!(
+            text_lines(&mask, &components, rules).len(),
+            2,
+            "the upper band holds nothing, so nothing says it is an accent row"
+        );
     }
 
     #[test]

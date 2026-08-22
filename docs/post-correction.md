@@ -3,12 +3,13 @@
 Answers [#12][issue-12]. It asks for two things — a corrector for the pairs a binarized glyph cannot
 separate, and a measurement deciding whether it should be on.
 
-**It works, it is measured, and it ships switched off.** 2.3 points of character error rate on the
+**It works, it is measured, and it ships switched off.** 2.1 points of character error rate on the
 ceiling fixture, zero lines made worse — and one generated fixture is not the corpus that should
 decide a default which rewrites what a viewer reads.
 
-The number moves when the fixture does, and it has twice: #48 added three cues of accented text and
-#58 added a line carrying `î`. What has not changed across either is that no line was made worse.
+The number moves when the fixture does, and it has three times: #48 added three cues of accented
+text, #58 a line carrying `î`, and #57 a line of accented capitals. What has not changed across any
+of them is that no line was made worse.
 
 [issue-12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
@@ -84,12 +85,12 @@ plausible wrong answer once, and an aggregate would hide it.
 
 | | off | on |
 | :--- | ---: | ---: |
-| Character error rate | 11.1% | **8.8%** |
-| Word error rate | 35.7% | **30.4%** |
+| Character error rate | 11.0% | **8.9%** |
+| Word error rate | 35.6% | **30.5%** |
 | Lines improved | — | 3 |
 | **Lines made worse** | — | **0** |
 
-Seven substitutions, from 62 glyphs the matcher declined to call. Every one of them:
+Seven substitutions, from 66 glyphs the matcher declined to call. Every one of them:
 
 ```
 cue 3 line 0 col  9: 'I' -> 'l' in "na<?>l<?>ve,"
@@ -174,7 +175,7 @@ A stage allowed to rewrite text has to leave a trace of what it rewrote, and a c
 ```console
 $ subtrackt extract synthetic.sup --reference accuracy-fixture.subtref       --on-unmatched placeholder --post-correct --report
 reference set: accuracy-fixture (139 glyphs)
-9 cues from 9 images (54 packets); glyphs 197 matched / 16 unmatched / 62 ambiguous (92.5% read); fit 13.7; cache 100%; corrections 9 (context)
+9 cues from 9 images (54 packets); glyphs 213 matched / 20 unmatched / 64 ambiguous (91.4% read); fit 13.1; cache 100%; corrections 9 (context)
   cue 3 line 0 col 9: 'I' -> 'l' in "na<?>l<?>ve,"
   cue 3 line 0 col 17: 'I' -> 'l' in "jalapeño"
   cue 5 line 0 col 2: 'I' -> 'l' in "Follow"
