@@ -86,26 +86,45 @@ pub(crate) fn extract_spaced(
     Ok((text, outcome))
 }
 
-/// Score post-correction against the same fixture read without it.
+/// Extract with the track-vocabulary arm of post-correction switched on.
 ///
-/// This is the measurement [#12] asks for, and the second column is the one that decides it. An
-/// aggregate improvement says nothing on its own: a corrector that fixes three characters and
-/// invents one has still turned a detectable failure into a plausible wrong answer once, which is
-/// the whole thing this project objects to in general OCR. So lines are scored individually and
-/// the ones the corrector made *worse* are counted separately from what it gained.
-///
-/// [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
-fn post_correction(
+/// #60. A separate helper rather than another flag on `extract`, because the vocabulary is an arm
+/// of the context corrector and every other setting has to be held identical for the third column
+/// to mean anything.
+pub(crate) fn extract_with_vocabulary(
     sup: &Path,
-    reference: &ReferenceSet,
+    reference: ReferenceSet,
     grey: bool,
-    truth: &str,
-) -> anyhow::Result<()> {
-    let (off, _) = extract(sup, reference.clone(), grey, false)?;
-    let (on, outcome) = extract(sup, reference.clone(), grey, true)?;
+) -> anyhow::Result<(String, subtrackt::Outcome)> {
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        grey_coverage: grey,
+        post_correct: true,
+        track_vocabulary: true,
+        ..Config::default()
+    };
+    let outcome = Pipeline::new(config)
+        .with_reference(reference)
+        .run(sup)
+        .with_context(|| format!("extracting {}", sup.display()))?;
+    let text = outcome
+        .track
+        .cues
+        .iter()
+        .map(subtrackt::core::Cue::text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok((text, outcome))
+}
 
+/// Lines this stage improved and lines it made worse, against the same ground truth.
+///
+/// The second is the number that decides a default. An aggregate gain says nothing on its own about
+/// whether the corrector ever invented something, which is the failure the whole stage is built to
+/// avoid.
+fn lines_moved(truth: &str, before: &str, after: &str) -> (usize, usize) {
     let (mut better, mut worse) = (0usize, 0usize);
-    for ((want, before), after) in truth.lines().zip(off.lines()).zip(on.lines()) {
+    for ((want, before), after) in truth.lines().zip(before.lines()).zip(after.lines()) {
         let errors_before = score_text(want, before).character_errors;
         let errors_after = score_text(want, after).character_errors;
         match errors_after.cmp(&errors_before) {
@@ -114,30 +133,68 @@ fn post_correction(
             std::cmp::Ordering::Equal => {}
         }
     }
+    (better, worse)
+}
+
+/// Score post-correction against the same fixture read without it.
+///
+/// This is the measurement [#12] asks for, and the *worse* column is the one that decides it. An
+/// aggregate improvement says nothing on its own: a corrector that fixes three characters and
+/// invents one has still turned a detectable failure into a plausible wrong answer once, which is
+/// the whole thing this project objects to in general OCR. So lines are scored individually and
+/// the ones the corrector made worse are counted separately from what it gained.
+///
+/// Three rows since [#60]: off, the context arm alone, and the context arm with the track's own
+/// vocabulary behind it. The third is strictly a superset of the second — the vocabulary is only
+/// consulted where context declines — so the rows are cumulative rather than alternatives.
+///
+/// [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
+/// [#60]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/60
+fn post_correction(
+    sup: &Path,
+    reference: &ReferenceSet,
+    grey: bool,
+    truth: &str,
+) -> anyhow::Result<()> {
+    let (off, _) = extract(sup, reference.clone(), grey, false)?;
+    let (on, outcome) = extract(sup, reference.clone(), grey, true)?;
+    let (vocab, vocab_outcome) = extract_with_vocabulary(sup, reference.clone(), grey)?;
+
+    let (better, worse) = lines_moved(truth, &off, &on);
+    let (vocab_better, vocab_worse) = lines_moved(truth, &off, &vocab);
 
     let score_off = score_text(truth, off.trim());
     let score_on = score_text(truth, on.trim());
+    let score_vocab = score_text(truth, vocab.trim());
 
-    println!("\n--- post-correction (#12) ---");
+    println!("\n--- post-correction (#12, #60) ---");
     println!(
         "  candidates  : {} glyphs the matcher would not call outright",
         outcome.report.ambiguous
     );
-    println!("  applied     : {} substitutions", outcome.report.corrections);
+    println!("  {:<22} {:>7} {:>7} {:>8} {:>7}", "", "CER", "WER", "better", "worse");
+    let row = |label: &str, score: &Score, better: usize, worse: usize| {
+        println!(
+            "  {label:<22} {:>6.1}% {:>6.1}% {better:>8} {worse:>7}",
+            score.character_error_rate() * 100.0,
+            score.word_error_rate() * 100.0
+        );
+    };
+    row("off", &score_off, 0, 0);
+    row("context", &score_on, better, worse);
+    row("context + vocabulary", &score_vocab, vocab_better, vocab_worse);
+
     println!(
-        "  off         : CER {:>5.1}%   WER {:>5.1}%",
-        score_off.character_error_rate() * 100.0,
-        score_off.word_error_rate() * 100.0
+        "\n  substitutions: {} by context, {} by vocabulary",
+        outcome.report.corrections, vocab_outcome.report.vocabulary_corrections
     );
+    // How often the evidence existed at all. A rule that never fires because nothing supports it
+    // is a different result from one that fires and gains nothing, and #60 asks for both.
     println!(
-        "  on          : CER {:>5.1}%   WER {:>5.1}%",
-        score_on.character_error_rate() * 100.0,
-        score_on.word_error_rate() * 100.0
+        "  vocabulary   : {} distinct clear tokens learned from the track",
+        vocab_outcome.report.vocabulary_tokens
     );
-    // The second of these is the one that decides the default. An aggregate gain says nothing on
-    // its own about whether the corrector ever invented something.
-    println!("  lines better: {better}\n  lines worse : {worse}");
-    for correction in &outcome.corrections {
+    for correction in &vocab_outcome.corrections {
         println!("  {correction}");
     }
 

@@ -3,13 +3,13 @@
 Answers [#12][issue-12]. It asks for two things — a corrector for the pairs a binarized glyph cannot
 separate, and a measurement deciding whether it should be on.
 
-**It works, it is measured, and it ships switched off.** 2.2 points of character error rate on the
+**It works, it is measured, and it ships switched off.** 1.9 points of character error rate on the
 ceiling fixture, zero lines made worse — and one generated fixture is not the corpus that should
 decide a default which rewrites what a viewer reads.
 
-The number moves when the fixture does, and it has three times: #48 added three cues of accented
-text, #58 a line carrying `î`, and #57 a line of accented capitals. What has not changed across any
-of them is that no line was made worse.
+The number moves when the fixture does, and it has four times: #48 added three cues of accented
+text, #58 a line carrying `î`, #57 a line of accented capitals, and #60 a cue supplying case-folded
+evidence. What has not changed across any of them is that no line was made worse.
 
 [issue-12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
@@ -61,10 +61,14 @@ corrected. On the fixture that costs two errors the corrector can see perfectly 
 ! FoIIow the yeIIow Iine    want: Follow the yellow line
 ```
 
-`Iazy` and `Iine` stay wrong. They stay wrong because the evidence for rewriting them is
-*identical* to the evidence for rewriting the `I` of `Iowa`, which is in the fixture for exactly
-this reason and which comes out intact. A rule that fixed `lazy` would break every proper noun in
-the track and leave no trace that it had, which is the failure [#12] is written around.
+`Iazy` and `Iine` stay wrong under the context rule alone. They stay wrong because the evidence for
+rewriting them is *identical* to the evidence for rewriting the `I` of `Iowa`, which is in the
+fixture for exactly this reason and which comes out intact. A rule that fixed `lazy` from context
+would break every proper noun in the track and leave no trace that it had.
+
+**A second arm resolves that, and #60 is where it came from.** The two cases are identical *to the
+context rule*, and they stop being identical the moment a different kind of evidence is admitted —
+see below.
 
 ## Method
 
@@ -85,12 +89,12 @@ plausible wrong answer once, and an aggregate would hide it.
 
 | | off | on |
 | :--- | ---: | ---: |
-| Character error rate | 9.6% | **7.4%** |
-| Word error rate | 33.9% | **28.8%** |
+| Character error rate | 9.8% | **7.9%** |
+| Word error rate | 35.3% | **30.9%** |
 | Lines improved | — | 3 |
 | **Lines made worse** | — | **0** |
 
-Six substitutions, from 64 glyphs the matcher declined to call. Every one of them:
+Six substitutions, from 72 glyphs the matcher declined to call. Every one of them:
 
 ```
 cue 3 line 0 col 15: 'I' -> 'l' in "jalapeño"
@@ -116,6 +120,94 @@ rule (#40) ran its characters together into `0123456789OoI I 1`, and the merged 
 trailing letters digits on one side and nothing on the other. Two-sided evidence declined it. Had the rule been one-sided,
 the same upstream bug would have rewritten `O` and `o` into digits and made that line worse.
 
+## The track's own vocabulary, which is not a dictionary
+
+#60. The context arm needs evidence on *both* sides of a glyph, so it can never fire at a word edge
+— and `Iazy` and `Iowa` present it with exactly the same evidence. A different kind of evidence
+separates them: **a word the same track already read clearly**.
+
+The finding that shapes it is one line of `glyph.rs`. `is_unambiguous` is
+`runner_up_distance - distance >= margin`, and after #37 exactly one zero-distance pair survives in
+the reference set: `I`/`l`. So *every* `l` and `I` in a track is flagged ambiguous, always, and no
+word containing one is ever read clearly. A same-spelling lookup would return nothing for the one
+case it exists for.
+
+**Case folding rescues it.** `l` and `I` are indistinguishable, but `L` and `i` are ordinary
+distinct shapes read clearly, and dialogue supplies both forms of a word constantly:
+
+| ambiguous | candidate | clear evidence a track holds |
+| :--- | :--- | :--- |
+| `Iook` | `look` | `Look` |
+| `Iazy` | `lazy` | `Lazy` |
+| `It` | it stands | `it` — so the reading itself wins |
+| `Iowa` | — | nothing folds onto `iowa`; **refused** |
+
+The `Iowa` refusal rests on the **absence** of evidence rather than on a threshold. Correction needs
+positive evidence; silence means leave it alone.
+
+### What it is allowed to do
+
+Every guard the context arm keeps, kept:
+
+| Refusal | What it prevents |
+| :--- | :--- |
+| Only a glyph the matcher flagged ambiguous | Overruling a read the matcher was sure of |
+| Only within a confusion set, one character out for one in | Insertions in disguise |
+| Only where the context arm **declined** | The measured behaviour stays a strict subset |
+| A token is evidence only if *every* character in it was read clearly | The evidence set and the correction set stay disjoint |
+| Exactly one candidate supported | Two is contradictory evidence, and both zero and two are refusals |
+
+### Result
+
+| | CER | WER | lines better | lines worse |
+| :--- | ---: | ---: | ---: | ---: |
+| off | 9.8% | 35.3% | — | — |
+| context | 7.9% | 30.9% | 3 | **0** |
+| context + vocabulary | **7.6%** | **29.4%** | 4 | **0** |
+
+On the fixture, one extra substitution: `Iazy` becomes `lazy`, on evidence from the clear `Lazy` the
+cue set now carries. Thirteen distinct clear tokens were learned from nine cues.
+
+**And on a real Blu-ray** — 10 Cloverfield Lane, 818 scored cues, the same track everything else in
+this repository is measured against:
+
+| | |
+| :--- | ---: |
+| Substitutions by context | 363 |
+| Substitutions by vocabulary | **9** |
+| Cues improved | 9 |
+| **Cues made worse** | **0** |
+| CER | 5.5% → 5.5% |
+
+Nine characters out of 24,522. Every one of them right, every one logged with the word that decided
+it — `'I' -> 'l' in "lucky" (vocabulary: "lucky" x1)` — and the aggregate does not move, because
+nine characters cannot move it.
+
+### The sweep, and what it settled
+
+Both thresholds were guesses. On the disc:
+
+| setting | substitutions | better | worse |
+| :--- | ---: | ---: | ---: |
+| `min_occurrences` 1 | 7 | 7 | 0 |
+| `min_occurrences` 2 | 3 | 3 | 0 |
+| `min_occurrences` 3 | 3 | 3 | 0 |
+| `min_len` 3 | 7 | 7 | 0 |
+| **prefix matching** | **9** | **9** | 0 |
+
+`min_occurrences` stays at **1**: raising it costs four correct substitutions and prevents none,
+because nothing was made worse at any setting. The guard it offers is against a failure that has not
+been observed. `min_len` changes nothing on that track — every token the arm fired on is four
+characters or more — and stays at 2 because a one-character token folds onto far too much.
+
+**Prefix matching is on**, and this is the row that decided it. A track says `Looking` more often
+than `look`, so exact matching leaves evidence on the table. The obvious reach is a stemmer, and it
+is the wrong reach twice over: a lemmatizer carries a lexicon, which is the dictionary objection
+wearing a hat, and a stemmer over-collapses by design — `universe` and `university` share a stem.
+Prefix matching against the track's own clear tokens gets most of it with no dependency and no
+knowledge of any language. It over-matches, and over-matching is harmless here: the substitution
+decides one character within a confusion set, not which word the line holds.
+
 ## Why the default is still off
 
 The measurement is positive and the guards are structural. What is missing is not confidence in the
@@ -128,6 +220,11 @@ rule, it is a corpus:
   corrector's evidence is nearly always sound. Real material moves both.
 - **[#15]'s larger corpus is referenced but not checked in.** Until it is, "measured on the test
   corpus" means measured on one generated file.
+
+`Config::track_vocabulary` stays `false` for the same reasons and one of its own: nine substitutions
+on one film is an existence proof, and the two new failure modes it introduces — a proper noun that
+case-folds onto a common word, and a single clear occurrence that was itself a misread — are both
+unobserved rather than ruled out.
 
 So `Config::post_correct` stays `false` and `subtrackt extract` defaults to off. Both flags work —
 `--post-correct` and `--no-post-correct`, last one on the line wins — so pinning either behaviour
@@ -177,7 +274,7 @@ A stage allowed to rewrite text has to leave a trace of what it rewrote, and a c
 ```console
 $ subtrackt extract synthetic.sup --reference accuracy-fixture.subtref       --on-unmatched placeholder --post-correct --report
 reference set: accuracy-fixture (139 glyphs)
-9 cues from 9 images (54 packets); glyphs 213 matched / 13 unmatched / 64 ambiguous (94.2% read); fit 13.0; cache 100%; corrections 6 (context)
+10 cues from 10 images (60 packets); glyphs 248 matched / 15 unmatched / 72 ambiguous (94.3% read); fit 13.0; cache 100%; corrections 6 (context)
   cue 3 line 0 col 9: 'I' -> 'l' in "na<?>l<?>ve,"
   cue 3 line 0 col 17: 'I' -> 'l' in "jalapeño"
   cue 5 line 0 col 2: 'I' -> 'l' in "Follow"
@@ -198,11 +295,9 @@ had stopped refusing.
 - **`rn`/`m` and `cl`/`d` belong to segmentation, not here.** [#12] lists them, but resolving either
   means inventing or destroying a character. They are two components fused or one component split,
   and the place to notice that is where components are grouped.
-- **A track's own vocabulary is the next lever, and it needs no dictionary.** A word-initial `Iazy`
-  could be corrected on evidence rather than on a guess if `lazy` — or any of the l-words a film
-  repeats constantly — occurred elsewhere in the same track in a read that was unambiguous. That is
-  evidence from the material, which is the kind this project accepts. It cannot be demonstrated on a
-  six-cue fixture, so it waits for [#15]'s corpus alongside the default.
+- ~~**A track's own vocabulary is the next lever**~~ — **built and measured**, see below. It fires,
+  it never damaged a cue, and on a feature film it corrected seven characters out of twenty-four
+  thousand. A real result and a small one.
 - **Ambiguity is a per-glyph property, not a per-cluster one.** #12 was written expecting #10's
   clustering to make it the latter — one wrong label being wrong for every instance of it, which
   would have made correction both more consequential and easier to audit. Clustering measured worse

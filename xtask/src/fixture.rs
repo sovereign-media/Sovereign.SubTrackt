@@ -258,6 +258,12 @@ pub(crate) fn build_sup(
 /// the ambiguous pairs #12 cares about, accented letters, a two-speaker dash and a colon — the
 /// punctuation case #6 is built around.
 ///
+/// The `Look at the line` cue is #60's, and carries both halves of that rule the way the `yellow
+/// line` cue carries both halves of the context one. `Look`, `Lazy`, `line`, `lit` and `lamps` give
+/// case-folded evidence a word-initial `I` can be corrected against — `Iook` folds onto `look` —
+/// while `Iowa` stays unrepeated, so the refusal that rests on the *absence* of evidence is still
+/// measured. Remove either half and the rule stops being tested rather than stops working.
+///
 /// The `yellow line` cue is aimed squarely at post-correction and carries both halves of it.
 /// `yellow` and `line` are what it should fix when the matcher reads an `l` as an `I`; `Iowa` is
 /// what it must not touch, because the evidence for rewriting a word-initial capital in an
@@ -289,6 +295,7 @@ fn default_cues() -> Vec<Vec<String>> {
         vec!["Café, naïve, jalapeño."],
         vec!["0123456789 O o I l 1"],
         vec!["Follow the yellow line", "to Iowa in 2015."],
+        vec!["Look at the line ahead.", "Lazy dogs, lit lamps."],
         vec!["Où est-il? Là, à côté.", "S'il vous plaît, maître."],
         vec!["Está más allá: adiós, Perú."],
         vec!["Però è così che sarà.", "ÉTAIT-CE ÀPRE? ÎLE."],
@@ -435,6 +442,10 @@ mod tests {
         assert!(
             all.contains("yellow"),
             "an ambiguous letter with clear letters either side, which #12 can resolve"
+        );
+        assert!(
+            all.contains("Look") && all.contains("Lazy"),
+            "clear case-folded evidence for #60's vocabulary arm to correct a word-initial `I`              against; without it the rule correctly fires zero times and is not tested"
         );
         assert!(
             all.contains("Iowa"),

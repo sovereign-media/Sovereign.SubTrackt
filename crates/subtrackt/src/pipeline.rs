@@ -166,7 +166,15 @@ impl Pipeline {
             // One margin, from the matching thresholds, shared with the confidence tally the
             // assembler produced. A corrector working to a different one would rewrite glyphs the
             // report had already called clean.
-            Box::new(ContextCorrector::new(self.config.matching.ambiguity_margin()))
+            let corrector = ContextCorrector::new(self.config.matching.ambiguity_margin());
+            // The vocabulary is an arm of this corrector, not a stage of its own — two correctors
+            // in sequence could let one's output become the other's evidence, which is the cascade
+            // `docs/post-correction.md` guarantees cannot happen.
+            if self.config.track_vocabulary {
+                Box::new(corrector.with_vocabulary(self.config.vocabulary))
+            } else {
+                Box::new(corrector)
+            }
         } else {
             Box::new(NoopCorrector)
         }
@@ -220,10 +228,12 @@ impl Pipeline {
             .try_into()
             .unwrap_or(u64::MAX);
 
-        let corrector = self.corrector();
-        let mut cues = Vec::with_capacity(images.len());
-
-        for (index, (image, glyphs)) in images.iter().zip(per_image).enumerate() {
+        // Assemble every cue before correcting any of them. #60's vocabulary arm needs the whole
+        // track's clear tokens, and a decision needing the whole track cannot be made while
+        // answers are already being handed out — the same argument that makes `matcher.prepare` a
+        // separate pass. Every image is already resident, so this costs nothing but the ordering.
+        let mut read_cues = Vec::with_capacity(images.len());
+        for (image, glyphs) in images.iter().zip(per_image) {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
                 identified.push(matcher.match_glyph(glyph)?);
@@ -238,8 +248,16 @@ impl Pipeline {
                 .sum::<u64>();
 
             let read = assembler.assemble_annotated(image, &glyphs, &identified)?;
+            report.record(read.cue.confidence);
+            read_cues.push(read);
+        }
+
+        let mut corrector = self.corrector();
+        corrector.observe(&read_cues);
+
+        let mut cues = Vec::with_capacity(read_cues.len());
+        for (index, read) in read_cues.into_iter().enumerate() {
             let mut cue = read.cue;
-            report.record(cue.confidence);
 
             // Post-correction, before the policy runs. It can only exchange one ambiguous
             // character for another, so it moves no glyph between the matched and unmatched
@@ -260,6 +278,15 @@ impl Pipeline {
         }
 
         report.corrections = corrections.len().try_into().unwrap_or(u64::MAX);
+        report.vocabulary_corrections = corrections
+            .iter()
+            .filter(|c| {
+                matches!(c.rule, subtrackt_text::correct::CorrectionRule::Vocabulary { .. })
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        report.vocabulary_tokens = corrector.vocabulary_size().try_into().unwrap_or(u64::MAX);
         report.corrector = corrector.name();
         Ok(TextTrack::new(cues, None))
     }

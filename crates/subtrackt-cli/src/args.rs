@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::config::DEFAULT_MIN_MATCHED;
-use subtrackt::{Config, UnmatchedPolicy};
+use subtrackt::{Config, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
 /// What `--version` prints: the binary, and the reference data compiled into it.
@@ -110,6 +110,28 @@ pub struct ExtractArgs {
     /// Leave ambiguous reads exactly as the matcher returned them.
     #[arg(long, overrides_with = "post_correct")]
     pub no_post_correct: bool,
+
+    /// Also resolve a word-edge glyph from words the same track read clearly. Needs
+    /// --post-correct.
+    #[arg(long, overrides_with = "no_track_vocabulary")]
+    pub track_vocabulary: bool,
+
+    /// Do not consult the track's own vocabulary.
+    #[arg(long, overrides_with = "track_vocabulary")]
+    pub no_track_vocabulary: bool,
+
+    /// How many times a word must be read clearly before it counts as evidence.
+    #[arg(long, default_value_t = VocabularyRules::default().min_occurrences)]
+    pub vocab_min_occurrences: usize,
+
+    /// Shortest word the vocabulary arm may correct, in characters.
+    #[arg(long, default_value_t = VocabularyRules::default().min_len)]
+    pub vocab_min_len: usize,
+
+    /// Let a candidate match the start of a clear word rather than all of it, so `look` is
+    /// supported by a clear `looking`.
+    #[arg(long)]
+    pub vocab_prefix: bool,
 
     /// Print the extraction summary to stderr.
     #[arg(long)]
@@ -274,6 +296,18 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether the vocabulary arm runs, resolved the same way and for the same reason.
+    #[must_use]
+    pub fn track_vocabulary(&self) -> bool {
+        if self.track_vocabulary {
+            true
+        } else if self.no_track_vocabulary {
+            false
+        } else {
+            Config::default().track_vocabulary
+        }
+    }
+
     /// Build the pipeline configuration these arguments describe.
     #[must_use]
     pub fn to_config(&self) -> Config {
@@ -281,6 +315,12 @@ impl ExtractArgs {
             stream: self.stream,
             format: self.format.into(),
             post_correct: self.post_correct(),
+            track_vocabulary: self.track_vocabulary(),
+            vocabulary: VocabularyRules {
+                min_occurrences: self.vocab_min_occurrences,
+                min_len: self.vocab_min_len,
+                prefix_match: self.vocab_prefix,
+            },
             unmatched: match self.on_unmatched {
                 Unmatched::Drop => UnmatchedPolicy::Drop,
                 Unmatched::Placeholder => UnmatchedPolicy::Placeholder,
@@ -319,6 +359,35 @@ mod tests {
             Command::Fit(args) => args,
             other => panic!("expected fit, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_last_vocabulary_flag_on_the_line_wins() {
+        // The same resolution the post-correction pair uses, and for the same reason: the default
+        // is a measurement result rather than a fixed property, so a caller that has pinned the
+        // behaviour it wants should not have to notice when it moves.
+        assert!(
+            extract(&["subtrackt", "extract", "a.sup", "--track-vocabulary"]).track_vocabulary()
+        );
+        assert!(
+            !extract(&["subtrackt", "extract", "a.sup", "--no-track-vocabulary"])
+                .track_vocabulary()
+        );
+        assert!(
+            extract(&[
+                "subtrackt",
+                "extract",
+                "a.sup",
+                "--no-track-vocabulary",
+                "--track-vocabulary",
+            ])
+            .track_vocabulary()
+        );
+        assert_eq!(
+            extract(&["subtrackt", "extract", "a.sup"]).track_vocabulary(),
+            Config::default().track_vocabulary,
+            "with neither flag it follows the library"
+        );
     }
 
     #[test]
