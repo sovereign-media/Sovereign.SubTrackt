@@ -165,6 +165,128 @@ Arial-italic scores 35.2 because 95% of the track is upright, so a per-title fit
 right set, report a good number, and still read the italic act at 36%. Whatever #43 decides about
 caching scope — per library, per title — style is a level below the one it is currently considering.
 
+## Can a fitter tell when it has no good answer?
+
+#43 asks for the negative case **first**, and it is right to: a fitter that always names its argmin
+is a machine for producing confident wrong answers, which is the failure this project exists not to
+have. So before building any of it:
+
+```console
+$ cargo run -p xtask -- fit-select --repeat 8 arial.ttf verdana.ttf tahoma.ttf \
+      trebuc.ttf segoeui.ttf calibri.ttf georgia.ttf times.ttf
+```
+
+Leave-one-out over eight typefaces. Each in turn renders the fixture, every candidate is scored
+against it, and the run is reported twice — once with the material's own font in the list, once with
+it withheld. Eight fixtures rather than the one this document's first table rests on, and the true
+font withheld, which is the second thing #43's acceptance criteria ask for.
+
+Two statistics, because the obvious one has a hole. **Mean match distance** — what `--report` prints
+as `fit` — averages over the glyphs that *matched*, so a set recognising a tenth of a track at close
+range outscores one recognising all of it at medium range. **Charging the unmatched** fixes that by
+charging every unread glyph the match ceiling, which is a lower bound on what it really cost.
+
+### Choosing works, and gets better with more material
+
+| material | best available | argmin picks | it costs |
+| :--- | :--- | :--- | ---: |
+| arial | arial (11.4%) | arial | +0.0 |
+| verdana | verdana (2.0%) | verdana | +0.0 |
+| tahoma | verdana (2.3%) | tahoma | +0.3 |
+| trebuc | trebuc (2.6%) | trebuc | +0.0 |
+| segoeui | segoeui (16.9%) | segoeui | +0.0 |
+| calibri | verdana (10.1%) | calibri | +1.4 |
+| georgia | georgia (8.2%) | georgia | +0.0 |
+| times | times (14.0%) | times | +0.0 |
+
+Costs nothing on six of eight, **0.2 points on average and 1.4 at worst**. At the shorter fixture it
+was 0.7 and 3.4, so the selector improves with material — as a noisy mean should.
+
+Note what the middle column already shows: the best available set is not always the material's own
+font. Verdana reads Tahoma-rendered material better than Tahoma's own set does. They are siblings by
+the same designer, and it matters below.
+
+### The floor cannot be built on either statistic
+
+Not "not yet", and not a matter of picking a better number. Line up what each material's argmin
+scored against what it actually read:
+
+| material | argmin, cells | its CER |
+| :--- | ---: | ---: |
+| calibri | **14.7** | **11.5%** |
+| arial | 15.3 | 11.4% |
+| trebuc | **16.1** | **2.6%** |
+| tahoma | 16.7 | 2.5% |
+| verdana | 17.2 | 2.0% |
+| segoeui | 18.2 | 16.9% |
+| times | 20.3 | 14.0% |
+| georgia | 20.4 | 8.2% |
+
+**Calibri is the closest fit by distance and reads four times worse than Trebuchet, which sits 1.4
+cells further away.** The column is not merely noisy — over this range it is close to
+uninformative. So every floor either ships everything or refuses the cleanest extraction in the set:
+
+| floor | shipped | worst shipped | refused | **best refused** |
+| ---: | ---: | ---: | ---: | ---: |
+| 60 permille = 15 cells | 1 | 11.5% | 7 | **2.0%** |
+| 70 permille = 17 cells | 4 | 11.5% | 4 | **2.0%** |
+| 80 permille = 20 cells | 6 | 16.9% | 2 | 8.2% |
+| 90 permille = 23 cells | 8 | 16.9% | 0 | — |
+
+The last column is the cost, and it is the wrong way round throughout: the *first* thing every
+usable floor throws away is the 2.0% read. Charging the unmatched glyphs shifts every number up by
+about two cells and changes nothing about the ordering.
+
+### The margin does not work either
+
+The matcher already has a threshold for "did the winner really win" — `ambiguity_margin`, which
+exists because a winner barely beating its runner-up has not won. The same shape, applied to
+candidate sets rather than to characters:
+
+| | smallest gap, answer present | largest gap, answer withheld |
+| :--- | ---: | ---: |
+| mean match distance | 0.9 cells | 4.6 cells |
+| charging unmatched | 0.9 cells | 6.4 cells |
+
+They overlap by four to six cells, in the wrong direction. Withhold Verdana and Tahoma stands out by
+a wide margin while being the wrong answer; keep Segoe UI and it wins its own material by 1.2 cells.
+Sibling typefaces produce decisive-looking wins that mean nothing, and distinctive ones produce
+narrow wins that are correct.
+
+### Why more material does not rescue it
+
+The obvious objection is sample size, so the run above is at eight renderings of every cue.
+Selection improved. **Separation did not**, and it should not be expected to, because this is not a
+sampling problem: §3 of this document already named the mechanism. A systematically wrong reference
+set is *by construction* a low-distance one — the matcher chose `I` for `t` precisely because they
+were close — so the statistic that would detect a wrong set is suppressed by the very thing that
+makes it wrong. Eight times the glyphs measures the same suppressed signal eight times more
+precisely.
+
+### What this leaves of #43
+
+The issue splits cleanly, with opposite answers.
+
+- **Choosing among candidates: works.** Argmin by distance costs 0.2 points on average across eight
+  fixtures, and picked the winner out of ten on a real Blu-ray.
+- **Knowing whether the choice is any good: does not.** Neither statistic, at either fixture length,
+  under an absolute floor or a relative margin.
+
+And #43's framing of the negative case needs adjusting before it can be satisfied. It asks that
+material rendered in a font *absent from the candidate list* be refused. The Tahoma row says that is
+the wrong test: withhold Tahoma and the argmin picks Verdana, which reads that material at 1.7%.
+Refusing it would throw away a clean extraction to satisfy a definition. **What a floor has to
+detect is a bad read, not an absent typeface** — and what is measured above is that mean distance
+cannot detect one.
+
+What has not been tried, and is the cheapest next thing: **agreement between the top candidates'
+output**. Two reference sets that produce the same text are unlikely to be wrong in the same way,
+whereas a set with no real answer should disagree with its runner-up everywhere. That is a
+comparison between two extractions rather than a threshold on one, it costs a second scan of glyphs
+already segmented, and nothing measured so far bears on it either way.
+
+## What this means for embedding
+
 The argument against embedding is not licensing, and it is not "we could not find a good enough
 font". It is that a fixed set of any typeface converts a **detectable** failure into an
 **undetectable** one:
@@ -222,10 +344,19 @@ issue, and it is the one that unblocks the product.
   either.
 - **Per-title fitting is the unlock.** Everything above is an argument for deriving the reference
   set from the material rather than shipping one.
-- **The selector works, measured on a disc.** Mean match distance picks the right typeface as the
-  argmin out of ten candidates on real material, and the gap under it — 11.7 against 18.5 — is wide
-  enough to hold a floor. #43's first acceptance criterion has a real-material data point now
-  rather than only a fixture one.
+- **The selector works, on a disc and across eight fixtures.** Mean match distance picks the right
+  typeface out of ten candidates on real material, and leave-one-out prices its choice at 0.2 points
+  of CER on average, 1.4 at worst. #43's *choose the set* half is answered.
+- **The floor that half depends on cannot be built on that statistic.** Measured before anything was
+  built, which is the order #43 asks for. Calibri fits closest by distance and reads four times
+  worse than a candidate 1.4 cells further away; neither an absolute floor nor a
+  winner-versus-runner-up margin separates a good read from a bad one, at either fixture length. The
+  gap under the real disc's argmin — 11.7 against 18.5 — turns out to be one disc's luck rather than
+  a property of the statistic.
+- **And the negative case needs restating.** #43 asks that material whose typeface is absent from
+  the candidate list be refused. Withhold Tahoma and the argmin picks Verdana, which reads that
+  material at 1.7%: refusing it would throw away a clean extraction. What a floor has to detect is a
+  bad *read*, not an absent typeface.
 - **Style is a level below typeface.** An italic reference set reads italic cues at 10.8% and
   upright at 40.5%; the upright set does the reverse. Whole-track distance cannot see it, so a fit
   that is right about the typeface can still be wrong about a third of a reel. [#14][issue-14] is

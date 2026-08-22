@@ -15,6 +15,7 @@ mod disc;
 mod fit;
 mod fixture;
 mod mark;
+mod select;
 mod separability;
 mod spacing;
 mod stability;
@@ -216,6 +217,7 @@ fn main() -> anyhow::Result<()> {
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
         Some("reference-fit") => return fit::run(&args[1..]),
+        Some("fit-select") => return select::run(&args[1..]),
         Some("cluster-sweep") => return sweep::run(&args[1..]),
         Some("metric-sweep") => return sweep::run_metric(&args[1..]),
         Some("mark-sweep") => return sweep::run_mark(&args[1..]),
@@ -230,6 +232,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask make-fixture <font.ttf> <out-dir> [--px N]");
     eprintln!("  xtask accuracy [font.ttf]");
     eprintln!("  xtask reference-fit <material.ttf> <candidate.ttf>...");
+    eprintln!("  xtask fit-select <font.ttf>...");
     eprintln!("  xtask spacing-margin [font.ttf]...");
     eprintln!("  xtask mark-sweep [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
