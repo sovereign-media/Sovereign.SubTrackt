@@ -15,8 +15,8 @@ use crate::bitmap::Rect;
 /// better on a mismatched typeface, another makes it a wash across four of them with match coverage
 /// down on every one, and the shape vector's own separation statistic slightly worsens. See
 /// `docs/glyph-stability.md`. Everything downstream is a fraction of [`FEATURE_BITS`], so changing
-/// this constant is a one-line experiment — with the exception noted on
-/// `MatchThresholds::metric_weight`.
+/// this constant is a one-line experiment. It was not always: `MatchThresholds::metric_weight` held
+/// a cell count until #45, and doubling the grid quietly un-tuned the matcher.
 pub const FEATURE_GRID: usize = 16;
 
 /// Number of bits in a [`FeatureVector`].

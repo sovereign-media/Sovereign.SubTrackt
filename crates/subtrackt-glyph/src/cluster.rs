@@ -52,12 +52,14 @@ pub struct ClusterRules {
     /// Expressed as a fraction rather than a cell count so a grid-size change does not silently
     /// change how permissive clustering is — the same rule the match thresholds follow.
     pub radius_percent: u32,
-    /// How much a percentage point of line-metric difference is worth, in hundredths of a cell.
+    /// What a full cap-height difference in line metrics is worth, in tenths of a percent of
+    /// [`FEATURE_BITS`].
     ///
-    /// Mirrors `MatchThresholds::metric_weight`, and for the same reason: two glyphs of identical
-    /// shape at different heights are different characters, so grouping them by shape alone would
-    /// merge exactly what #37 set out to separate.
-    pub metric_weight: u32,
+    /// Mirrors `MatchThresholds::metric_weight_permille`, and for the same reason: two glyphs of
+    /// identical shape at different heights are different characters, so grouping them by shape
+    /// alone would merge exactly what #37 set out to separate. Since #45 it mirrors the units as
+    /// well, a cell count here being just as able to un-tune clustering when the grid moves.
+    pub metric_weight_permille: u32,
     /// How many times centroids are recomputed and shapes reassigned after the first pass.
     ///
     /// The first pass is order-dependent: it walks shapes most-frequent-first and drops each into
@@ -87,7 +89,7 @@ impl Default for ClusterRules {
     /// measured the question, and because the finding it produced — that the feature vector cannot
     /// separate confusable characters at all — is what the next experiment has to attack.
     fn default() -> Self {
-        Self { radius_percent: 0, metric_weight: 50, refine_passes: 2 }
+        Self { radius_percent: 0, metric_weight_permille: 196, refine_passes: 2 }
     }
 }
 
@@ -97,6 +99,14 @@ impl ClusterRules {
     #[allow(clippy::cast_possible_truncation)]
     pub const fn radius(self) -> u32 {
         (FEATURE_BITS as u32) * self.radius_percent / 100
+    }
+
+    /// What a full cap-height metric difference costs, in cells. See
+    /// [`MatchThresholds::metric_weight`](crate::matcher::MatchThresholds::metric_weight).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn metric_weight(self) -> u32 {
+        (FEATURE_BITS as u32) * self.metric_weight_permille / 1000
     }
 }
 
@@ -247,7 +257,7 @@ pub fn centroid(members: &[(Shape, u64)]) -> Shape {
 pub fn distance(a: &Shape, b: &Shape, rules: ClusterRules) -> u32 {
     let base = a.0.distance(&b.0);
     a.1.difference(b.1)
-        .map_or(base, |points| base + points * rules.metric_weight / 100)
+        .map_or(base, |points| base + points * rules.metric_weight() / 100)
 }
 
 /// Group a stream's shapes.
@@ -357,7 +367,7 @@ mod tests {
     /// Eight percent is the radius the sweep in `xtask cluster-sweep` centred on. These tests are
     /// about whether the algorithm does what it says, not about whether grouping helps.
     fn grouping() -> ClusterRules {
-        ClusterRules { radius_percent: 8, metric_weight: 50, refine_passes: 2 }
+        ClusterRules { radius_percent: 8, metric_weight_permille: 196, refine_passes: 2 }
     }
 
     /// A vector with the given bits set.
@@ -589,6 +599,17 @@ mod tests {
 
         let clusters = cluster(&shapes, ClusterRules { radius_percent: 0, ..grouping() });
         assert_eq!(clusters.len(), 3);
+    }
+
+    #[test]
+    fn clustering_prices_line_metrics_exactly_as_the_matcher_does() {
+        // The two are documented as mirrors, and a divergence between them would be invisible:
+        // shapes would be grouped under one exchange rate and labelled under another. #45 moved
+        // both units at once, and this is what stops a later change from moving only one.
+        assert_eq!(
+            ClusterRules::default().metric_weight(),
+            crate::matcher::MatchThresholds::default().metric_weight()
+        );
     }
 
     #[test]
