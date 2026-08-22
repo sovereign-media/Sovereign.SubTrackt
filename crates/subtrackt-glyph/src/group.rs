@@ -344,7 +344,7 @@ mod tests {
         //
         // Found while building #48's bench; see `docs/glyph-stability.md`, which measures it at 25
         // of 51 marks reaching their body in a letters-only line against 44 with a `$` on it. The
-        // fix belongs to #6. Until then, this test is what makes the behaviour a decision.
+        // fix is #57. Until then, this test is what makes the behaviour a decision.
         let mut mask = BinaryMask::blank(8, 5);
         for x in 0..2 {
             mask.set(x, 0, true); // the mark, alone on its rows

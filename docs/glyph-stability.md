@@ -626,7 +626,10 @@ where the mark is wider than the narrow `i` beneath it and the 50% overlap rule 
 This is a segmentation fact rather than a matching one, and it lands *before* anything below: a mark
 that does not reach its body is not a mark. The letter under it is matched bare and the accent is
 matched as a glyph in its own right, which is a different failure from the one #48 set out to
-measure. It is #6's territory, not #48's.
+measure. It is #6's territory rather than #48's, and is tracked as
+[#57](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/57) — with the narrow `i`
+case, which fails for an unrelated reason, as
+[#58](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/58).
 
 ### Separation, measured against each character's own noise
 
@@ -782,7 +785,7 @@ bench is cheap; running the sweep afterwards is what caught this one.
   pairs sit close together, not about which glyphs land on the wrong one — and #48 is the first time
   those came apart. Any future feature justified by that bench needs a sweep before it is believed.
 - **A mark on a capital never reaches its body in ordinary text** — found while setting the
-  measurement above up, and it belongs to #6 rather than #48. `line_bands` cuts a line at any blank
+  measurement above up, and it is #57 rather than #48. `line_bands` cuts a line at any blank
   row and the accent on a capital sits above every letter Arial draws, so `À` segments as an `A` and
   a floating grave. 25 of 51 marks group in a letters-only line against 44 of 51 with a `$` on it.
   The accuracy fixture has never caught this because its accented text is all lowercase.
