@@ -27,6 +27,19 @@ pub struct Report {
     pub ambiguous: u64,
     /// Glyphs answered from the session cache.
     pub cache_hits: u64,
+    /// Distinct glyph shapes the stream contained.
+    ///
+    /// Tens of thousands of glyphs reduce to a few hundred shapes, which is what makes clustering
+    /// them cheap. A count close to the glyph count means normalisation has stopped collapsing
+    /// repeat renderings onto the same vector, and everything downstream gets more expensive and
+    /// less accurate at once.
+    pub distinct_shapes: u64,
+    /// Groups those shapes formed, each matched against the reference set exactly once.
+    ///
+    /// Compare with the character count of the material: far more clusters than distinct
+    /// characters means the radius is too tight to absorb the stream's own variation, and far
+    /// fewer means it is loose enough to be merging different characters together.
+    pub clusters: u64,
     /// Cues written.
     pub cues: u64,
     /// Cues dropped under [`UnmatchedPolicy::Drop`].

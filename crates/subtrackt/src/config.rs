@@ -2,6 +2,7 @@
 
 use subtrackt_core::{Confidence, SubtitleFormat};
 use subtrackt_glyph::binarize::Threshold;
+use subtrackt_glyph::cluster::ClusterRules;
 use subtrackt_glyph::matcher::MatchThresholds;
 use subtrackt_text::layout::LayoutRules;
 
@@ -73,6 +74,8 @@ pub struct Config {
     pub grey_coverage: bool,
     /// Glyph matching thresholds.
     pub matching: MatchThresholds,
+    /// How the stream's own shapes are grouped before any is matched.
+    pub clustering: ClusterRules,
     /// Text reconstruction rules.
     pub layout: LayoutRules,
     /// What happens to unread glyphs.

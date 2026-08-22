@@ -16,7 +16,8 @@ pub const FEATURE_GRID: usize = 16;
 /// Number of bits in a [`FeatureVector`].
 pub const FEATURE_BITS: usize = FEATURE_GRID * FEATURE_GRID;
 
-const FEATURE_WORDS: usize = FEATURE_BITS / 64;
+/// Number of 64-bit words a [`FeatureVector`] occupies.
+pub const FEATURE_WORDS: usize = FEATURE_BITS / 64;
 
 /// A glyph normalised to a fixed-length bit vector.
 ///

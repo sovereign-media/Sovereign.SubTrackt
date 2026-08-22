@@ -50,6 +50,21 @@ pub trait Segmenter {
 
 /// Identifies a glyph against the reference set.
 pub trait GlyphMatcher {
+    /// Show the matcher every glyph in the stream before any of them is matched.
+    ///
+    /// The default is to do nothing, which is what a purely streaming matcher wants. It exists
+    /// because the shipped matcher is not one: #14 measured that a fixed reference set cannot
+    /// identify glyphs one at a time, and the answer is to group a stream's own shapes first and
+    /// match the group. That needs the whole stream in hand, and a stage cannot ask for it after
+    /// answers have already been given out.
+    ///
+    /// # Errors
+    /// Returns an error if the preparation itself fails. A matcher that merely finds nothing to
+    /// match returns `Ok`.
+    fn prepare(&mut self, _glyphs: &[Glyph]) -> Result<()> {
+        Ok(())
+    }
+
     /// Match one glyph.
     ///
     /// Returning `Ok` with a `None` character is the normal way to report "no reference within

@@ -225,10 +225,96 @@ variation away before matching. What is left is the observation that within a si
 variation is small — one authoring tool, one typeface, one resolution. **That is #10, and it is why
 #10 has to become cluster-then-match rather than match-per-glyph.**
 
+## Clustering the stream's own shapes, and failing for a reason that changes the project
+
+The redesign #10 became after the section above. Group a stream's own shapes, match one consensus
+vector per group, and give every glyph in a group that answer. The reasoning: a title is authored
+once, so within a stream the expensive axes — weight, slant, typeface — are constant, and only the
+cheap ones vary. Clustering should cancel exactly the variation a fixed set cannot survive.
+
+It is implemented in `subtrackt_glyph::cluster`, it does what it says, and `xtask cluster-sweep`
+measured it across four conditions and eight radii. **Every cell in the grid is neutral or worse.**
+
+| radius | plain, exact | varied, exact | plain, near miss | varied, near miss |
+| :--- | ---: | ---: | ---: | ---: |
+| 0 (no clustering) | **16.9%** | **23.9%** | **32.3%** | **28.5%** |
+| 2% = 5 cells | 21.0% | 24.7% | 32.3% | 28.8% |
+| 4% = 10 cells | 21.0% | 28.2% | 32.3% | 29.5% |
+| 6% = 15 cells | 24.2% | 33.0% | 32.3% | 28.0% |
+| 8% = 20 cells | 26.6% | 32.7% | 37.9% | 33.0% |
+| 12% = 30 cells | 31.5% | 35.4% | 40.3% | 31.7% |
+| 16% = 40 cells | 48.4% | 39.7% | 47.6% | 33.7% |
+
+CER, lower is better. *Varied* repeats the cue set at five rendering sizes, which is what a stream
+looks like and a fixture does not; *near miss* renders the material in a different typeface from the
+reference set, which is the realistic case rather than the ceiling one. The best cell anywhere is
+−0.5 points, which is noise.
+
+### Why, in one measurement
+
+The sweep prints the closest pairs in the reference set before it runs, and they settle the question
+on their own:
+
+```
+I / l   0 cells apart
+I / |   0 cells apart
+l / |   0 cells apart
+I / Í   3 cells apart
+! / I   4 cells apart
+I / i   4 cells apart
+```
+
+**`I`, `l` and `|` are the same vector.** Not close — identical. Letterboxing normalises a vertical
+bar to a centred vertical bar whatever its height, and that is every one of them.
+
+So a radius has a ceiling it can never reach. Clustering needs a character's own renderings to be
+closer to each other than the nearest *different* character is, and the nearest different character
+is at distance zero. The smallest radius tried, five cells, already merges fifteen pairs; at twenty
+cells it merges 172. Meanwhile a stream's own variation runs to a median of 11 cells for rendering
+size alone. **The two distributions do not merely overlap — the inter-character one starts at zero.**
+
+This also explains the previous experiment. Grey coverage failed by collapsing `o`→`O` and `u`→`U`;
+those pairs differ only in size relative to the line, which letterboxing has already discarded, so
+softening the representation was pushing on characters that were already nearly coincident.
+
+### What this actually says, which is not "clustering was a bad idea"
+
+Three experiments have now failed, and they were all attacking the same term. Threshold placement,
+ramp representation and grouping strategy are all ways of reducing *variance* — of making two
+renderings of one character land closer together. Every one of them worked to some degree, and none
+of it mattered, because the problem is not variance. It is **separation**: the feature vector places
+distinct characters at distance zero, and no amount of variance reduction can recover a distinction
+the representation never encoded.
+
+That reframes the ceiling. The pipeline is not a noisy version of something that would work if it
+were quieter. It is missing a feature.
+
+And the missing feature is identifiable from the same evidence. Every confusable pair here —
+`I`/`l`/`|`/`!`/`1`, `o`/`O`, `c`/`C`, `u`/`U`, `s`/`S` — is a pair whose members have the *same
+shape* and differ in **size and position relative to the text line**. An `o` is an `O` that occupies
+the x-height band instead of the cap-height band. `AspectPolicy::Letterbox` normalises exactly that
+away, deliberately, and it was the right call for scale invariance across resolutions — but it
+throws out the only thing separating these pairs.
+
+`subtrackt_glyph::group` already computes line bands. A glyph's height and baseline offset *as
+fractions of its line band* are scale-invariant in the way that matters, survive a resolution
+change, and separate every pair in the list above. That is the next experiment, it is a #7 question
+again, and unlike the last three it attacks the term the measurements actually implicate.
+
+Clustering ships off — `ClusterRules::default` sets a zero radius, so every distinct shape keeps its
+own label decision and behaviour is exactly what it was. The machinery stays because it is the
+instrument that produced this finding, and because the next experiment changes the feature vector
+and will want the sweep re-run against it.
+
 ## What follows
 
-- **#10 needs redesigning, not implementing.** It is written as per-glyph matching against a fixed
-  set. It should become: cluster a stream's shapes, then match centroids.
+- ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
+  and **measured worse at every radius** — see above. The premise was that within-stream variation
+  is small enough to group safely; the measurement found the nearest different character is at
+  distance *zero*, so no radius exists. Clustering ships off.
+- **The next experiment is a line-relative size feature**, and it is the first one aimed at
+  separation rather than variance. Every confusable pair differs in height relative to its text
+  line, which letterboxing normalises away.
 - **#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds labels;
   it will not carry the load alone.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two
