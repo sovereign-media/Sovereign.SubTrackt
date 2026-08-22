@@ -283,6 +283,68 @@ Refusing it would throw away a clean extraction to satisfy a definition. **What 
 detect is a bad read, not an absent typeface** — and what is measured above is that mean distance
 cannot detect one.
 
+## Carrying two cuts of a typeface in one set
+
+#66. The disc above reads its upright dialogue at 7.1% and its 43-cue italic act at 35.7%; an
+Arial Italic set reads them at 40.5% and 10.8%. A per-title fit picks Arial, reports a good score,
+and reads the italic act at 36% — and whole-track distance cannot see the split, because 95% of the
+track is upright.
+
+`ReferenceEntry` has carried a `Style` byte since the format was written and nothing had ever
+populated it. `gen-reference --italic` does now: one vector per character per cut, in one set, and
+the matcher picks whichever is closer on shape alone. No style detection — the letterform decides,
+which is what the whole matcher rests on.
+
+The [prediction is on the issue][66-prediction], and it was wrong in the direction that mattered.
+
+[66-prediction]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/66#issuecomment-5379747643
+
+### What it costs, from `xtask set-pairs`
+
+| set | entries | confusable pairs | across styles | same letter, two cuts |
+| :--- | ---: | ---: | ---: | ---: |
+| arial | 139 | 21 | 0 | 0 |
+| arial + italic | 278 | 43 | **0** | 10 |
+| arial + italic + bold | 417 | 57 | 2 | 22 |
+
+**Adding italic creates no cross-style confusion at all.** The prediction was that shearing would
+push an italic `l` into an upright `/`; it does not, because shearing moves the *whole* italic
+alphabet together, so it stays in its own neighbourhood. The 22 pairs italic adds are the italic
+set's own copy of the accent-direction problem #48 measured in the upright one — `À`/`Á`, `è`/`é` —
+not new kinds of confusion.
+
+The ten same-character pairs are an upright `a` beside an italic `a`. They sit within the margin by
+construction and are **not** confusions: since #68 the matcher takes its runner-up from a different
+character, so it will not report one as the other's rival. They are counted separately rather than
+filtered by distance, because filtering by distance is exactly what would hide them.
+
+### What it buys, on the disc
+
+| set | upright | italic | all |
+| :--- | ---: | ---: | ---: |
+| arial | 7.1% | 35.7% | 8.8% |
+| **arial + italic** | **7.1%** | **4.7%** | **6.9%** |
+| arial + italic + bold | 7.3% | 4.7% | 7.2% |
+
+The italic act goes from 35.7% to **4.7%** and the upright column does not move by a decimal. It
+also beats the italic-only set's 10.8% on its own cues, because a combined set covers what either
+cut alone misses.
+
+**Bold costs and buys nothing here**: 0.2 points on the upright column, ambiguous glyphs up from
+3,872 to 4,532, and no gain — the film has no bold. That is one film, so it is an argument for not
+adding bold *by default* rather than for never adding it. A track with bold in it would want the
+same measurement run again.
+
+### What ships
+
+`gen-reference --italic <font>` and `--bold <font>`. **Generate regular plus italic; leave bold
+out** unless a title needs it. Nothing changes in the matcher, the format or the fitting — the
+combined set is an ordinary `.subtref` and `subtrackt fit` scores it like any other.
+
+Cap height is measured per cut rather than once, because an italic and an upright of one typeface do
+not share one exactly, and scaling one against the other's would make every line metric slightly
+wrong in a way nothing would report.
+
 ## Choosing from a real font directory, which is where the statistic matters
 
 Everything above uses eight typefaces chosen to span the design space. #62 has to decide where a
