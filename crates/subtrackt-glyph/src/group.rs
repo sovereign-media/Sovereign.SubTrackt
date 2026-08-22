@@ -45,6 +45,19 @@ pub struct GroupingRules {
     /// of the mark. A mark genuinely straddling two letters still fails, because the overlap with
     /// either one is then a small part of that letter too.
     pub min_overlap_percent: u32,
+    /// Maximum horizontal gap between two side-by-side marks that may be one mark, in percent of
+    /// the wider one's width.
+    ///
+    /// A diaeresis is two dots straddling the stem they belong to — at x84 and x102 over a stem at
+    /// x93 in Arial at 96px — so **neither dot overlaps the stem and neither centre falls on it**.
+    /// Only their union does, and marks are matched to bodies one at a time. That is why `Ï` and
+    /// `ï` never grouped, which is the second half of #58.
+    ///
+    /// This is a guard rather than the discriminator. What separates a diaeresis from the two dots
+    /// of `ii` — also two marks at the same height — is not distance but that each `i` dot finds
+    /// its own stem on its own and never becomes an orphan. Only orphans are merged, so the `ii`
+    /// case cannot arise however the threshold is set.
+    pub mark_cluster_gap_percent: u32,
     /// Maximum vertical gap between two stacked punctuation marks, in percent of the taller
     /// mark's height.
     ///
@@ -60,6 +73,7 @@ impl Default for GroupingRules {
             diacritic_max_height_percent: 40,
             max_gap_percent: 25,
             min_overlap_percent: 50,
+            mark_cluster_gap_percent: 150,
             punctuation_gap_percent: 200,
         }
     }
@@ -316,6 +330,15 @@ fn group_one_line(members: &[Component], line: usize, rules: GroupingRules) -> V
         }
     }
 
+    // A mark that found no body may be half of one. A diaeresis straddles its stem, so neither dot
+    // overlaps it and each fails alone where their union would succeed — #58. Retrying the merged
+    // pair is safe precisely because it only ever sees marks that already failed: the dots of `ii`
+    // each match their own stem individually and never reach here.
+    let (rejoined, orphans) = rejoin_split_marks(members, &orphans, &bodies, max_gap, rules);
+    for (slot, pair) in rejoined {
+        parts[slot].extend(pair);
+    }
+
     // Marks with no body under them are punctuation in their own right. Stacked ones are a single
     // character — a colon, a semicolon — so they cluster together rather than becoming two glyphs.
     for cluster in cluster_orphans(members, &orphans, rules) {
@@ -350,6 +373,89 @@ fn best_body(
 }
 
 /// Cluster leftover marks that stack vertically, so `:` and `;` stay one character.
+/// Retry orphaned marks in horizontally adjacent pairs.
+///
+/// The second half of #58. A mark is matched to a body on its own, which is right for every mark
+/// that sits over the letter it belongs to and wrong for the one that straddles it: a diaeresis is
+/// two dots either side of a narrow stem, so neither overlaps it and only their union does.
+///
+/// Only orphans are considered, and that is the whole safety argument. The dots of `ii` are two
+/// marks at the same height too, and merging *those* would attach one mark to one stem — but each
+/// of them finds its own stem individually and never becomes an orphan, so the pair never reaches
+/// this pass however the gap threshold is set.
+///
+/// Returns the pairs that found a body, keyed by the body's slot, and the orphans that are still
+/// orphans.
+fn rejoin_split_marks(
+    members: &[Component],
+    orphans: &[usize],
+    bodies: &[usize],
+    max_gap: u32,
+    rules: GroupingRules,
+) -> (Vec<(usize, Vec<Component>)>, Vec<usize>) {
+    let mut rejoined = Vec::new();
+    let mut used = vec![false; orphans.len()];
+
+    for (first, left) in orphans.iter().enumerate() {
+        if used[first] {
+            continue;
+        }
+        for (second, right) in orphans.iter().enumerate().skip(first + 1) {
+            if used[second] || !side_by_side(members[*left].bounds, members[*right].bounds, rules) {
+                continue;
+            }
+
+            // The pair as one mark, appended so the body indices still address the same
+            // components. If it now finds a body, the two were one character all along.
+            let mut extended = members.to_vec();
+            extended.push(Component {
+                bounds: members[*left].bounds.union(members[*right].bounds),
+                pixels: members[*left].pixels + members[*right].pixels,
+            });
+            let merged = extended.len() - 1;
+            let Some(slot) = best_body(&extended, bodies, merged, max_gap, rules) else {
+                continue;
+            };
+
+            rejoined.push((slot, vec![members[*left], members[*right]]));
+            used[first] = true;
+            used[second] = true;
+            break;
+        }
+    }
+
+    let still_orphaned = orphans
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !used[*index])
+        .map(|(_, orphan)| *orphan)
+        .collect();
+    (rejoined, still_orphaned)
+}
+
+/// Are two marks side by side at the same height, close enough to be one mark?
+///
+/// Vertical agreement first: two dots of a diaeresis share a top, and a mark beside an unrelated
+/// one — an apostrophe next to a hyphen — does not. Then the horizontal gap, as a fraction of the
+/// wider mark, so the same pair merges at every resolution.
+fn side_by_side(left: Rect, right: Rect, rules: GroupingRules) -> bool {
+    let (left, right) = if left.x <= right.x {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let widest = left.width.max(right.width).max(1);
+    let tallest = left.height.max(right.height).max(1);
+
+    // Tops within a fraction of their own height, which is what "the same height" means for two
+    // parts of one mark.
+    if left.y.abs_diff(right.y) * 100 > tallest * rules.diacritic_max_height_percent {
+        return false;
+    }
+    let gap = right.x.saturating_sub(left.right());
+    gap * 100 <= widest * rules.mark_cluster_gap_percent
+}
+
 fn cluster_orphans(
     members: &[Component],
     orphans: &[usize],
@@ -500,6 +606,58 @@ mod tests {
             2,
             "the upper band holds nothing, so nothing says it is an accent row"
         );
+    }
+
+    #[test]
+    fn two_dots_straddling_a_narrow_stem_are_one_mark() {
+        // #58's second half. A diaeresis sits either side of the stem it belongs to, so neither dot
+        // overlaps it and each fails alone where their union succeeds.
+        let left = component(0, 0, 9, 9);
+        let right = component(18, 0, 9, 9);
+        let stem = component(9, 20, 9, 50);
+
+        let grouped = group_line(&[left, right, stem]);
+        assert_eq!(grouped.len(), 1, "one character, not three glyphs");
+        assert_eq!(grouped[0].parts.len(), 3, "both dots joined the stem");
+    }
+
+    #[test]
+    fn the_dots_of_two_adjacent_letters_are_not_merged_with_each_other() {
+        // The hazard this issue named, and the reason only *orphans* are retried in pairs. Two `i`
+        // dots are two marks at the same height, and merging them would attach one mark to one
+        // stem — but each finds its own stem individually and never reaches the merge pass.
+        let first_dot = component(0, 0, 9, 9);
+        let first_stem = component(0, 20, 9, 50);
+        let second_dot = component(27, 0, 9, 9);
+        let second_stem = component(27, 20, 9, 50);
+
+        let grouped = group_line(&[first_dot, first_stem, second_dot, second_stem]);
+        assert_eq!(grouped.len(), 2, "two letters");
+        assert!(
+            grouped.iter().all(|g| g.parts.len() == 2),
+            "each dot went to its own stem"
+        );
+    }
+
+    #[test]
+    fn a_colon_is_untouched_by_the_pair_retry() {
+        // A colon's dots are stacked vertically, so the side-by-side test never sees them and
+        // `cluster_orphans` handles them exactly as before. This is the pair `group` is built
+        // around.
+        let grouped = group_line(&colon(0));
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].parts.len(), 2, "still one colon of two dots");
+    }
+
+    #[test]
+    fn two_marks_at_different_heights_are_not_one_mark() {
+        // An apostrophe beside a hyphen: both are bodiless marks side by side, and merging them
+        // would make one glyph that matches nothing — a worse failure than the two they replace.
+        // Their tops disagree, which is what says they are not two halves of one mark.
+        let rules = GroupingRules::default();
+        let apostrophe = Rect::new(0, 0, 6, 10);
+        let hyphen = Rect::new(10, 30, 12, 4);
+        assert!(!side_by_side(apostrophe, hyphen, rules));
     }
 
     #[test]

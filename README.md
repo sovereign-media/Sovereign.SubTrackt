@@ -93,7 +93,7 @@ the normalisation was built to absorb, and it absorbs them.
 
 **[`docs/post-correction.md`](docs/post-correction.md)** — what is left once shapes are as good as
 they get. Resolving the pairs a binarized glyph cannot separate (`0`/`O`, `1`/`l`/`I`) from the
-characters around them takes **2.1 points** off the ceiling fixture's character error rate and makes
+characters around them takes **2.2 points** off the ceiling fixture's character error rate and makes
 no line worse. On a real Blu-ray it takes 1.4 points off 818 cues and makes **no cue worse**. It
 still ships switched off, and the reason is now narrow: the only comparison available for a real
 track is another release's subtitle, which is evidence rather than ground truth.
