@@ -40,6 +40,10 @@ pub enum Command {
 }
 
 /// Arguments for `subtrackt extract`.
+///
+/// The bool count is what a command line is: clap derives one field per flag, and grouping them
+/// into a state enum to satisfy the lint would only move the flatness somewhere it reads worse.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Args)]
 pub struct ExtractArgs {
     /// Input file.
@@ -69,9 +73,13 @@ pub struct ExtractArgs {
     #[arg(long)]
     pub include_outline: bool,
 
-    /// Run post-correction on ambiguous reads. Off by default; see #12.
-    #[arg(long)]
+    /// Resolve ambiguous reads from the characters around them. See docs/post-correction.md.
+    #[arg(long, overrides_with = "no_post_correct")]
     pub post_correct: bool,
+
+    /// Leave ambiguous reads exactly as the matcher returned them.
+    #[arg(long, overrides_with = "post_correct")]
+    pub no_post_correct: bool,
 
     /// Print the extraction summary to stderr.
     #[arg(long)]
@@ -169,13 +177,31 @@ pub enum Unmatched {
 }
 
 impl ExtractArgs {
+    /// Whether post-correction runs, resolving the flag pair against the library default.
+    ///
+    /// Written so that flipping [`Config::post_correct`] flips the CLI with it. Both flags exist
+    /// even though only one of them currently changes anything, because the default is a
+    /// measurement result (see `docs/post-correction.md`) rather than a fixed property, and a
+    /// caller that has pinned the behaviour it wants should not have to notice when it moves.
+    /// `overrides_with` makes the last flag on the line the one that counts.
+    #[must_use]
+    pub fn post_correct(&self) -> bool {
+        if self.post_correct {
+            true
+        } else if self.no_post_correct {
+            false
+        } else {
+            Config::default().post_correct
+        }
+    }
+
     /// Build the pipeline configuration these arguments describe.
     #[must_use]
     pub fn to_config(&self) -> Config {
         let mut config = Config {
             stream: self.stream,
             format: self.format.into(),
-            post_correct: self.post_correct,
+            post_correct: self.post_correct(),
             unmatched: match self.on_unmatched {
                 Unmatched::Drop => UnmatchedPolicy::Drop,
                 Unmatched::Placeholder => UnmatchedPolicy::Placeholder,
@@ -221,6 +247,28 @@ mod tests {
         assert_eq!(config.format, SubtitleFormat::Srt);
         assert!(!config.post_correct);
         assert!(!config.binarize.include_outline);
+    }
+
+    #[test]
+    fn both_post_correction_flags_work_and_the_last_one_wins() {
+        let extract_with = |flags: &[&str]| {
+            let mut argv = vec!["subtrackt", "extract", "movie.sup"];
+            argv.extend_from_slice(flags);
+            extract(&argv).to_config().post_correct
+        };
+
+        assert!(extract_with(&["--post-correct"]));
+        assert!(!extract_with(&["--no-post-correct"]));
+        assert_eq!(
+            extract_with(&[]),
+            Config::default().post_correct,
+            "neither flag means whatever the measurement made the default"
+        );
+
+        // Both are accepted together rather than rejected, so a wrapper script can append one to a
+        // command line that already carries the other. The rightmost is the answer.
+        assert!(!extract_with(&["--post-correct", "--no-post-correct"]));
+        assert!(extract_with(&["--no-post-correct", "--post-correct"]));
     }
 
     #[test]

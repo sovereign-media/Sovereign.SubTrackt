@@ -52,6 +52,12 @@ character are typically further apart (median 46 cells) than two *different* cha
 character identity itself. Rendering size and anti-aliasing, by contrast, cost 11 and 8 — the axes
 the normalisation was built to absorb, and it absorbs them.
 
+**[`docs/post-correction.md`](docs/post-correction.md)** — what is left once shapes are as good as
+they get. Resolving the pairs a binarized glyph cannot separate (`0`/`O`, `1`/`l`/`I`) from the
+characters around them takes **3.1 points** off the ceiling fixture's character error rate and makes
+no line worse. It ships switched off: the corrector refuses more than it accepts by construction,
+but one generated fixture is not a corpus to decide a default that rewrites what a viewer reads.
+
 **The consequence.** One reference vector per character cannot work, and enumerating styles does not
 rescue it. The session cache stops being an optimisation and becomes the mechanism: the expensive
 axes are constant *within* a stream, so clustering a title's own repeated shapes cancels exactly the

@@ -392,9 +392,10 @@ The remaining fixture errors are two classes, and neither is a shape problem:
 ! over the Iazy dog.            want: over the lazy dog.
 ```
 
-Word spacing (#11) and `l`/`I` (#12). The first is a gap threshold; the second needs context, and
-the matcher now flags it as ambiguous rather than answering silently, which is what makes #12
-tractable.
+Word spacing (#11) and `l`/`I` (#12). The first is a gap threshold; the second needs context, which
+the matcher made available by flagging the glyph as ambiguous rather than answering silently. #12
+has since taken that up and cleared most of the second class, though not this line: see
+`docs/post-correction.md` for why `Iazy` is the case it deliberately declines.
 
 ## What follows
 
@@ -405,8 +406,11 @@ tractable.
 - ~~**The next experiment is a line-relative size feature**~~ — **done, and it works**: #37, see
   above. 5.8 to 8.1 points of CER on realistic conditions, and zero-distance pairs down from three
   to one. The first change to aim at separation rather than variance, and the first to pay.
-- **What remains is not shape.** Word spacing is #11 and `l`/`I` is #12, which now receives those
-  glyphs flagged as ambiguous rather than answered silently.
+- **What remains is not shape.** Word spacing is #11 and `l`/`I` is #12. ~~#12 now receives those
+  glyphs flagged as ambiguous rather than answered silently.~~ **Built and measured** — see
+  `docs/post-correction.md`. Reading `l`/`I` from the characters either side of it takes 3.1 points
+  off the CER above and makes no line worse. `jaIapeño` is fixed; `Iazy` is not, because the
+  evidence for correcting a word-initial capital is the same evidence that would break `Iowa`.
 - **#9 cannot embed its way to a solution.** The fixed set identifies the typeface and seeds labels;
   it will not carry the load alone.
 - ~~**Reducing edge sensitivity in binarization**~~ — **tried and failed**, see above. Two

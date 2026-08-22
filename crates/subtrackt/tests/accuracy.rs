@@ -36,18 +36,19 @@ fn the_fixture_decodes_to_the_expected_cues() {
     let outcome = extract();
     let truth = ground_truth();
 
-    assert_eq!(outcome.report.packets, 30, "5 cues, each a display set and a clear");
-    assert_eq!(outcome.report.images, 5);
-    assert_eq!(outcome.track.cues.len(), 5);
+    assert_eq!(outcome.report.packets, 36, "6 cues, each a display set and a clear");
+    assert_eq!(outcome.report.images, 6);
+    assert_eq!(outcome.track.cues.len(), 6);
 
-    // Cue three is the two-speaker exchange and is the only one with two lines.
+    // Cue three is the two-speaker exchange and cue six the post-correction case; those are the
+    // two with a second line.
     let lines: Vec<usize> = outcome.track.cues.iter().map(|c| c.lines.len()).collect();
     assert_eq!(
         lines,
-        vec![1, 1, 2, 1, 1],
+        vec![1, 1, 2, 1, 1, 2],
         "line splitting comes from the row projection"
     );
-    assert_eq!(truth.trim().lines().count(), 6, "six lines across five cues");
+    assert_eq!(truth.trim().lines().count(), 8, "eight lines across six cues");
 }
 
 #[test]
@@ -63,6 +64,7 @@ fn cue_timings_are_two_seconds_three_seconds_apart() {
     assert_eq!(spans[0], (1_000, 3_000));
     assert_eq!(spans[1], (4_000, 6_000));
     assert_eq!(spans[4], (13_000, 15_000));
+    assert_eq!(spans[5], (16_000, 18_000));
 }
 
 #[test]
@@ -115,6 +117,30 @@ fn glyphs_are_measured_against_their_own_text_line() {
     assert_eq!(
         outcome.report.glyphs_without_metrics, 0,
         "every glyph in the fixture sits on a measurable line"
+    );
+}
+
+#[test]
+fn post_correction_is_off_unless_it_is_asked_for_and_the_report_says_which() {
+    // The switch, end to end. Nothing matches without a reference set, so neither run has an
+    // ambiguous glyph to work on and both correct nothing — which is the point: `0 corrections`
+    // is ambiguous on its own, and the corrector's name in the report is what resolves it.
+    let base = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
+
+    let off = Pipeline::new(base)
+        .run(fixture("synthetic.sup"))
+        .expect("the fixture extracts");
+    assert_eq!(off.report.corrector, "none");
+    assert!(off.corrections.is_empty());
+
+    let on = Pipeline::new(Config { post_correct: true, ..base })
+        .run(fixture("synthetic.sup"))
+        .expect("the fixture extracts");
+    assert_eq!(on.report.corrector, "context");
+    assert_eq!(on.report.corrections, 0, "an unread track offers nothing to correct");
+    assert_eq!(
+        on.track, off.track,
+        "with nothing flagged ambiguous, running the corrector must change nothing at all"
     );
 }
 

@@ -14,6 +14,7 @@ use subtrackt_demux::{StreamInfo, SubtitleSource};
 use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
 use subtrackt_glyph::matcher::HammingMatcher;
 use subtrackt_glyph::reference;
+use subtrackt_text::correct::{ContextCorrector, CorrectionLog, NoopCorrector, PostCorrector};
 use subtrackt_text::layout::SpatialAssembler;
 use subtrackt_text::writer_for;
 
@@ -27,6 +28,13 @@ pub struct Outcome {
     pub track: TextTrack,
     /// Counters and the gate decision.
     pub report: Report,
+    /// Every substitution post-correction made, in cue order.
+    ///
+    /// Empty unless [`Config::post_correct`] was set. It is carried out of the run rather than
+    /// merely counted because a correction that leaves no trace is the failure mode the whole
+    /// stage is built to avoid: a caller has to be able to see what was rewritten, not just how
+    /// often.
+    pub corrections: Vec<CorrectionLog>,
     /// The stream that was read.
     pub stream: StreamInfo,
 }
@@ -120,7 +128,15 @@ impl Pipeline {
         images.extend(decoder.finish()?);
         report.images = images.len().try_into().unwrap_or(u64::MAX);
 
-        let track = self.build_track(&images, &segmenter, &mut matcher, &assembler, &mut report)?;
+        let mut corrections = Vec::new();
+        let track = self.build_track(
+            &images,
+            &segmenter,
+            &mut matcher,
+            &assembler,
+            &mut report,
+            &mut corrections,
+        )?;
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
         report.cache_hits = matcher.cache_hits();
@@ -129,7 +145,23 @@ impl Pipeline {
             return Err(Error::UnmatchedGlyph { best_distance: u32::MAX });
         }
 
-        Ok(Outcome { track, report, stream })
+        Ok(Outcome { track, report, corrections, stream })
+    }
+
+    /// The corrector this configuration asks for.
+    ///
+    /// Off is a corrector too, not an absent one. Keeping the switched-off case on the same code
+    /// path means the reporting, the logging and the cue loop are identical either way, so nothing
+    /// can behave differently for a reason other than the corrections themselves.
+    fn corrector(&self) -> Box<dyn PostCorrector> {
+        if self.config.post_correct {
+            // One margin, from the matching thresholds, shared with the confidence tally the
+            // assembler produced. A corrector working to a different one would rewrite glyphs the
+            // report had already called clean.
+            Box::new(ContextCorrector::new(self.config.matching.ambiguity_margin()))
+        } else {
+            Box::new(NoopCorrector)
+        }
     }
 
     /// Pick the configured stream, or the first one.
@@ -156,9 +188,8 @@ impl Pipeline {
         matcher: &mut HammingMatcher,
         assembler: &SpatialAssembler,
         report: &mut Report,
+        corrections: &mut Vec<CorrectionLog>,
     ) -> Result<TextTrack> {
-        use subtrackt_core::TextAssembler;
-
         // Segment everything before matching anything. The matcher groups a stream's own shapes
         // and matches the groups, which it cannot do while answers are already being handed out —
         // see `subtrackt_glyph::cluster` for why identifying glyphs one at a time cannot work.
@@ -181,16 +212,26 @@ impl Pipeline {
             .try_into()
             .unwrap_or(u64::MAX);
 
+        let corrector = self.corrector();
         let mut cues = Vec::with_capacity(images.len());
 
-        for (image, glyphs) in images.iter().zip(per_image) {
+        for (index, (image, glyphs)) in images.iter().zip(per_image).enumerate() {
             let mut identified = Vec::with_capacity(glyphs.len());
             for glyph in &glyphs {
                 identified.push(matcher.match_glyph(glyph)?);
             }
 
-            let cue = assembler.assemble(image, &glyphs, &identified)?;
+            let read = assembler.assemble_annotated(image, &glyphs, &identified)?;
+            let mut cue = read.cue;
             report.record(cue.confidence);
+
+            // Post-correction, before the policy runs. It can only exchange one ambiguous
+            // character for another, so it moves no glyph between the matched and unmatched
+            // tallies and the gate below decides on exactly the same numbers either way. The
+            // cheap pre-check keeps the corrector away from cues that were read cleanly.
+            if subtrackt_text::correct::has_correctable_glyphs(cue.confidence) {
+                corrector.correct(&mut cue, &read.origins, index, corrections);
+            }
 
             // Per-cue policy. The track-level gate runs afterwards over the accumulated tally,
             // because "one unread glyph in a feature" and "40% of the track unread" deserve
@@ -202,6 +243,8 @@ impl Pipeline {
             cues.push(cue);
         }
 
+        report.corrections = corrections.len().try_into().unwrap_or(u64::MAX);
+        report.corrector = corrector.name();
         Ok(TextTrack::new(cues, None))
     }
 }

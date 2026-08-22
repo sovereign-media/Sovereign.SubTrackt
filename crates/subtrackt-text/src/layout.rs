@@ -60,8 +60,9 @@ impl SpatialAssembler {
         self.rules
     }
 
-    /// Build one line of text from the glyphs assigned to it.
-    fn render_line(&self, line: &[(Glyph, GlyphMatch)]) -> String {
+    /// Build one line of text from the glyphs assigned to it, and say what produced each
+    /// character of it.
+    fn render_line(&self, line: &[(Glyph, GlyphMatch)]) -> (String, Vec<Option<GlyphMatch>>) {
         let gaps: Vec<u32> = line
             .windows(2)
             .map(|pair| pair[1].0.bounds.x.saturating_sub(pair[0].0.bounds.right()))
@@ -69,6 +70,7 @@ impl SpatialAssembler {
         let median = median_gap(&gaps);
 
         let mut out = String::new();
+        let mut origins = Vec::with_capacity(line.len());
         for (index, (_, matched)) in line.iter().enumerate() {
             if index > 0 {
                 let gap = gaps[index - 1];
@@ -78,31 +80,25 @@ impl SpatialAssembler {
 
                 if opens_with_dash || is_space(gap, median, self.rules) {
                     out.push(' ');
+                    origins.push(None);
                 }
             }
             out.push(matched.character.unwrap_or(self.rules.placeholder));
+            origins.push(Some(matched.clone()));
         }
-        out
+        (out, origins)
     }
-}
 
-/// Median of the observed gaps, or zero when there are none to measure.
-fn median_gap(gaps: &[u32]) -> u32 {
-    if gaps.is_empty() {
-        return 0;
-    }
-    let mut sorted = gaps.to_vec();
-    sorted.sort_unstable();
-    sorted[sorted.len() / 2]
-}
-
-impl TextAssembler for SpatialAssembler {
-    fn assemble(
+    /// Assemble a cue and keep the per-character provenance post-correction needs.
+    ///
+    /// # Errors
+    /// Same as [`TextAssembler::assemble`].
+    pub fn assemble_annotated(
         &self,
         image: &SubtitleImage,
         glyphs: &[Glyph],
         matches: &[GlyphMatch],
-    ) -> Result<Cue> {
+    ) -> Result<AssembledCue> {
         if glyphs.len() != matches.len() {
             return Err(Error::Config(format!(
                 "assemble got {} glyphs and {} matches; they must be index-aligned",
@@ -127,6 +123,7 @@ impl TextAssembler for SpatialAssembler {
 
         let line_count = glyphs.iter().map(|g| g.line).max().map_or(0, |m| m + 1);
         let mut lines = Vec::with_capacity(line_count);
+        let mut origins = Vec::with_capacity(line_count);
 
         for line_index in 0..line_count {
             let mut members: Vec<(Glyph, GlyphMatch)> = glyphs
@@ -142,13 +139,54 @@ impl TextAssembler for SpatialAssembler {
             // guarantee it should depend on.
             members.sort_by_key(|(g, _)| g.bounds.x);
 
-            let rendered = self.render_line(&members);
+            let (rendered, rendered_origins) = self.render_line(&members);
             if !rendered.trim().is_empty() {
                 lines.push(rendered);
+                origins.push(rendered_origins);
             }
         }
 
-        Ok(Cue { span: image.span, lines, confidence, forced: image.forced })
+        let cue = Cue { span: image.span, lines, confidence, forced: image.forced };
+        Ok(AssembledCue { cue, origins })
+    }
+}
+
+/// A cue together with what produced each of its characters.
+///
+/// Post-correction has to know which characters came from a glyph the matcher could not call
+/// outright, and only the assembler knows: by the time a [`Cue`] exists its characters have been
+/// sorted into reading order, split across lines, and had spaces inserted between them. Handing a
+/// corrector the cue and the match list separately would make it re-derive that mapping, and a
+/// corrector working from a *guess* about which glyph produced which character is precisely the
+/// thing this stage must not be.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssembledCue {
+    /// The cue.
+    pub cue: Cue,
+    /// One entry per line of [`Cue::lines`], and within it one entry per `char` of that line: the
+    /// match that produced the character, or `None` for a space the assembler inserted.
+    pub origins: Vec<Vec<Option<GlyphMatch>>>,
+}
+
+/// Median of the observed gaps, or zero when there are none to measure.
+fn median_gap(gaps: &[u32]) -> u32 {
+    if gaps.is_empty() {
+        return 0;
+    }
+    let mut sorted = gaps.to_vec();
+    sorted.sort_unstable();
+    sorted[sorted.len() / 2]
+}
+
+impl TextAssembler for SpatialAssembler {
+    fn assemble(
+        &self,
+        image: &SubtitleImage,
+        glyphs: &[Glyph],
+        matches: &[GlyphMatch],
+    ) -> Result<Cue> {
+        self.assemble_annotated(image, glyphs, matches)
+            .map(|assembled| assembled.cue)
     }
 }
 
@@ -362,6 +400,65 @@ mod tests {
 
         assert!(cue.forced);
         assert_eq!(cue.span, img.span);
+    }
+
+    #[test]
+    fn every_character_of_an_assembled_line_says_which_glyph_produced_it() {
+        // What post-correction stands on. A corrector that had to re-derive this mapping would be
+        // guessing which glyph produced which character, and a guess is what this stage may not be.
+        let (glyphs, matches) = lay_out("AB CD", 1);
+        let assembled = SpatialAssembler::default()
+            .assemble_annotated(&image(), &glyphs, &matches)
+            .unwrap();
+
+        assert_eq!(assembled.cue.lines, vec!["AB CD".to_owned()]);
+        assert_eq!(assembled.origins.len(), 1);
+        assert_eq!(
+            assembled.origins[0].len(),
+            assembled.cue.lines[0].chars().count(),
+            "one entry per character, spaces included"
+        );
+
+        let characters: Vec<Option<char>> = assembled.origins[0]
+            .iter()
+            .map(|origin| origin.as_ref().and_then(|m| m.character))
+            .collect();
+        assert_eq!(
+            characters,
+            vec![Some('A'), Some('B'), None, Some('C'), Some('D')],
+            "the inserted space came from no glyph and has to say so"
+        );
+    }
+
+    #[test]
+    fn provenance_follows_the_reading_order_the_assembler_imposed() {
+        // Origins are aligned with the *rendered* line, not with the order the glyphs arrived in,
+        // which is the whole reason the assembler is the one producing them.
+        let glyphs = vec![glyph(14, 6, 0), glyph(0, 6, 0), glyph(7, 6, 0)];
+        let matches = vec![
+            matched('C'),
+            matched('A'),
+            GlyphMatch { character: Some('B'), distance: 8, runner_up_distance: 9 },
+        ];
+
+        let assembled = SpatialAssembler::default()
+            .assemble_annotated(&image(), &glyphs, &matches)
+            .unwrap();
+        assert_eq!(assembled.cue.lines, vec!["ABC".to_owned()]);
+
+        let ambiguous: Vec<bool> = assembled.origins[0]
+            .iter()
+            .map(|origin| {
+                origin
+                    .as_ref()
+                    .is_some_and(|m| !m.is_unambiguous(LayoutRules::default().ambiguity_margin))
+            })
+            .collect();
+        assert_eq!(
+            ambiguous,
+            vec![false, true, false],
+            "the close call is the middle character"
+        );
     }
 
     #[test]

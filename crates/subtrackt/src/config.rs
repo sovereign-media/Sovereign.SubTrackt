@@ -80,7 +80,12 @@ pub struct Config {
     pub layout: LayoutRules,
     /// What happens to unread glyphs.
     pub unmatched: UnmatchedPolicy,
-    /// Whether post-correction runs. Off until #12 shows it helps.
+    /// Whether ambiguous reads are resolved from the characters around them.
+    ///
+    /// Off, and `docs/post-correction.md` records the measurement that keeps it there rather than
+    /// a preference. The corrector cannot touch a glyph the matcher read clearly and cannot change
+    /// a line's length, so switching it on is not dangerous — it is simply not yet shown to be
+    /// worth it, and this project does not turn on a stage that rewrites text on a hunch.
     pub post_correct: bool,
 }
 
@@ -113,7 +118,7 @@ mod tests {
         assert_eq!(policy, UnmatchedPolicy::FailTrack);
         assert!(
             !Config::default().post_correct,
-            "post-correction stays off until measured"
+            "post-correction stays off until the measurement says otherwise"
         );
     }
 

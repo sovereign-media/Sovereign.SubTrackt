@@ -42,12 +42,14 @@ fn extract(
     sup: &Path,
     reference: ReferenceSet,
     grey_coverage: bool,
-) -> anyhow::Result<(String, subtrackt::Report)> {
+    post_correct: bool,
+) -> anyhow::Result<(String, subtrackt::Outcome)> {
     // Placeholder rather than the default gate: the point is to score what was read, and a policy
     // that refuses the track would score nothing at all.
     let config = Config {
         unmatched: UnmatchedPolicy::Placeholder,
         grey_coverage,
+        post_correct,
         ..Config::default()
     };
 
@@ -63,7 +65,72 @@ fn extract(
         .map(subtrackt::core::Cue::text)
         .collect::<Vec<_>>()
         .join("\n");
-    Ok((text, outcome.report))
+    Ok((text, outcome))
+}
+
+/// Score post-correction against the same fixture read without it.
+///
+/// This is the measurement [#12] asks for, and the second column is the one that decides it. An
+/// aggregate improvement says nothing on its own: a corrector that fixes three characters and
+/// invents one has still turned a detectable failure into a plausible wrong answer once, which is
+/// the whole thing this project objects to in general OCR. So lines are scored individually and
+/// the ones the corrector made *worse* are counted separately from what it gained.
+///
+/// [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
+fn post_correction(
+    sup: &Path,
+    reference: &ReferenceSet,
+    grey: bool,
+    truth: &str,
+) -> anyhow::Result<()> {
+    let (off, _) = extract(sup, reference.clone(), grey, false)?;
+    let (on, outcome) = extract(sup, reference.clone(), grey, true)?;
+
+    let (mut better, mut worse) = (0usize, 0usize);
+    for ((want, before), after) in truth.lines().zip(off.lines()).zip(on.lines()) {
+        let errors_before = score_text(want, before).character_errors;
+        let errors_after = score_text(want, after).character_errors;
+        match errors_after.cmp(&errors_before) {
+            std::cmp::Ordering::Less => better += 1,
+            std::cmp::Ordering::Greater => worse += 1,
+            std::cmp::Ordering::Equal => {}
+        }
+    }
+
+    let score_off = score_text(truth, off.trim());
+    let score_on = score_text(truth, on.trim());
+
+    println!("\n--- post-correction (#12) ---");
+    println!(
+        "  candidates  : {} glyphs the matcher would not call outright",
+        outcome.report.ambiguous
+    );
+    println!("  applied     : {} substitutions", outcome.report.corrections);
+    println!(
+        "  off         : CER {:>5.1}%   WER {:>5.1}%",
+        score_off.character_error_rate() * 100.0,
+        score_off.word_error_rate() * 100.0
+    );
+    println!(
+        "  on          : CER {:>5.1}%   WER {:>5.1}%",
+        score_on.character_error_rate() * 100.0,
+        score_on.word_error_rate() * 100.0
+    );
+    // The second of these is the one that decides the default. An aggregate gain says nothing on
+    // its own about whether the corrector ever invented something.
+    println!("  lines better: {better}\n  lines worse : {worse}");
+    for correction in &outcome.corrections {
+        println!("  {correction}");
+    }
+
+    if score_on.character_error_rate() > score_off.character_error_rate() {
+        bail!(
+            "post-correction made the ceiling case worse: CER {:.1}% -> {:.1}%",
+            score_off.character_error_rate() * 100.0,
+            score_on.character_error_rate() * 100.0
+        );
+    }
+    Ok(())
 }
 
 /// Print a score and the error classes behind it.
@@ -152,15 +219,17 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
 
         let reference =
             ReferenceSet::decode(&std::fs::read(&path)?).map_err(|e| anyhow::anyhow!("{e}"))?;
-        let (text, run_report) = extract(&sup, reference, grey)?;
+        // Post-correction off here on purpose: this comparison is about the feature
+        // representation, and a stage that rewrites the output afterwards would confound it.
+        let (text, outcome) = extract(&sup, reference.clone(), grey, false)?;
         let score = score_text(truth.trim(), text.trim());
 
         println!("\n--- {label}: accuracy on generated ground truth ---");
-        report(&score, &run_report, truth.trim(), text.trim());
-        scored.push((label, grey, score, text));
+        report(&score, &outcome.report, truth.trim(), text.trim());
+        scored.push((label, grey, score, text, reference));
     }
 
-    for (label, _, _, text) in &scored {
+    for (label, _, _, text, _) in &scored {
         println!("\n--- {label}: extracted ---");
         for (expected, got) in truth.trim().lines().zip(text.trim().lines()) {
             let mark = if expected == got { ' ' } else { '!' };
@@ -172,7 +241,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     }
 
     println!("\n--- binary against grey ---");
-    for (label, _, score, _) in &scored {
+    for (label, _, score, _, _) in &scored {
         println!(
             "  {label:<14} CER {:>5.1}%   WER {:>5.1}%",
             score.character_error_rate() * 100.0,
@@ -184,10 +253,15 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     // the number a user would get. A ceiling case reading worse than half its characters correctly
     // means something is broken rather than merely imperfect.
     let shipped = Config::default().grey_coverage;
-    let (_, _, score, _) = scored
+    let (_, _, score, _, reference) = scored
         .iter()
-        .find(|(_, grey, _, _)| *grey == shipped)
+        .find(|(_, grey, _, _, _)| *grey == shipped)
         .context("the shipped representation was not scored")?;
+
+    // Post-correction is measured against the representation the pipeline ships with, for the same
+    // reason the gate is: it is the number a user would actually get.
+    post_correction(&sup, reference, shipped, truth.trim())?;
+
     if score.character_error_rate() > 0.5 {
         bail!(
             "character error rate {:.1}% on a same-font fixture; this is the ceiling case and              should be far better",
