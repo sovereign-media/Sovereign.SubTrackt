@@ -133,6 +133,39 @@ survives the default moving.
 **What would flip it:** the same table, produced over real tracks with hand-verified ground truth,
 still showing zero lines made worse. Nothing else is needed; the code does not change.
 
+## The first two of those three, on a real disc
+
+The first two bullets above are now answered. The third is not, and it is the one holding the
+default.
+
+**10 Cloverfield Lane (2016)**, one PGS track, 822 cues, an Arial reference set, scored by
+`xtask srt-score` against the English subtitle shipped beside the rip:
+
+| | off | on |
+| :--- | ---: | ---: |
+| Character error rate | 8.8% | **7.4%** |
+| Character error rate, upright cues only | 7.1% | **5.5%** |
+| Cues improved | — | 263 |
+| **Cues made worse** | — | **0** |
+
+362 corrections across the track. **Not one cue got worse**, over 818 scored cues of material this
+project did not render — two orders of magnitude more events than the fixture's six, and the risk
+case the second bullet asks for, since a real disc is where the corrector's evidence is least sound.
+
+### Why this still does not flip the default
+
+The comparison subtitle is **not hand-verified ground truth**. It is another release's transcript of
+the same dialogue, and release subtitles are frequently themselves read off the same bitmaps by some
+other tool. So a systematic error the corrector introduced could in principle be matched by the same
+systematic error in the comparison, and score as agreement.
+
+That hole is narrower than it sounds — the corrector only ever rewrites within `0`/`O`/`o` and
+`1`/`l`/`I`/`|`, so agreeing wrongly across 263 cues would need the comparison to have made the same
+confusions in the same places — but narrower is not closed, and it is not what the criterion asks
+for. What is still missing is one track whose ground truth a person checked.
+
+It is also one film, in English, in one typeface. `Config::post_correct` stays `false`.
+
 ## Auditing a run
 
 A stage allowed to rewrite text has to leave a trace of what it rewrote, and a count is not one.

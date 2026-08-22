@@ -3,17 +3,32 @@
 Extract plain text from bitmap image-based subtitle streams — Blu-ray PGS and DVD VOBSUB — without
 human intervention, and without a general OCR engine.
 
-**Status: reads real media end to end; cannot yet name the characters it finds.**
+**Status: reads real media end to end, and reads it well when handed a reference set that matches
+the disc. It ships without one, on purpose.**
 
 Point it at a Blu-ray rip and it demuxes the Matroska, decodes the PGS, segments the bitmaps into
 glyphs and emits timed cues with a confidence tally — 1,111 cues from a 5.5 GB film in 22 seconds.
-What it cannot do yet is say which character each glyph *is*, because that needs a reference set and
-the measurements below changed what one has to look like.
+Out of the box it names none of those glyphs, because nothing is embedded:
 
 ```console
 $ subtrackt extract 'Dr. No (1962).mkv' --format vtt --on-unmatched placeholder --report
 1111 cues from 1111 images (2222 packets); glyphs 0 matched / 35516 unmatched; cache 99%
 ```
+
+Generate a set from the typeface the disc was authored in and the same pipeline reads it:
+
+```console
+$ subtrackt extract '10 Cloverfield Lane (2016).mkv' --reference arial.subtref \
+      --on-unmatched placeholder --post-correct --format srt -o out.srt --report
+822 cues from 822 images (1644 packets); glyphs 19566 matched / 958 unmatched
+  / 3878 ambiguous (95.3% read); fit 11.7; cache 100%; corrections 362 (context)
+```
+
+**5.5% character error** on that track's 775 upright cues, scored against the English subtitle
+shipped beside the rip — see [`docs/reference-set.md`](docs/reference-set.md), which also says why
+that comparison is evidence rather than ground truth. The gap between those two console blocks is
+the whole of the remaining work: the set has to be fitted to the material, and no set that ships in
+a binary can be.
 
 See [issue #1][issue-1] for the original design, [`docs/architecture.md`](docs/architecture.md) for
 how it is laid out, and the two measurement write-ups below for where the design has moved.
@@ -56,14 +71,20 @@ the normalisation was built to absorb, and it absorbs them.
 **[`docs/post-correction.md`](docs/post-correction.md)** — what is left once shapes are as good as
 they get. Resolving the pairs a binarized glyph cannot separate (`0`/`O`, `1`/`l`/`I`) from the
 characters around them takes **2.1 points** off the ceiling fixture's character error rate and makes
-no line worse. It ships switched off: the corrector refuses more than it accepts by construction,
-but one generated fixture is not a corpus to decide a default that rewrites what a viewer reads.
+no line worse. On a real Blu-ray it takes 1.4 points off 818 cues and makes **no cue worse**. It
+still ships switched off, and the reason is now narrow: the only comparison available for a real
+track is another release's subtitle, which is evidence rather than ground truth.
 
-**[`docs/reference-set.md`](docs/reference-set.md)** — why nothing is embedded. Reading
-Arial-authored material with a Liberation Sans reference set — metric-compatible, openly licensed,
-the obvious thing to ship — costs **11 points of CER**, which is Verdana's cost to within noise.
-Being visually close to the material bought 0.6 points, and neither coverage nor match distance
-notices. A shipped set would trade a detectable failure for an undetectable one.
+**[`docs/reference-set.md`](docs/reference-set.md)** — why nothing is embedded, and what to fit
+instead. Reading Arial-authored material with a Liberation Sans reference set — metric-compatible,
+openly licensed, the obvious thing to ship — costs **11 points of CER**, which is Verdana's cost to
+within noise. A shipped set would trade a detectable failure for an undetectable one.
+
+The same document puts the choice to a real disc: ten candidate typefaces over one Blu-ray track,
+and the mean match distance the extraction already reports **picks the right one**, 11.7 against
+18.5 for the runner-up and 8.8% CER against 16.6%. It also finds the level below typeface — an
+italic reference set reads that film's italic act at 10.8% and its upright dialogue at 40.5%, and
+the upright set does the exact reverse.
 
 **The consequence.** One reference vector per character cannot work, and enumerating styles does not
 rescue it. Clustering a title's own repeated shapes was the obvious escape — the expensive axes are
@@ -183,12 +204,20 @@ What is actually left, in order of leverage:
 
 - **[#43](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/43)** — fit the reference
   set to the title rather than to the binary. This is the one that makes the tool work out of the
-  box, and #9's measurement is the argument for it.
-- **[#40](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40)** — word spacing. The
-  largest measured error class left: 3.2 of the remaining 12.8 CER points, and most of the gap
-  between the character and word rates.
+  box. #9's measurement is the argument for it, and a real disc has now supplied the two things it
+  was missing: mean match distance picks the right typeface out of ten as the argmin, and the gap
+  under it — 11.7 against 18.5 — is wide enough to place the floor the issue insists on.
+- **Style, inside #43 rather than beside it.** An italic reference set reads one film's italic act
+  at 10.8% and its upright dialogue at 40.5%; the upright set does the reverse. Whole-track distance
+  cannot see the split, so a fit that is right about the typeface is still wrong about the reel.
+  That is [#14](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/14), and it turns out
+  to be a level of #43 rather than a separate mechanism.
 - **Punctuation segmentation**, untracked. Eleven of the thirteen unmatched glyphs in the ceiling
   fixture are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
+- **Grouping a mark onto a capital**, untracked, and [#6](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/6)'s
+  territory. An accent over a capital sits above every letterform the charset can spell, so in a
+  line of nothing but letters it bands as a line of its own and `À` segments as a bare `A` plus a
+  floating grave.
 - **[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)** — distribution. A
   decision more than a build; the throughput numbers already weaken the `cdylib` case.
 
