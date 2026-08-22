@@ -14,10 +14,27 @@
 //! the labels thrown away. The 108 `I`-for-`l` errors every sans-serif makes are invisible to a
 //! statistic that never looks at a character identity, which is exactly why they cannot corrupt it.
 //!
-//! That is an argument about independence, and #63 makes it falsifiable: **if this correlates with
-//! mean match distance across candidates, the independence claim is wrong and this is a fourth
-//! instance of the same mechanism after all.** So that is measured first, and the run stops there
-//! if it fails.
+//! That is an argument about independence, and #63 proposed to falsify it by correlation: if the
+//! score orders candidates the way mean match distance does, it is a fourth instance after all. So
+//! step 1 measures that first and the run stops there by default.
+//!
+//! **That criterion turned out to be too strong, and the write-up says so.** Two genuinely
+//! independent statistics that both track the right answer *must* correlate — that is what makes
+//! either of them useful — so the measured rho of 0.72 convicts nothing on its own. The
+//! discriminating question is whether a candidate goes wrong in the *same places* mean match
+//! distance goes wrong. Step 1 is kept because it is cheap and because the number is worth having;
+//! it is no longer read as a verdict.
+//!
+//! # The answer this produced
+//!
+//! **No**, and `docs/fit-confidence.md` is the write-up. The axes work — 79% font retrieval over 24
+//! typefaces and 85% over 39 including cuts, from disjoint characters — and still cannot gate a
+//! track, because a decoded glyph drifts further from its own typeface (0.37–0.76) than the closest
+//! typefaces sit apart (0.22). Retrieval asks for a ranking; a floor needs a margin.
+//!
+//! The bench stays because the negative has to be reproducible, and because two of its findings
+//! outlive the proposal: the 16×16 vector destroys style by design, and these axes sort fonts by
+//! *cut* rather than by typeface.
 //!
 //! # What is measured, in the order #63 asks for
 //!

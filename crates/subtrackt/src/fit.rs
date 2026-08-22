@@ -7,11 +7,15 @@
 //!
 //! Two things this deliberately does not do.
 //!
-//! **It does not decide.** [#63][63] measured four statistics against a leave-one-out over eight
-//! typefaces and none separates a good read from a bad one — a systematically wrong set is *by
-//! construction* a low-distance one. So this ranks candidates and reports the scores; whether the
-//! winner is good enough is not a question it can answer, and pretending otherwise would produce
-//! the confident wrong answer §4 of #1 rejected general OCR to avoid.
+//! **It does not decide.** [#63][63] closed by measuring five statistics against a leave-one-out
+//! over eight typefaces, and none separates a good read from a bad one. Four were functions of the
+//! matcher's own answer, where a systematically wrong set is *by construction* a low-distance one.
+//! The fifth never consulted a character at all and failed differently: a typeface's style is
+//! identifiable from its font file, and a decoded glyph drifts further from its own typeface than
+//! the typefaces sit apart. So this ranks candidates and reports the scores; whether the winner is
+//! good enough is not a question it can answer, and pretending otherwise would produce the
+//! confident wrong answer §4 of #1 rejected general OCR to avoid. `docs/fit-confidence.md` has
+//! both mechanisms.
 //!
 //! **It does not build reference sets from fonts.** Rasterising a typeface needs a font engine, and
 //! the one this project already uses requires a newer compiler than the shipped crates are held to.

@@ -18,8 +18,10 @@ characters *out of the box*, because nothing is embedded to match against — a 
 a gap, and the reason is in [reference-set.md](reference-set.md). Given a reference set built from
 the material's own typeface it reads text at 12.8% character error; given one built from a
 near-identical typeface, 26.8%. #43 closed that gap by fitting the set to the title instead of
-to the binary. What #63 asks is the part that survived: nothing yet tells a good fit from a bad one
-without ground truth, so the choice is reported to the user rather than made by the tool.
+to the binary. #63 asked the part that survived — can anything tell a good fit from a bad one
+without ground truth — and the answer is no, across five statistics and two distinct mechanisms. So
+the choice is reported to the user rather than made by the tool, permanently rather than for now.
+See [fit-confidence.md](fit-confidence.md).
 ```
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
@@ -245,8 +247,11 @@ closed, which is what closed #1 — kept here so the answers are findable from t
 garbage rather than to nothing, which is worse than the status quo". Fitting the set per title
 answered which set to use; it did not answer how to know the fit was right. A mismatched set reads
 ~73% correct and ~27% confidently wrong with no counter saying which is which — the one place in
-this pipeline where a failure is not yet a fact. That is **#63**, and until it has an answer the
-fitted set is a proposal the user accepts rather than a decision the tool makes (#62).
+this pipeline where a failure is not a fact. That is **#63**, and it closed by measuring that
+nothing can make it one: five statistics, the last of which escaped the bias that killed the first
+four and broke on decode noise instead. The fitted set is a proposal the user accepts rather than a
+decision the tool makes (#62), and that is now the permanent answer rather than a placeholder.
+[fit-confidence.md](fit-confidence.md) has the five and the two mechanisms.
 
 ### The accuracy gate
 
