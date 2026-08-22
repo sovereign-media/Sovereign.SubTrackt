@@ -42,6 +42,11 @@ pub struct MatchThresholds {
     ///
     /// Zero disables the term entirely, which is what a version 1 reference set effectively gets
     /// anyway since its entries carry no metrics.
+    ///
+    /// **This is the one threshold here that is not a fraction of [`FEATURE_BITS`]**, and the
+    /// comment above is a promise it does not keep: a full cap-height difference is worth 14 cells
+    /// at any grid size, which is 5.5% of a 256-bit vector and 1.4% of a 1024-bit one. Measured at
+    /// 32x32 the shipped value costs up to 10.9 points of CER, silently. Tracked as #45.
     pub metric_weight: u32,
 }
 
@@ -303,16 +308,19 @@ mod tests {
 
     #[test]
     fn an_exact_reference_wins_at_distance_zero() {
-        // 'B' has to sit further from the query than the ambiguity margin (7 cells, being 3% of
-        // the 256-cell vector) for the win to count as clear-cut. Twenty disjoint bits gives 23.
-        let b: Vec<usize> = (10..30).collect();
+        // 'B' has to sit further from the query than the ambiguity margin for the win to count as
+        // clear-cut. The margin is a percentage of FEATURE_BITS, so the gap is sized off it rather
+        // than written as a cell count that only holds at one grid size.
+        let spare = MatchThresholds::default().ambiguity_margin() + 10;
+        let b: Vec<usize> = (10..10 + usize::try_from(spare).unwrap()).collect();
         let mut m = matcher(vec![entry('A', &[1, 2, 3]), entry('B', &b)]);
         let result = m.match_glyph(&glyph(&[1, 2, 3])).unwrap();
         assert_eq!(result.character, Some('A'));
         assert_eq!(result.distance, 0);
         assert_eq!(
-            result.runner_up_distance, 23,
-            "3 query bits + 20 reference bits, disjoint"
+            result.runner_up_distance,
+            3 + spare,
+            "3 query bits + the reference's bits, disjoint"
         );
         assert!(result.is_unambiguous(m.ambiguity_margin()));
     }
@@ -327,7 +335,9 @@ mod tests {
 
     #[test]
     fn a_glyph_beyond_the_threshold_is_reported_unmatched_not_forced_to_the_nearest() {
-        let far: Vec<usize> = (0..80).collect();
+        // Sized off the ceiling, which is a percentage of FEATURE_BITS.
+        let far: Vec<usize> =
+            (0..usize::try_from(MatchThresholds::default().max_distance()).unwrap() + 10).collect();
         let mut m = matcher(vec![entry('A', &[1])]);
         let result = m.match_glyph(&glyph(&far)).unwrap();
         assert!(
