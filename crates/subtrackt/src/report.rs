@@ -63,6 +63,17 @@ pub struct Report {
     /// flagged, so this can never exceed that count, and a ratio anywhere near 1 would mean the
     /// rules had stopped refusing anything.
     pub corrections: u64,
+    /// Distinct clear tokens the track's own vocabulary learned, or zero when it did not run.
+    ///
+    /// Reported because "the rule never fired" and "the rule fired and gained nothing" are
+    /// different results, and only this number tells them apart.
+    pub vocabulary_tokens: u64,
+    /// How many of those came from the track's own vocabulary rather than from context.
+    ///
+    /// Split out because the two arms rest on different evidence, and a summary that added them
+    /// together would hide which one a bad substitution came from. Always zero unless
+    /// `Config::track_vocabulary` is on.
+    pub vocabulary_corrections: u64,
     /// Name of the corrector that ran, or an empty string for a run that never assembled a cue.
     pub corrector: &'static str,
     /// Name of the reference set used, so a bad extraction can be traced to its data.
@@ -130,7 +141,7 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
-             ({:.1}% read); fit {:.1}; cache {:.0}%; corrections {} ({})",
+             ({:.1}% read); fit {:.1}; cache {:.0}%; corrections {}{} ({})",
             self.cues,
             self.images,
             self.packets,
@@ -143,6 +154,17 @@ impl fmt::Display for Report {
             self.mean_match_distance(),
             self.cache_hit_rate() * 100.0,
             self.corrections,
+            // The two arms rest on different evidence, so the split is shown whenever the second
+            // one fired. Silent when it did not, so an ordinary run reads exactly as before.
+            if self.vocabulary_corrections > 0 {
+                format!(
+                    " (context {}, vocabulary {})",
+                    self.corrections - self.vocabulary_corrections,
+                    self.vocabulary_corrections
+                )
+            } else {
+                String::new()
+            },
             // Named even when it is `none`, because "post-correction was off" and "post-correction
             // ran and changed nothing" are different facts about a track and a summary that
             // printed `0` for both would hide the difference.

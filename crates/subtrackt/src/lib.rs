@@ -25,6 +25,7 @@ pub use fit::{Fit, rank, score_set};
 pub use pipeline::{Outcome, Pipeline};
 pub use report::Report;
 pub use score::{Score, score_text, score_track};
+pub use subtrackt_text::correct::VocabularyRules;
 pub use survey::{GlyphRecord, GlyphSurvey};
 
 pub use subtrackt_core as core;

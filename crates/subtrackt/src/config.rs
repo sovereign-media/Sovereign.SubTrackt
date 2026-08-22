@@ -4,6 +4,7 @@ use subtrackt_core::{Confidence, SubtitleFormat};
 use subtrackt_glyph::binarize::Threshold;
 use subtrackt_glyph::cluster::ClusterRules;
 use subtrackt_glyph::matcher::MatchThresholds;
+use subtrackt_text::correct::VocabularyRules;
 use subtrackt_text::layout::LayoutRules;
 
 /// Fraction of glyphs that must match for a track to be worth keeping.
@@ -132,6 +133,14 @@ pub struct Config {
     /// a line's length, so switching it on is not dangerous — it is simply not yet shown to be
     /// worth it, and this project does not turn on a stage that rewrites text on a hunch.
     pub post_correct: bool,
+    /// Whether post-correction may also resolve a word-edge glyph from the track's own vocabulary.
+    ///
+    /// An arm of the corrector rather than a stage, and gated behind [`Self::post_correct`]. Off
+    /// for the reason that is off: the only comparison available for a real track is another
+    /// release's subtitle, which is evidence rather than hand-verified ground truth.
+    pub track_vocabulary: bool,
+    /// How that vocabulary is built and consulted.
+    pub vocabulary: VocabularyRules,
 }
 
 impl Config {
