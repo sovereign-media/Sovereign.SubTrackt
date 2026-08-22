@@ -53,6 +53,14 @@ pub enum Command {
     /// Extract a subtitle stream to text.
     Extract(ExtractArgs),
 
+    /// Choose which reference set reads a title best, from a directory of them.
+    ///
+    /// Scans the title once and scores every `.subtref` in the directory against it, then reports
+    /// them best first. Nothing checks whether the winner is good enough — no measured statistic
+    /// separates a good read from a bad one — so this proposes a set and leaves the decision with
+    /// you. See issue 63.
+    Fit(FitArgs),
+
     /// Dump raw glyph shapes, without trying to read them.
     ///
     /// One tab-separated row per glyph: cue, line, x, y, width, height, and the 256-bit feature
@@ -164,6 +172,54 @@ impl GlyphsArgs {
     }
 }
 
+/// Arguments for `subtrackt fit`.
+#[derive(Debug, Args)]
+pub struct FitArgs {
+    /// Input file.
+    pub input: PathBuf,
+
+    /// Directory of candidate reference sets. Every `.subtref` in it is scored.
+    #[arg(short, long)]
+    pub references: PathBuf,
+
+    /// Write the winning set here, so it can be passed straight to `extract --reference`.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+
+    /// Which subtitle stream to read. Defaults to the first bitmap stream.
+    #[arg(short, long)]
+    pub stream: Option<u32>,
+
+    /// Stop after this many cues.
+    ///
+    /// Cues are spread evenly through a film, so a few hundred touches only that fraction of a
+    /// multi-gigabyte file. A typeface does not change halfway through, so a prefix is a fair
+    /// sample and a full pass is wasted work.
+    #[arg(short, long, default_value_t = 400)]
+    pub limit: usize,
+
+    /// How many candidates to list. The winner is always listed.
+    #[arg(long, default_value_t = 5)]
+    pub show: usize,
+
+    /// Include the glyph outline in the foreground mask as well as the fill.
+    #[arg(long)]
+    pub include_outline: bool,
+}
+
+impl FitArgs {
+    /// The pipeline configuration these arguments describe.
+    ///
+    /// Has to match what `extract` will use, or the fit would rank candidates against a
+    /// segmentation the extraction never performs.
+    #[must_use]
+    pub fn to_config(&self) -> Config {
+        let mut config = Config { stream: self.stream, ..Config::default() };
+        config.binarize.include_outline = self.include_outline;
+        config
+    }
+}
+
 /// Output format, as a CLI value.
 ///
 /// These doc comments are what clap prints in `--help`, so they stay as plain prose — backticks
@@ -255,6 +311,51 @@ mod tests {
             Command::Extract(args) => args,
             other => panic!("expected extract, got {other:?}"),
         }
+    }
+
+    fn fit(args: &[&str]) -> FitArgs {
+        let cli = Cli::try_parse_from(args).unwrap();
+        match cli.command {
+            Command::Fit(args) => args,
+            other => panic!("expected fit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fit_needs_an_input_and_a_directory_of_candidates() {
+        let args = fit(&["subtrackt", "fit", "movie.mkv", "--references", "sets"]);
+        assert_eq!(args.input, PathBuf::from("movie.mkv"));
+        assert_eq!(args.references, PathBuf::from("sets"));
+        assert!(args.output.is_none(), "writing the winner is opt-in");
+
+        assert!(
+            Cli::try_parse_from(["subtrackt", "fit", "movie.mkv"]).is_err(),
+            "with nothing to choose between there is no fit to report"
+        );
+    }
+
+    #[test]
+    fn fit_samples_a_prefix_by_default_rather_than_reading_the_whole_film() {
+        // A typeface does not change halfway through, and cues are spread evenly, so a few hundred
+        // touches only that fraction of a multi-gigabyte file. On a real Blu-ray this is the
+        // difference between three seconds and seventy.
+        let args = fit(&["subtrackt", "fit", "movie.mkv", "-r", "sets"]);
+        assert_eq!(args.limit, 400);
+        assert_eq!(fit(&["subtrackt", "fit", "m.mkv", "-r", "s", "-l", "50"]).limit, 50);
+    }
+
+    #[test]
+    fn fit_segments_the_way_extract_will() {
+        // The fit ranks candidates against a segmentation; if it were not the one `extract`
+        // performs, it would be ranking them for a different question than the one being asked.
+        let args = fit(&["subtrackt", "fit", "m.mkv", "-r", "s", "--include-outline"]);
+        assert!(args.to_config().binarize.include_outline);
+        assert!(
+            !fit(&["subtrackt", "fit", "m.mkv", "-r", "s"])
+                .to_config()
+                .binarize
+                .include_outline
+        );
     }
 
     #[test]

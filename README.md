@@ -3,8 +3,8 @@
 Extract plain text from bitmap image-based subtitle streams — Blu-ray PGS and DVD VOBSUB — without
 human intervention, and without a general OCR engine.
 
-**Status: reads real media end to end, and reads it well when handed a reference set that matches
-the disc. It ships without one, on purpose.**
+**Status: reads real media end to end and picks its own reference set from ones you supply. It
+ships with none embedded, on purpose.**
 
 Point it at a Blu-ray rip and it demuxes the Matroska, decodes the PGS, segments the bitmaps into
 glyphs and emits timed cues with a confidence tally — 1,111 cues from a 5.5 GB film in 22 seconds.
@@ -15,7 +15,24 @@ $ subtrackt extract 'Dr. No (1962).mkv' --format vtt --on-unmatched placeholder 
 1111 cues from 1111 images (2222 packets); glyphs 0 matched / 35516 unmatched; cache 99%
 ```
 
-Generate a set from the typeface the disc was authored in and the same pipeline reads it:
+`subtrackt fit` scores a directory of reference sets against the title and proposes the best:
+
+```console
+$ subtrackt fit '10 Cloverfield Lane (2016).mkv' --references ./sets -o clover.subtref
+400 cues, 10195 glyphs, 134 distinct shapes
+
+  reference set               score       read
+  arial                        13.6      95.6%
+  tahoma                       20.8      93.0%
+  trebuc                       22.3      94.0%
+
+  score is mean distance per glyph, charging unread glyphs the 51-cell ceiling.
+  Lower fits better. Nothing here checks whether the winner is good enough --
+  no measured statistic can. Read a few cues before trusting a track to it.
+```
+
+Three seconds against a 1.8 GB file, because it samples the first few hundred cues — a typeface does
+not change halfway through a film. Then the same pipeline reads it:
 
 ```console
 $ subtrackt extract '10 Cloverfield Lane (2016).mkv' --reference arial.subtref \
@@ -26,9 +43,13 @@ $ subtrackt extract '10 Cloverfield Lane (2016).mkv' --reference arial.subtref \
 
 **5.5% character error** on that track's 775 upright cues, scored against the English subtitle
 shipped beside the rip — see [`docs/reference-set.md`](docs/reference-set.md), which also says why
-that comparison is evidence rather than ground truth. The gap between those two console blocks is
-the whole of the remaining work: the set has to be fitted to the material, and no set that ships in
-a binary can be.
+that comparison is evidence rather than ground truth.
+
+What is still missing is where the candidate sets come from: `.subtref` files are generated from
+fonts by `cargo run -p xtask -- gen-reference`, which needs the repository. Putting a font
+rasteriser in the shipped binary would raise the MSRV from 1.85 to 1.87, so that is
+[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)'s call rather than a thing
+to slip in.
 
 See [issue #1][issue-1] for the original design, [`docs/architecture.md`](docs/architecture.md) for
 how it is laid out, and the two measurement write-ups below for where the design has moved.
@@ -105,6 +126,8 @@ between this and working out of the box.
 $ subtrackt list movie.mkv
   0  hdmv_pgs_subtitle    eng   1920x1080  Full
   1  hdmv_pgs_subtitle    eng   1920x1080  Forced
+
+$ subtrackt fit movie.mkv --references ./sets -o movie.subtref
 
 $ subtrackt extract movie.sup --format vtt --output movie.en.vtt --report
 ```
