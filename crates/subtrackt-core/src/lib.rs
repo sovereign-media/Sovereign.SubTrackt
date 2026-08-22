@@ -16,7 +16,9 @@ pub mod time;
 
 pub use bitmap::{IndexedBitmap, Palette, PaletteEntry, Rect, Rgba8};
 pub use error::{Error, Result};
-pub use glyph::{FEATURE_BITS, FEATURE_GRID, FEATURE_WORDS, FeatureVector, Glyph, GlyphMatch};
+pub use glyph::{
+    FEATURE_BITS, FEATURE_GRID, FEATURE_WORDS, FeatureVector, Glyph, GlyphMatch, LineMetrics,
+};
 pub use stage::{BitmapDecoder, GlyphMatcher, Segmenter, TextAssembler, TrackWriter};
 pub use subtitle::{Confidence, Cue, SubtitleFormat, SubtitleImage, TextTrack};
 pub use time::{PTS_HZ, TimeSpan, Timestamp};

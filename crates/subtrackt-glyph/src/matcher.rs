@@ -13,11 +13,13 @@
 //! With an empty reference set every cluster comes back unmatched, which is the correct answer
 //! rather than a placeholder one — and it is what makes the accuracy gate meaningful.
 
-use subtrackt_core::{Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, Result};
+use subtrackt_core::{
+    Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, LineMetrics, Result,
+};
 
 use crate::cache::SessionCache;
 use crate::cluster::{ClusterRules, Shapes, cluster};
-use crate::reference::ReferenceSet;
+use crate::reference::{ReferenceEntry, ReferenceSet};
 
 /// Matching thresholds.
 ///
@@ -30,11 +32,26 @@ pub struct MatchThresholds {
     /// A winner beating the runner-up by less than this is reported as ambiguous, and is the only
     /// kind of glyph post-correction is allowed to touch.
     pub ambiguity_margin_percent: u32,
+    /// How much a percentage point of line-metric difference is worth, in hundredths of a cell.
+    ///
+    /// The shape vector cannot separate `o` from `O` — see [`LineMetrics`] — so a second term
+    /// carries the difference in how tall each stands in its line. This is the exchange rate
+    /// between the two, and it is the one number #37 has to choose by measurement: too low and the
+    /// term does nothing, too high and it overrules shape, so a badly-segmented glyph of the right
+    /// height beats a well-segmented one of the wrong height.
+    ///
+    /// Zero disables the term entirely, which is what a version 1 reference set effectively gets
+    /// anyway since its entries carry no metrics.
+    pub metric_weight: u32,
 }
 
 impl Default for MatchThresholds {
     fn default() -> Self {
-        Self { max_distance_percent: 20, ambiguity_margin_percent: 3 }
+        Self {
+            max_distance_percent: 20,
+            ambiguity_margin_percent: 3,
+            metric_weight: 50,
+        }
     }
 }
 
@@ -51,6 +68,24 @@ impl MatchThresholds {
     #[allow(clippy::cast_possible_truncation)]
     pub const fn ambiguity_margin(self) -> u32 {
         (FEATURE_BITS as u32) * self.ambiguity_margin_percent / 100
+    }
+
+    /// Distance between a glyph and a reference: shape, plus the line-metric term.
+    ///
+    /// When either side has no metrics the term is omitted rather than defaulted. A glyph on a line
+    /// too short to locate a baseline is compared on shape alone, which is worse than the full
+    /// comparison and much better than being scored against a fabricated height.
+    #[must_use]
+    pub fn distance(
+        self,
+        shape: &FeatureVector,
+        metrics: LineMetrics,
+        entry: &ReferenceEntry,
+    ) -> u32 {
+        let base = shape.distance(&entry.features);
+        metrics
+            .difference(entry.metrics)
+            .map_or(base, |points| base + points * self.metric_weight / 100)
     }
 }
 
@@ -138,11 +173,17 @@ impl HammingMatcher {
     /// Scan the reference set, ignoring the cache.
     #[must_use]
     pub fn scan(&self, features: &FeatureVector) -> GlyphMatch {
+        self.scan_with(features, LineMetrics::UNKNOWN)
+    }
+
+    /// Scan the reference set for a glyph whose position in its line is known.
+    #[must_use]
+    pub fn scan_with(&self, features: &FeatureVector, metrics: LineMetrics) -> GlyphMatch {
         let mut best: Option<(u32, char)> = None;
         let mut runner_up = u32::MAX;
 
         for entry in self.references.entries() {
-            let distance = features.distance(&entry.features);
+            let distance = self.thresholds.distance(features, metrics, entry);
             match best {
                 Some((best_distance, _)) if distance >= best_distance => {
                     runner_up = runner_up.min(distance);
@@ -180,7 +221,7 @@ impl GlyphMatcher for HammingMatcher {
     fn prepare(&mut self, glyphs: &[Glyph]) -> Result<()> {
         let mut shapes = Shapes::new();
         for glyph in glyphs {
-            shapes.add(&glyph.features);
+            shapes.add(&glyph.features, glyph.metrics);
         }
         self.distinct_shapes = shapes.distinct().try_into().unwrap_or(u64::MAX);
 
@@ -189,28 +230,32 @@ impl GlyphMatcher for HammingMatcher {
 
         // Scan every centroid before touching the cache, because scanning borrows the reference set
         // and filling the cache borrows the matcher.
-        let answers: Vec<GlyphMatch> = clusters.iter().map(|c| self.scan(&c.centroid)).collect();
+        let answers: Vec<GlyphMatch> = clusters
+            .iter()
+            .map(|c| self.scan_with(&c.centroid, c.centroid_metrics))
+            .collect();
         self.scans += answers.len().try_into().unwrap_or(u64::MAX);
 
         for (group, answer) in clusters.iter().zip(answers) {
-            for (shape, _) in &group.members {
-                self.cache.insert(shape, answer.clone());
+            for ((features, metrics), _) in &group.members {
+                self.cache.insert(features, *metrics, answer.clone());
             }
         }
         Ok(())
     }
 
     fn match_glyph(&mut self, glyph: &Glyph) -> Result<GlyphMatch> {
-        if let Some(hit) = self.cache.get(&glyph.features) {
+        if let Some(hit) = self.cache.get(&glyph.features, glyph.metrics) {
             return Ok(hit);
         }
         // Only reachable without a preparation pass, or for a shape it did not see. Answering
         // from a bare scan is worse than answering from a cluster, but it is still an answer, and
         // silently returning "unmatched" for a glyph the matcher simply had not been shown would
         // be a much harder failure to notice.
-        let result = self.scan(&glyph.features);
+        let result = self.scan_with(&glyph.features, glyph.metrics);
         self.scans += 1;
-        self.cache.insert(&glyph.features, result.clone());
+        self.cache
+            .insert(&glyph.features, glyph.metrics, result.clone());
         Ok(result)
     }
 
@@ -235,11 +280,21 @@ mod tests {
     }
 
     fn entry(character: char, bits: &[usize]) -> ReferenceEntry {
-        ReferenceEntry { character, style: Style::Regular, features: vector(bits) }
+        ReferenceEntry {
+            character,
+            style: Style::Regular,
+            features: vector(bits),
+            metrics: LineMetrics::UNKNOWN,
+        }
     }
 
     fn glyph(bits: &[usize]) -> Glyph {
-        Glyph { bounds: Rect::new(0, 0, 8, 12), line: 0, features: vector(bits) }
+        Glyph {
+            bounds: Rect::new(0, 0, 8, 12),
+            line: 0,
+            features: vector(bits),
+            metrics: LineMetrics::UNKNOWN,
+        }
     }
 
     fn matcher(entries: Vec<ReferenceEntry>) -> HammingMatcher {
@@ -350,7 +405,7 @@ mod tests {
             MatchThresholds::default(),
         )
         .unwrap()
-        .with_cluster_rules(ClusterRules { radius_percent: 8, refine_passes: 2 });
+        .with_cluster_rules(ClusterRules { radius_percent: 8, ..ClusterRules::default() });
 
         // Nine clean renderings outvote one distorted member, so the centroid is the clean shape.
         let mut glyphs: Vec<Glyph> = (0..9).map(|_| glyph(&base)).collect();

@@ -24,16 +24,21 @@ use subtrackt::score::score_text;
 use subtrackt::{Config, Pipeline, UnmatchedPolicy};
 use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::cluster::ClusterRules;
+use subtrackt_glyph::matcher::MatchThresholds;
 
 /// Radii to try, in percent of the feature vector.
 const RADII: [u32; 8] = [0, 2, 4, 6, 8, 10, 12, 16];
 
-/// One fixture's outcome at one radius.
+/// Metric weights to try, in hundredths of a cell per percentage point of difference.
+const WEIGHTS: [u32; 8] = [0, 10, 25, 50, 75, 100, 150, 250];
+
+/// One fixture's outcome at one setting.
 struct Row {
-    radius_percent: u32,
-    radius_cells: u32,
+    setting: u32,
+    scaled: u32,
     distinct_shapes: u64,
     clusters: u64,
+    ambiguous: u64,
     cer: f64,
 }
 
@@ -66,24 +71,17 @@ fn fixture(
     Ok((dir.join("synthetic.sup"), truth, reference))
 }
 
-/// Extract one fixture at one radius and score it.
+/// Extract one fixture under one configuration and score it.
 fn measure(
     sup: &Path,
     truth: &str,
     reference: &ReferenceSet,
-    radius_percent: u32,
+    config: Config,
 ) -> anyhow::Result<Row> {
-    let rules = ClusterRules { radius_percent, ..ClusterRules::default() };
-    let config = Config {
-        unmatched: UnmatchedPolicy::Placeholder,
-        clustering: rules,
-        ..Config::default()
-    };
-
     let outcome = Pipeline::new(config)
         .with_reference(reference.clone())
         .run(sup)
-        .with_context(|| format!("extracting at radius {radius_percent}%"))?;
+        .context("extracting")?;
 
     let text = outcome
         .track
@@ -95,28 +93,70 @@ fn measure(
     let score = score_text(truth.trim(), text.trim());
 
     Ok(Row {
-        radius_percent,
-        radius_cells: rules.radius(),
+        setting: 0,
+        scaled: 0,
         distinct_shapes: outcome.report.distinct_shapes,
         clusters: outcome.report.clusters,
+        ambiguous: outcome.report.ambiguous,
         cer: score.character_error_rate() * 100.0,
     })
 }
 
-fn print_rows(label: &str, rows: &[Row]) {
-    println!("\n--- {label} ---");
-    println!("  radius        shapes  clusters       CER");
+/// Extract at one clustering radius.
+fn measure_radius(
+    sup: &Path,
+    truth: &str,
+    reference: &ReferenceSet,
+    radius_percent: u32,
+) -> anyhow::Result<Row> {
+    let rules = ClusterRules { radius_percent, ..ClusterRules::default() };
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        clustering: rules,
+        ..Config::default()
+    };
+    let mut row = measure(sup, truth, reference, config)?;
+    row.setting = radius_percent;
+    row.scaled = rules.radius();
+    Ok(row)
+}
+
+/// Extract at one line-metric weight.
+fn measure_weight(
+    sup: &Path,
+    truth: &str,
+    reference: &ReferenceSet,
+    metric_weight: u32,
+) -> anyhow::Result<Row> {
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        matching: MatchThresholds { metric_weight, ..MatchThresholds::default() },
+        ..Config::default()
+    };
+    let mut row = measure(sup, truth, reference, config)?;
+    row.setting = metric_weight;
+    // What a full cap-height difference — an `o` against an `O` — is worth in cells.
+    row.scaled = 28 * metric_weight / 100;
+    Ok(row)
+}
+
+fn print_rows(label: &str, heading: &str, baseline_note: &str, rows: &[Row]) {
+    println!(
+        "
+--- {label} ---"
+    );
+    println!("  {heading:<12}  shapes  clusters  ambiguous       CER");
     for row in rows {
         let baseline = rows.first().map_or(row.cer, |r| r.cer);
         let delta = row.cer - baseline;
-        let mark = if row.radius_percent == 0 {
-            "  (baseline: no clustering)".to_owned()
+        let mark = if row.setting == 0 {
+            format!("  ({baseline_note})")
         } else {
             format!("  {delta:+.1}")
         };
         println!(
-            "  {:>3}% = {:>3}  {:>8}  {:>8}  {:>7.1}%{mark}",
-            row.radius_percent, row.radius_cells, row.distinct_shapes, row.clusters, row.cer
+            "  {:>4} = {:>3}   {:>7}  {:>8}  {:>9}  {:>7.1}%{mark}",
+            row.setting, row.scaled, row.distinct_shapes, row.clusters, row.ambiguous, row.cer
         );
     }
 }
@@ -129,10 +169,17 @@ fn print_rows(label: &str, rows: &[Row]) {
 /// they sit below the variation a stream contains, no radius exists that helps.
 fn report_closest_pairs(reference: &ReferenceSet, radii: &[u32]) {
     let entries = reference.entries();
-    let mut pairs: Vec<(u32, char, char)> = Vec::new();
+    let thresholds = MatchThresholds::default();
+
+    let mut pairs: Vec<(u32, u32, char, char)> = Vec::new();
     for (index, a) in entries.iter().enumerate() {
         for b in &entries[index + 1..] {
-            pairs.push((a.features.distance(&b.features), a.character, b.character));
+            pairs.push((
+                a.features.distance(&b.features),
+                thresholds.distance(&a.features, a.metrics, b),
+                a.character,
+                b.character,
+            ));
         }
     }
     pairs.sort_unstable();
@@ -141,18 +188,36 @@ fn report_closest_pairs(reference: &ReferenceSet, radii: &[u32]) {
         "
 --- the closest pairs in the reference set ---"
     );
-    for (distance, a, b) in pairs.iter().take(12) {
-        println!("  {a} / {b}   {distance} cells apart");
+    println!("  pair    shape   +metrics");
+    for (shape, with, a, b) in pairs.iter().take(12) {
+        let verdict = if with == shape {
+            "  <-- still tied"
+        } else {
+            ""
+        };
+        println!("  {a} / {b}  {shape:>5}   {with:>8}{verdict}");
     }
+
+    let tied =
+        |pick: fn(&(u32, u32, char, char)) -> u32| pairs.iter().filter(|p| pick(p) == 0).count();
+    println!(
+        "
+  pairs at distance zero: {} by shape, {} once line metrics are counted",
+        tied(|p| p.0),
+        tied(|p| p.1)
+    );
 
     println!(
         "
-  pairs a radius would merge:"
+  pairs a clustering radius would merge, counting metrics:"
     );
     for radius_percent in radii.iter().filter(|r| **r > 0) {
         let radius =
             ClusterRules { radius_percent: *radius_percent, ..ClusterRules::default() }.radius();
-        let merged = pairs.iter().filter(|(d, _, _)| *d <= radius).count();
+        let merged = pairs
+            .iter()
+            .filter(|(_, with, _, _)| *with <= radius)
+            .count();
         println!("    {radius_percent:>3}% = {radius:>3} cells: {merged} pairs");
     }
 }
@@ -221,14 +286,75 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
 
         let mut rows = Vec::new();
         for radius in RADII {
-            rows.push(measure(&sup, &truth, &reference, radius)?);
+            rows.push(measure_radius(&sup, &truth, &reference, radius)?);
         }
-        print_rows(&label, &rows);
+        print_rows(&label, "radius", "baseline: no clustering", &rows);
     }
 
     println!(
         "\nA radius is only worth shipping if it does not hurt the plain fixture and helps the\n\
          varied one, since real streams are the varied case and a fixture is the plain one."
+    );
+    Ok(())
+}
+
+/// Sweep the line-metric weight over the same fixtures.
+///
+/// # Errors
+/// As [`run`].
+pub fn run_metric(args: &[String]) -> anyhow::Result<()> {
+    let font = crate::accuracy::find_font(args.first()).context(
+        "no font found; pass one explicitly, e.g. xtask metric-sweep C:/Windows/Fonts/arial.ttf",
+    )?;
+    println!("reference typeface: {}", font.display());
+
+    let other = [
+        "C:/Windows/Fonts/verdana.ttf",
+        "C:/Windows/Fonts/tahoma.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .find(|p| p.exists() && p != &font);
+
+    let root = std::env::temp_dir().join("subtrackt-metric-sweep");
+    let mut cases: Vec<(String, usize, PathBuf)> = vec![
+        ("plain, reference typeface exact".to_owned(), 1, font.clone()),
+        (
+            "varied (5 renderings), reference typeface exact".to_owned(),
+            5,
+            font.clone(),
+        ),
+    ];
+    if let Some(path) = other {
+        println!("material typeface for the cross-font case: {}", path.display());
+        cases.push(("plain, reference typeface a near miss".to_owned(), 1, path.clone()));
+        cases.push((
+            "varied (5 renderings), reference typeface a near miss".to_owned(),
+            5,
+            path,
+        ));
+    }
+
+    for (label, repeats, material) in cases {
+        let dir = root.join(format!(
+            "{repeats}-{}",
+            material.file_stem().unwrap_or_default().to_string_lossy()
+        ));
+        let (sup, truth, reference) = fixture(&material, &font, &dir, repeats)?;
+
+        let mut rows = Vec::new();
+        for weight in WEIGHTS {
+            rows.push(measure_weight(&sup, &truth, &reference, weight)?);
+        }
+        print_rows(&label, "weight", "baseline: shape only", &rows);
+    }
+
+    println!(
+        "
+The second column is what a full cap-height difference — an `o` against an `O` — is
+         worth in cells at that weight, against an ambiguity margin of 7 and a match ceiling of 51."
     );
     Ok(())
 }

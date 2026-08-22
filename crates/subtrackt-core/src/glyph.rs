@@ -90,6 +90,63 @@ impl FeatureVector {
     }
 }
 
+/// Where a glyph sits within its text line, relative to that line's own metrics.
+///
+/// The feature vector cannot express this and deliberately so: normalisation letterboxes every
+/// glyph to fill the grid, which is what makes a 480p and a 1080p render of one character agree.
+/// The cost is that it also makes an `o` and an `O` agree — #10 measured `I`, `l` and `|` at
+/// distance *zero* from one another — because within a shape vector they differ in nothing but
+/// size, and size is exactly what was normalised away.
+///
+/// Both figures are percentages of the line's cap height rather than pixel counts, so they survive
+/// a resolution change the way the rest of the pipeline's thresholds do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LineMetrics {
+    /// Glyph height as a percentage of the line's cap height.
+    ///
+    /// Around 100 for a capital, 75 for a lowercase x-height letter in a typical sans face, more
+    /// than 100 for a round capital's overshoot or an accented one.
+    pub height_percent: u32,
+    /// How far the glyph's bottom sits below the line's baseline, as a percentage of cap height.
+    ///
+    /// Zero for most characters, positive for a descender, and *negative* for something that floats
+    /// clear of the baseline — a hyphen, an apostrophe, a quotation mark. Which is why it is
+    /// signed: treating a floating mark as sitting on the baseline would merge `-` with `_`.
+    pub descent_percent: i32,
+    /// Whether these figures were measurable at all.
+    ///
+    /// A line with too few glyphs to locate a baseline has no metrics, and saying so is the whole
+    /// point: a fabricated 100% would be indistinguishable from a real one and would quietly bias
+    /// every match on that line. An unknown metric contributes nothing to a distance instead.
+    pub known: bool,
+}
+
+impl LineMetrics {
+    /// Metrics that could not be measured.
+    pub const UNKNOWN: Self = Self { height_percent: 0, descent_percent: 0, known: false };
+
+    /// Measured metrics.
+    #[must_use]
+    pub const fn new(height_percent: u32, descent_percent: i32) -> Self {
+        Self { height_percent, descent_percent, known: true }
+    }
+
+    /// How far apart two glyphs sit in metric terms, in percentage points.
+    ///
+    /// Returns `None` when either side is unknown, so a caller adds nothing rather than guessing.
+    /// A glyph whose line was unmeasurable must fall back to shape alone, not be penalised for it.
+    #[must_use]
+    pub fn difference(self, other: Self) -> Option<u32> {
+        if !self.known || !other.known {
+            return None;
+        }
+        Some(
+            self.height_percent.abs_diff(other.height_percent)
+                + self.descent_percent.abs_diff(other.descent_percent),
+        )
+    }
+}
+
 /// One connected component (or diacritic group) lifted out of a subtitle image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -99,6 +156,8 @@ pub struct Glyph {
     pub line: usize,
     /// The normalised feature vector.
     pub features: FeatureVector,
+    /// Where the glyph sits in its line, which the feature vector cannot say.
+    pub metrics: LineMetrics,
 }
 
 /// The result of matching one [`Glyph`] against the reference set.

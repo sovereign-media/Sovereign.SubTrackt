@@ -22,10 +22,12 @@ pub mod cluster;
 pub mod feature;
 pub mod group;
 pub mod matcher;
+pub mod metrics;
 pub mod reference;
 
 pub use binarize::{Binarizer, BinaryMask, Threshold};
 pub use cache::SessionCache;
 pub use cluster::{Cluster, ClusterRules, Shapes};
 pub use matcher::HammingMatcher;
+pub use metrics::{LineAnchors, MetricRules};
 pub use reference::{ReferenceEntry, ReferenceSet};

@@ -27,6 +27,12 @@ pub struct Report {
     pub ambiguous: u64,
     /// Glyphs answered from the session cache.
     pub cache_hits: u64,
+    /// Glyphs whose line was too short or too uniform to measure against.
+    ///
+    /// These fall back to shape alone, which is how the pipeline behaved before #37. A large count
+    /// means the material is mostly short lines — or that the anchors have stopped being found, and
+    /// the feature is quietly doing nothing.
+    pub glyphs_without_metrics: u64,
     /// Distinct glyph shapes the stream contained.
     ///
     /// Tens of thousands of glyphs reduce to a few hundred shapes, which is what makes clustering
