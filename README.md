@@ -214,10 +214,14 @@ What is actually left, in order of leverage:
   to be a level of #43 rather than a separate mechanism.
 - **Punctuation segmentation**, untracked. Eleven of the thirteen unmatched glyphs in the ceiling
   fixture are punctuation: `.` matches nothing, and `:` and `ï` each shatter into two placeholders.
-- **Grouping a mark onto a capital**, untracked, and [#6](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/6)'s
-  territory. An accent over a capital sits above every letterform the charset can spell, so in a
-  line of nothing but letters it bands as a line of its own and `À` segments as a bare `A` plus a
-  floating grave.
+- **Grouping**, two measured gaps in what a mark attaches to.
+  [#57](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/57): an accent over a capital
+  sits above every letterform the charset can spell, so in a line of nothing but letters it bands as
+  a line of its own and `À` segments as a bare `A` plus a floating grave — 25 of 51 marks reach
+  their body there against 44 with a `$` on the line.
+  [#58](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/58): the overlap rule is a
+  fraction of the *mark's* width, so a mark wider than the letter under it can never reach it and
+  `Î Ï î ï` never group at all.
 - **[#16](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/16)** — distribution. A
   decision more than a build; the throughput numbers already weaken the `cdylib` case.
 
