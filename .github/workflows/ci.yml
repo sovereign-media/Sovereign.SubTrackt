@@ -78,13 +78,18 @@ jobs:
   cross:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
-    # Both architectures Sovereign ships, per the distribution discussion in #16.
+    # Both architectures Sovereign ships, per the distribution discussion in #16, and both libc
+    # flavours. The musl pair is what `release.yml` actually publishes, so it is checked here rather
+    # than discovered to be broken by a tag; the gnu pair stays because a developer building locally
+    # gets gnu, and the two disagree often enough to be worth catching separately.
     strategy:
       fail-fast: false
       matrix:
         target:
           - x86_64-unknown-linux-gnu
           - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -105,12 +110,15 @@ jobs:
         if: github.event_name == 'pull_request'
         run: cargo check --workspace --all-targets --target ${{ matrix.target }} --locked
 
+      # Both aarch64 rows need this, not just the gnu one -- the musl row links with the same
+      # cross gcc as its driver, and gating on gnu alone left it to fail at link time on main.
       - name: Install cross linker
-        if: github.event_name != 'pull_request' && matrix.target == 'aarch64-unknown-linux-gnu'
+        if: github.event_name != 'pull_request' && startsWith(matrix.target, 'aarch64-')
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          target=$(echo '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')
+          echo "CARGO_TARGET_${target}_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Build release binary
         if: github.event_name != 'pull_request'
@@ -119,3 +127,34 @@ jobs:
       - name: sccache stats
         if: always()
         run: sccache --show-stats
+
+  windows:
+    name: windows tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      # RUSTC_WRAPPER is set for the whole workflow, so this is not optional here the way it looks
+      # -- without it every rustc call on this runner tries to exec a binary that is not installed.
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # `release.yml` publishes a Windows binary, and until it did, nothing in CI ever ran this code
+      # on Windows -- path separators, line endings and case-insensitive filesystems were covered by
+      # nothing but the maintainer's own machine. Tests rather than a type-check, because that is
+      # the part a type-check cannot speak to.
+      - name: Tests
+        run: cargo test --workspace --all-features --locked
+
+      # ARM64 Windows is cross-compiled from this same x86-64 runner at release time, so the
+      # compile is proven here. Checked rather than built: linking is what the tag exercises.
+      - name: Check aarch64
+        run: cargo check --workspace --all-targets --target aarch64-pc-windows-msvc --locked
