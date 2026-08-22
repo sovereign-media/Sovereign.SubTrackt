@@ -338,9 +338,12 @@ all five failed, for two mechanisms. Four were functions of the matcher's own an
 systematically wrong reference set is *by construction* a low-distance one — the thing that makes
 the answer wrong is the thing that makes the evidence look right. The fifth escaped that by never
 consulting a character at all, and broke on the channel instead: a typeface's style is measurable in
-its font file and does not survive being decoded off a subtitle plane. So `fit` proposes and you
-decide — **read a few cues before trusting a track to a set.** See
-[`docs/fit-confidence.md`](docs/fit-confidence.md).
+its font file and does not survive being decoded off a subtitle plane.
+[#101](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/101) added a sixth that reads
+the output *text* under a language prior, escaping both, and it fails for a third form of the first:
+a statistic that cannot score a character scores the read on everything else, and the characters it
+cannot score are never a random sample. So `fit` proposes and you decide — **read a few cues before
+trusting a track to a set.** See [`docs/fit-confidence.md`](docs/fit-confidence.md).
 
 **Style is finer-grained than typeface.** An italic reference set reads one film's italic act at
 10.8% CER and its upright dialogue at 40.5%; the upright set does the exact reverse. A fit that is
@@ -392,7 +395,7 @@ the plan it was meant to confirm.
 | [`reference-rendering.md`](docs/reference-rendering.md) | Why the full stop matched nothing, and the two-line change that halved the disc's error rate. The reference set letterboxed the *rasteriser's* box; the runtime letterboxes a connected component's. They differ by a pixel — 1.5% of an `M`, **15% of a period** — and controls show the box is the whole effect: a second entry at any size or threshold buys nothing unless it changes the box, and buys 2.7 points when it does. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
-| [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — five statistics, two mechanisms. The last one measures a typeface's style well enough to identify it from its font file 79–85% of the time, and still cannot gate a track: a decoded glyph drifts further from its own typeface than the typefaces sit apart. |
+| [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — six statistics, three mechanisms. The fifth identifies a typeface from its font file 79–85% of the time and still cannot gate a track, because a decoded glyph drifts further from its own typeface than the typefaces sit apart. The sixth scores the read text against a language prior and overlaps at every threshold, because the characters a model cannot score are exactly the ones where the read went wrong. |
 | [`distribution.md`](docs/distribution.md) | CLI over `cdylib`, static musl over glibc, and the binary-size and cold-start numbers behind both. |
 | [`architecture.md`](docs/architecture.md) | How the workspace is laid out, and where each decision lives. |
 

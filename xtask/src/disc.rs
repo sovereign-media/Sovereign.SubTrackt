@@ -265,7 +265,55 @@ fn score(got_path: &str, want_path: &str) -> anyhow::Result<()> {
         );
     }
     census.print();
+    prior(&pairs);
     Ok(())
+}
+
+/// Score the extraction against a character-bigram model of English, beside the release's own.
+///
+/// #101. The release subtitle is what makes this worth printing here rather than only in
+/// `xtask fit-select`: it is an independent transcript of the same dialogue, so it is the score a
+/// *correct* read of this track produces. Without it the extraction's number is a figure in an
+/// unfamiliar unit; with it, the gap is the whole statistic.
+///
+/// Silence rather than a number when there is too little Latin-script text to score, which is the
+/// constraint #101 asks to be built in from the start.
+fn prior(pairs: &[Pair<'_>]) {
+    let table = crate::bigram::Table::from_corpus(crate::bigram::CORPUS);
+    let joined = |extracted: bool| {
+        pairs
+            .iter()
+            .map(|p| flatten(&if extracted { p.got } else { p.want }.text))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let extraction = joined(true);
+    let got = table.score(&extraction);
+    let charged = table.score_charged(&extraction);
+    let want = table.score(&joined(false));
+
+    println!(
+        "
+--- language prior (#101) ---"
+    );
+    let show =
+        |value: Option<f64>| value.map_or_else(|| "no score".to_owned(), |v| format!("{v:.3}"));
+    println!("  extraction     : {}", show(got));
+    println!(
+        "  charged        : {}   <- unread characters charged the uniform floor",
+        show(charged)
+    );
+    println!(
+        "  release        : {}   <- what a correct read of this track scores",
+        show(want)
+    );
+    println!(
+        "  a uniform alphabet would score {:.3}",
+        crate::bigram::Table::uniform_floor()
+    );
+    if let (Some(got), Some(want)) = (got, want) {
+        println!("  the extraction is {:+.3} against the release", got - want);
+    }
 }
 
 /// Compare two extractions of one track, cue by cue.
