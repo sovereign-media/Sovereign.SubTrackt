@@ -341,3 +341,104 @@ distance **zero**: the same 256-bit vector, the same height, so neither the shap
 #37's line metrics carries a single bit that separates them. Post-correction's context arm already
 fires on it and on nothing else — all 363 corrections on this track are `I` → `l` — and 330 of the
 pair still come out wrong.
+
+## Cutting the components that were two characters
+
+[#106](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/106), built after the section
+above measured it. **The disc reads at 2.1% character error, down from 2.8%, and 99.9% of its glyphs
+are read.** 87 cues improved and **none got worse**.
+
+| | before | after |
+| :--- | ---: | ---: |
+| character error, all cues | 2.8% | **2.1%** |
+| upright | 2.7% | **1.9%** |
+| glyphs read | 99.5% | **99.9%** |
+| unread components | 105 | **16** |
+| errors | 687 | **508** |
+
+The `r` deletions are gone — 79 to zero — and so are `t`, `w` and most of `y` read as unread. 179 of
+the 193 characters the census attributed to fusions came back, which is 93% of them.
+
+### What it does
+
+After matching an image's glyphs, any component the matcher returned `unmatched` for is offered to
+[`split::cut_columns`](../crates/subtrackt-glyph/src/split.rs): the column projection's local minima,
+lightest first, restricted to columns carrying less than 40% of the component's median ink and
+leaving both sides at least 20% of its width. Each candidate cut is tried, both parts are cropped
+back to their own ink, vectorized and matched, and the cut is kept **only if every part reads**. A
+part that does not read gets one more cut, which is what a three-character fusion needs — the disc
+has one, `ryw` in `everywhere`.
+
+### Why it is on by default, which nothing else here is
+
+The acceptance rule, not the size of the gain:
+
+- It runs **only** on components the matcher already returned `unmatched` for. A glyph that read is
+  never seen by it.
+- A cut is kept **only** if every part matches within the ceiling. Half a fusion read and half not is
+  refused outright, because that would be a wrong answer with a plausible shape — worse than the
+  placeholder it replaced.
+
+So the failure mode is bounded to **unread → read**, which is the direction the accuracy gate
+measures anyway, and `srt-score --compare` confirms it on the material: 87 cues better, **0 worse**.
+`docs/post-correction.md` sets the standard a recovery stage has to meet — "a corrector that fixes
+three characters and invents one has still turned a detectable failure into a plausible wrong answer
+once" — and this is what meeting it looks like.
+
+That is also why the trigger can be as loose as it is. A wrong cut costs nothing: its parts fail to
+match and the next candidate is tried, or the glyph stays unread exactly as before.
+
+### Why the trigger is not a width test
+
+#97 proposed cutting "a component whose width against its line's cap height exceeds any single
+reference character's". The census above is why that does not work: a fused `rt` is **31×42, narrower
+than it is tall**, 73% of its line's cap height, because `r` and `t` are both narrow. The disc's
+fusions run from 73% to 200% of cap height and no threshold separates them from single characters.
+
+The trigger is therefore just *unread*, and the acceptance rule carries the whole argument.
+
+### What it costs
+
+**2.4 seconds on a 5.5 GB rip**, 14.8 to 17.2. The mask is recomputed for an image only when
+something in it failed to read — about a hundred images in a feature film — and each recomputation is
+one pass over the composed object, not the plane.
+
+Set size, format and dependencies are unchanged. The parts are matched through the ordinary
+`match_glyph`, so they go through the session cache like everything else.
+
+### The parts have to know what line they stood on
+
+A part's line metrics are the one thing that is not obvious. `metrics::measure_all` ran over the
+*old* segmentation and cannot be re-run — the glyph it measured no longer exists. But the parent
+carries its height and descent as percentages of its line's cap height, so the cap height in pixels
+is recoverable from the pair, and each part's metrics are derived from that.
+
+It matters more than it sounds: `r` and `t` differ in height and in very little the shape vector
+keeps. A part scored on shape alone would be a coin toss between them. And a glyph whose line had no
+metrics at all is **refused** rather than given fabricated ones, which is the choice
+`LineMetrics::UNKNOWN` makes everywhere else in the pipeline.
+
+### Predictions, scored
+
+- **1. The split recovers more than half of the 193 characters.** *Right.* 179 of 193, 93%.
+- **2. It recovers nothing it should not: zero cues get worse.** *Right.* 87 better, 0 worse, across
+  818 scored cues.
+- **3. The disc goes from 2.8% to under 2.4%.** *Right.* 2.1%.
+- **4. The ceiling fixture barely moves, and is the case where a fixture cannot see the bug.**
+  *Right, and completely.* 6.4% before and after, 2 unread before and after — **the fixture does not
+  move by a single character**, because text generated at 48px does not fuse. Every number in this
+  section comes from the disc, and there was no other instrument that could have produced them.
+
+### What is left
+
+| release → read | errors | share |
+| :--- | ---: | ---: |
+| `l` → `I` | 330 | **65%** |
+| word spaces never read | 66 | 13% |
+| `"` → `'` | 20 | 4% |
+| everything else | 92 | 18% |
+
+`l` → `I` is now two thirds of it. It is the pair #10 measured at distance **zero** — the same
+256-bit vector, the same height, so neither the shape representation nor #37's line metrics carries
+a single bit that separates them. Post-correction's context arm already fires on it and nothing
+else, and 330 still come out wrong.

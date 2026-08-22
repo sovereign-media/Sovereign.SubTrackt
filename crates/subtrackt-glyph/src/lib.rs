@@ -29,6 +29,7 @@ pub mod mark;
 pub mod matcher;
 pub mod metrics;
 pub mod reference;
+pub mod split;
 
 pub use binarize::{Binarizer, BinaryMask, Threshold};
 pub use cache::SessionCache;

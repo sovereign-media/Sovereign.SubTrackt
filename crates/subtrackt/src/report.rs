@@ -53,6 +53,12 @@ pub struct Report {
     /// characters means the radius is too tight to absorb the stream's own variation, and far
     /// fewer means it is loose enough to be merging different characters together.
     pub clusters: u64,
+    /// Images in which at least one unreadable component was recovered as two characters.
+    ///
+    /// #106. Watch it against `unmatched`: this stage can only move a glyph from unread to read, so
+    /// a rising count with a flat unmatched count would mean it had started firing on something
+    /// other than a fusion.
+    pub defused: u64,
     /// Cues written.
     pub cues: u64,
     /// Cues dropped under [`UnmatchedPolicy::Drop`].
@@ -141,7 +147,7 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
-             ({:.1}% read); fit {:.1}; cache {:.0}%; corrections {}{} ({})",
+             ({:.1}% read); fit {:.1}; cache {:.0}%;{} corrections {}{} ({})",
             self.cues,
             self.images,
             self.packets,
@@ -153,6 +159,14 @@ impl fmt::Display for Report {
             self.confidence().ratio() * 100.0,
             self.mean_match_distance(),
             self.cache_hit_rate() * 100.0,
+            // Silent when nothing fused, so an ordinary run reads exactly as it did before #106.
+            // Named when it did, because a recovered fusion is two characters that would otherwise
+            // have been a placeholder and a hole, and that belongs in the one line a caller reads.
+            if self.defused > 0 {
+                format!(" defused {};", self.defused)
+            } else {
+                String::new()
+            },
             self.corrections,
             // The two arms rest on different evidence, so the split is shown whenever the second
             // one fired. Silent when it did not, so an ordinary run reads exactly as before.

@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::config::DEFAULT_MIN_MATCHED;
+use subtrackt::config::Defusing;
 use subtrackt::{Config, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
@@ -150,6 +151,14 @@ pub struct ExtractArgs {
     /// Include the glyph outline in the foreground mask as well as the fill.
     #[arg(long)]
     pub include_outline: bool,
+
+    /// Retry a component the matcher cannot read as two characters that touched.
+    #[arg(long, overrides_with = "no_defuse")]
+    pub defuse: bool,
+
+    /// Leave an unreadable component unread rather than trying to cut it.
+    #[arg(long, overrides_with = "defuse")]
+    pub no_defuse: bool,
 
     /// Resolve ambiguous reads from the characters around them. See docs/post-correction.md.
     #[arg(long, overrides_with = "no_post_correct")]
@@ -372,6 +381,21 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether the de-fusing pass runs, resolved the same way and for the same reason.
+    ///
+    /// The default is `On`, so `--defuse` changes nothing today and exists for the same reason
+    /// `--post-correct` does: the default is a measurement result rather than a fixed property.
+    #[must_use]
+    pub fn defuse(&self) -> Defusing {
+        if self.defuse {
+            Defusing::On
+        } else if self.no_defuse {
+            Defusing::Off
+        } else {
+            Config::default().defuse
+        }
+    }
+
     /// Whether the vocabulary arm runs, resolved the same way and for the same reason.
     #[must_use]
     pub fn track_vocabulary(&self) -> bool {
@@ -390,6 +414,7 @@ impl ExtractArgs {
         let mut config = Config {
             stream: self.stream,
             format: self.format.into(),
+            defuse: self.defuse(),
             post_correct: self.post_correct(),
             track_vocabulary: self.track_vocabulary(),
             vocabulary: VocabularyRules {

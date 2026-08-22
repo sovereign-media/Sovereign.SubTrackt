@@ -20,7 +20,7 @@ pub mod report;
 pub mod score;
 pub mod survey;
 
-pub use config::{Config, UnmatchedPolicy};
+pub use config::{Config, Defusing, UnmatchedPolicy};
 pub use fit::{Fit, rank, rank_watched, score_set};
 pub use pipeline::{Outcome, Pipeline, UnreadGlyph};
 pub use report::Report;
