@@ -229,7 +229,7 @@ These are the §4 questions from #1, with where they live in the code.
 
 | Question | Where | Issue |
 | :--- | :--- | :--- |
-| 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 — untested; worth measuring now that #15 can score it |
+| ~~16×16 versus 32×32 grid~~ — **measured, no consistent gain; 16 stays** | `subtrackt_core::glyph::FEATURE_GRID` | #7, see `docs/glyph-stability.md` |
 | Where a reference set comes from | `subtrackt_glyph::reference` | #43 |
 | Word spacing, which #11 landed before anything could score it | `subtrackt_text::layout::is_space` | #40 |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |

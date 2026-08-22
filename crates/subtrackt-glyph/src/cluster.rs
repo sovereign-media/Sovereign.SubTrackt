@@ -485,10 +485,14 @@ mod tests {
     #[test]
     fn different_characters_stay_in_different_clusters() {
         // The other half: absorbing variation must not also absorb the distinctions.
+        // Runs sized off the vector rather than in absolute cells: the radius is a percentage of
+        // FEATURE_BITS, so a fixed 40-cell run would sit inside the radius on a larger grid and the
+        // test would be asserting the opposite of what it names.
+        let span = FEATURE_BITS / 6;
         let mut shapes = Shapes::new();
-        add(&mut shapes, run(0, 40), 100);
-        add(&mut shapes, run(100, 40), 80);
-        add(&mut shapes, run(200, 40), 60);
+        add(&mut shapes, run(0, span), 100);
+        add(&mut shapes, run(FEATURE_BITS / 3, span), 80);
+        add(&mut shapes, run(FEATURE_BITS * 2 / 3, span), 60);
 
         let clusters = cluster(&shapes, grouping());
         assert_eq!(clusters.len(), 3);

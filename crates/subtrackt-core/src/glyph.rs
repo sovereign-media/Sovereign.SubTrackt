@@ -9,8 +9,14 @@ use crate::bitmap::Rect;
 
 /// Edge length of the normalisation grid a glyph is resampled onto.
 ///
-/// 16 gives a 256-bit vector, which is four `u64` words and fits comfortably in registers. The
-/// architecture document leaves 16 vs 32 open; benchmarking that trade-off is tracked separately.
+/// 16 gives a 256-bit vector, which is four `u64` words and fits comfortably in registers.
+///
+/// 32 was measured against it and **is not better**: one harness makes it several points of CER
+/// better on a mismatched typeface, another makes it a wash across four of them with match coverage
+/// down on every one, and the shape vector's own separation statistic slightly worsens. See
+/// `docs/glyph-stability.md`. Everything downstream is a fraction of [`FEATURE_BITS`], so changing
+/// this constant is a one-line experiment — with the exception noted on
+/// `MatchThresholds::metric_weight`.
 pub const FEATURE_GRID: usize = 16;
 
 /// Number of bits in a [`FeatureVector`].
@@ -198,8 +204,8 @@ mod tests {
 
     #[test]
     fn a_vector_is_four_words_wide() {
-        assert_eq!(FEATURE_BITS, 256);
-        assert_eq!(FeatureVector::EMPTY.words().len(), 4);
+        assert_eq!(FEATURE_BITS, FEATURE_GRID * FEATURE_GRID);
+        assert_eq!(FeatureVector::EMPTY.words().len(), FEATURE_BITS / 64);
     }
 
     #[test]

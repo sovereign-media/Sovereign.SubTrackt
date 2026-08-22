@@ -124,13 +124,14 @@ impl crate::Pipeline {
 /// # Errors
 /// Returns [`Error::Config`] if the string is not 64 hex characters.
 pub fn parse_vector_hex(hex: &str) -> Result<FeatureVector> {
-    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let expected = subtrackt_core::FEATURE_WORDS * 16;
+    if hex.len() != expected || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(Error::Config(format!(
-            "a feature vector is 64 hex characters, got {}",
+            "a feature vector is {expected} hex characters, got {}",
             hex.len()
         )));
     }
-    let mut words = [0u64; 4];
+    let mut words = [0u64; subtrackt_core::FEATURE_WORDS];
     for (index, word) in words.iter_mut().enumerate() {
         *word = u64::from_str_radix(&hex[index * 16..(index + 1) * 16], 16)
             .map_err(|e| Error::Config(format!("bad feature vector: {e}")))?;
@@ -162,20 +163,23 @@ mod tests {
             v.set(bit);
         }
         let hex = vector_hex(&v);
-        assert_eq!(hex.len(), 64);
+        assert_eq!(hex.len(), subtrackt_core::FEATURE_WORDS * 16);
         assert_eq!(parse_vector_hex(&hex).unwrap(), v);
     }
 
     #[test]
     fn the_empty_vector_encodes_as_all_zeroes() {
-        assert_eq!(vector_hex(&FeatureVector::EMPTY), "0".repeat(64));
+        assert_eq!(
+            vector_hex(&FeatureVector::EMPTY),
+            "0".repeat(subtrackt_core::FEATURE_WORDS * 16)
+        );
     }
 
     #[test]
     fn malformed_hex_is_rejected_rather_than_silently_truncated() {
         assert!(parse_vector_hex("").is_err());
         assert!(parse_vector_hex("abc").is_err());
-        assert!(parse_vector_hex(&"z".repeat(64)).is_err());
+        assert!(parse_vector_hex(&"z".repeat(subtrackt_core::FEATURE_WORDS * 16)).is_err());
     }
 
     #[test]

@@ -9,7 +9,7 @@
 //! The on-disk format below is what the generator writes and what the binary will eventually
 //! embed.
 
-use subtrackt_core::{Error, FEATURE_GRID, FeatureVector, LineMetrics, Result};
+use subtrackt_core::{Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, LineMetrics, Result};
 
 /// Typographic variant of a reference glyph.
 ///
@@ -141,10 +141,10 @@ const MAGIC: &[u8; 8] = b"SUBTREF\x02";
 const MAGIC_V1: &[u8; 8] = b"SUBTREF\x01";
 
 /// Bytes per entry: codepoint, style, metrics-known flag, height, descent, then the vector.
-const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + 32;
+const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + FEATURE_WORDS * 8;
 
 /// Bytes per entry in version 1: codepoint, style, two reserved, then the vector.
-const ENTRY_LEN_V1: usize = 4 + 1 + 2 + 32;
+const ENTRY_LEN_V1: usize = 4 + 1 + 2 + FEATURE_WORDS * 8;
 
 /// Bytes before the name.
 const HEADER_LEN: usize = 16;
@@ -244,7 +244,7 @@ impl ReferenceSet {
             };
 
             let words_at = if entry_len == ENTRY_LEN { 10 } else { 7 };
-            let mut words = [0u64; 4];
+            let mut words = [0u64; FEATURE_WORDS];
             for (index, word) in words.iter_mut().enumerate() {
                 let at = words_at + index * 8;
                 *word = u64::from_le_bytes(chunk[at..at + 8].try_into().expect("8 bytes"));
