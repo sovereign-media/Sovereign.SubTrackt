@@ -145,12 +145,21 @@ fn post_correction_is_off_unless_it_is_asked_for_and_the_report_says_which() {
 }
 
 #[test]
-fn the_default_gate_refuses_a_track_it_cannot_read() {
-    // With no reference set nothing matches, so FailTrack must reject rather than emit placeholders.
+fn the_default_gate_refuses_a_track_it_cannot_read_and_says_by_how_much() {
+    // With nothing embedded no glyph matches, so the floor must reject rather than emit a track of
+    // placeholders — and the caller being told to fall back to burn-in gets the numbers behind it.
     let err = Pipeline::new(Config::default())
         .run(fixture("synthetic.sup"))
         .unwrap_err();
-    assert!(matches!(err, subtrackt::Error::UnmatchedGlyph { .. }), "got {err:?}");
+
+    let subtrackt::Error::TrackRejected { policy, matched, unmatched, required } = &err else {
+        panic!("got {err:?}");
+    };
+    assert_eq!(*policy, "threshold");
+    assert_eq!(*matched, 0, "the embedded reference set is empty");
+    assert!(*unmatched > 0);
+    assert!((*required - subtrackt::config::DEFAULT_MIN_MATCHED).abs() < f32::EPSILON);
+    assert!(err.to_string().contains("floor is 90.0%"), "{err}");
 }
 
 #[test]

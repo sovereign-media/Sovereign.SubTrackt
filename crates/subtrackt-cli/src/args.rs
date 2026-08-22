@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use subtrackt::config::DEFAULT_MIN_MATCHED;
 use subtrackt::{Config, UnmatchedPolicy};
 use subtrackt_core::SubtitleFormat;
 
@@ -83,11 +84,11 @@ pub struct ExtractArgs {
     pub format: Format,
 
     /// What to do about glyphs the matcher cannot identify.
-    #[arg(long, value_enum, default_value_t = Unmatched::FailTrack)]
+    #[arg(long, value_enum, default_value_t = Unmatched::Threshold)]
     pub on_unmatched: Unmatched,
 
     /// With `--on-unmatched threshold`, the fraction of glyphs that must match.
-    #[arg(long, default_value_t = 0.98, value_parser = parse_ratio)]
+    #[arg(long, default_value_t = DEFAULT_MIN_MATCHED, value_parser = parse_ratio)]
     pub min_matched: f32,
 
     /// Include the glyph outline in the foreground mask as well as the fill.
@@ -275,10 +276,16 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_the_conservative_library_defaults() {
+    fn defaults_match_the_library_defaults_rather_than_restating_them() {
+        // The gate default is a measurement result (docs/architecture.md), so the CLI has to track
+        // it rather than carry its own copy that can drift.
         let args = extract(&["subtrackt", "extract", "movie.sup"]);
         let config = args.to_config();
-        assert_eq!(config.unmatched, UnmatchedPolicy::FailTrack);
+        assert_eq!(config.unmatched, Config::default().unmatched);
+        assert_eq!(
+            config.unmatched,
+            UnmatchedPolicy::Threshold { min_ratio: DEFAULT_MIN_MATCHED }
+        );
         assert_eq!(config.format, SubtitleFormat::Srt);
         assert!(!config.post_correct);
         assert!(!config.binarize.include_outline);

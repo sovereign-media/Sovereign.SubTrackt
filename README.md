@@ -91,14 +91,17 @@ identified:
 
 | Value | Behaviour |
 | :--- | :--- |
-| `fail-track` | Abort the track so the caller can fall back to burn-in. **Default.** |
-| `threshold` | Abort only if fewer than `--min-matched` of glyphs were read. |
+| `threshold` | Abort only if fewer than `--min-matched` of glyphs were read. **Default, floor 0.90.** |
+| `fail-track` | Abort on a single unread glyph. |
 | `drop` | Omit any cue containing an unread glyph. |
 | `placeholder` | Emit the cue with a replacement character. |
 
-The default is conservative on purpose: a partially-read subtitle track is not obviously better than
-one that kept its pixels. Which default is right is a measurement nobody has taken yet — see
-[#13](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/13).
+The floor is a floor and not a target: it catches a track that could not be *read*, and makes no
+claim about one read *well*. `fail-track` was the default until it was measured — rejecting on a
+*single* unread glyph refused essentially every track in the library, which is a gate that never
+opens. 0.90 is bounded from above by the pipeline's own ceiling case at 93.9% and from below by the
+48 of 56 surveyed titles that clear it. See
+[`docs/architecture.md`](docs/architecture.md#the-accuracy-gate).
 
 ## Building
 

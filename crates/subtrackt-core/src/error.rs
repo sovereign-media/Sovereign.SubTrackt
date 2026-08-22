@@ -50,6 +50,23 @@ pub enum Error {
         best_distance: u32,
     },
 
+    /// The track was read and the accuracy gate refused it.
+    ///
+    /// Distinct from [`Error::UnmatchedGlyph`], which is one glyph finding nothing within
+    /// threshold. This is the whole track being abandoned in favour of a fallback, and it carries
+    /// the numbers behind that decision because the caller is being asked to do expensive work —
+    /// burn-in — and deserves to know how close the read came rather than only that it lost.
+    TrackRejected {
+        /// The policy that refused it.
+        policy: &'static str,
+        /// Glyphs identified within threshold.
+        matched: u64,
+        /// Glyphs with no reference within threshold.
+        unmatched: u64,
+        /// Fraction the policy required, in `0.0..=1.0`.
+        required: f32,
+    },
+
     /// The requested codec, container or output format is recognised but not yet supported.
     Unsupported {
         /// Human-readable description of the unsupported thing.
@@ -86,6 +103,22 @@ impl fmt::Display for Error {
             }
             Self::UnmatchedGlyph { best_distance } => {
                 write!(f, "no reference glyph within threshold (best distance {best_distance})")
+            }
+            Self::TrackRejected { policy, matched, unmatched, required } => {
+                let total = matched + unmatched;
+                #[allow(clippy::cast_precision_loss)]
+                let read = if total == 0 {
+                    0.0
+                } else {
+                    *matched as f32 / total as f32
+                };
+                write!(
+                    f,
+                    "track rejected by the {policy} gate: {matched} of {total} glyphs read \
+                     ({:.1}%), floor is {:.1}%",
+                    read * 100.0,
+                    required * 100.0
+                )
             }
             Self::Unsupported { what, issue } => {
                 write!(f, "{what} is not supported yet (tracking issue #{issue})")

@@ -129,14 +129,17 @@ impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous; \
-             fit {:.1}; cache {:.0}%; corrections {} ({})",
+            "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
+             ({:.1}% read); fit {:.1}; cache {:.0}%; corrections {} ({})",
             self.cues,
             self.images,
             self.packets,
             self.matched,
             self.unmatched,
             self.ambiguous,
+            // The figure the gate actually reads, spelled out rather than left to be divided out
+            // of the two counts before it.
+            self.confidence().ratio() * 100.0,
             self.mean_match_distance(),
             self.cache_hit_rate() * 100.0,
             self.corrections,

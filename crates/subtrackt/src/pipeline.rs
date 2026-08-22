@@ -52,8 +52,9 @@ impl Outcome {
 /// Runs the extraction pipeline.
 pub struct Pipeline {
     config: Config,
-    /// Overrides the embedded set. #9 keeps the embedded one empty until a set is worth shipping,
-    /// so supplying one from a file is currently the only way to match anything at all.
+    /// Overrides the embedded set. Nothing is embedded — `docs/reference-set.md` measured a
+    /// shipped set as worse than none — so supplying one from a file is the only way to match
+    /// anything at all.
     reference: Option<subtrackt_glyph::ReferenceSet>,
 }
 
@@ -95,7 +96,7 @@ impl Pipeline {
     ///
     /// # Errors
     /// Propagates any stage failure. Notably, if the configured [`UnmatchedPolicy`] rejects the
-    /// track, this returns [`Error::UnmatchedGlyph`] rather than a partial track — the caller is
+    /// track, this returns [`Error::TrackRejected`] rather than a partial track — the caller is
     /// expected to fall back to burn-in rather than to ship half a subtitle. Every counter behind
     /// that decision is in [`Report`], so the caller can log why it happened.
     pub fn run(&self, path: impl AsRef<Path>) -> Result<Outcome> {
@@ -142,7 +143,14 @@ impl Pipeline {
         report.cache_hits = matcher.cache_hits();
 
         if report.is_rejected_by(self.config.unmatched) {
-            return Err(Error::UnmatchedGlyph { best_distance: u32::MAX });
+            // Every number behind the decision, because the caller is being told to fall back to
+            // burn-in and that is expensive enough to deserve a reason.
+            return Err(Error::TrackRejected {
+                policy: self.config.unmatched.name(),
+                matched: report.matched,
+                unmatched: report.unmatched,
+                required: self.config.unmatched.required_ratio(),
+            });
         }
 
         Ok(Outcome { track, report, corrections, stream })

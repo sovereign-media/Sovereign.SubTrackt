@@ -111,10 +111,11 @@ unmatched because the reference set is empty, so the structure is proven and the
 that is #9, which waits on #8.
 
  Running the CLI over a `.sup` produces timed cues with a
-confidence tally. Because the reference set ships empty, every glyph comes back unmatched, so the
-default `FailTrack` policy refuses the track — which is the designed behaviour, not a failure.
-`--on-unmatched placeholder` shows the cues and their timings. What stands between this and real
-text is #9, and #9 waits on #8.
+confidence tally. Because nothing is embedded, every glyph comes back unmatched and the default
+floor refuses the track, naming the numbers behind it — which is the designed behaviour, not a
+failure. `--on-unmatched placeholder` shows the cues and their timings. What stands between this and
+real text is reference data fitted to the material; `docs/reference-set.md` records why shipping a
+fixed set instead measured worse than shipping none.
 
 The reference set ships **empty**, deliberately. A guessed set is worse than none: a title in an
 unlisted typeface would degrade to confident garbage rather than to a clean failure. #8 decides what
@@ -214,22 +215,95 @@ These are the §4 questions from #1, with where they live in the code.
 | Question | Where | Issue |
 | :--- | :--- | :--- |
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 (measure again once #9 lands) |
-| What happens to a cue with an unmatched glyph | `subtrackt::UnmatchedPolicy` | #13 |
+| ~~What happens to a cue with an unmatched glyph~~ | `subtrackt::UnmatchedPolicy` | #13 — **decided**, below |
 | Session cache scope, and the redesign it now needs | `subtrackt-glyph::cache` | #10 |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 |
 
 ### The accuracy gate
 
-`UnmatchedPolicy` has four variants — `Drop`, `Placeholder`, `FailTrack`, `Threshold { min_ratio }`
-— and defaults to `FailTrack`. That default is a placeholder for a measurement, not a conclusion.
+Decided in #13. `UnmatchedPolicy` has four variants — `Drop`, `Placeholder`, `FailTrack`,
+`Threshold { min_ratio }` — and defaults to **`Threshold { min_ratio: 0.90 }`**.
 
 The gate is worth having because of a property this design has and a general OCR engine does not:
 an unmatched glyph is a **fact**, not a confidence score. `Confidence` therefore counts glyphs
-rather than estimating probabilities. Where those counts should live on the Sovereign side is the
-open half of #13.
+rather than estimating probabilities.
 
-Both a per-cue and a track-level check exist, because "one unread glyph in a feature" and "40% of
-the track unread" deserve different answers and only the second is visible at track level.
+#### Why not `FailTrack`
+
+It was the default and it rejects a track on a *single* unmatched glyph. The library survey scored
+56 titles against a pooled reference set at the matcher's operational threshold:
+
+| Coverage at ≤51 cells | Median | p10 | Worst | ≥90% | ≥50% |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| Fraction of glyph instances matched | 96.5% | 78.9% | 43.4% | 48/56 | 53/56 |
+
+A median title at 96.5% carries hundreds of unmatched glyphs, so `FailTrack` refuses essentially
+every track ever authored. That is not conservatism; it is a gate that never opens. `Threshold` is
+the only variant these numbers support.
+
+#### Why 0.90, and why not tighter
+
+A floor against a track that could not be *read*, not a standard for one read *well*. Two
+measurements bound it from opposite sides and they do not leave much room.
+
+**From above: the pipeline's own ceiling.** A fixture read with a reference set built from the very
+font that rendered it matches **93.9%** of its glyphs — the rest is punctuation the segmenter still
+shatters, not typeface mismatch. Any floor above that refuses the best read this pipeline can
+currently produce, which is precisely how `FailTrack` failed, one order of magnitude less obviously.
+That constraint is not permanent and the floor should be revisited when it lifts.
+
+**From below: the corpus.** 48 of 56 titles sit at or above 90%. That is the one value the survey
+reports a title count for rather than one interpolated between its rows, which is worth more here
+than a rounder-sounding number would be.
+
+Nine unread glyphs in a hundred is not good text, and 0.90 is not a claim that it is. It is the
+point below which the burn-in fallback is unarguably the better answer.
+
+It is deliberately not tuned finer, because **coverage is a weak predictor of correctness** and
+fitting the figure would be fitting it to the wrong quantity. `docs/reference-set.md` measures this
+directly against ground truth: a Segoe UI reference set matches the *same* 93.9% of glyphs as an
+Arial one and reads at 37.8% character error against Arial's 15.9%. Coverage barely moved; accuracy
+went 2.4×.
+
+How weak, concretely. Running the five wrong-typeface sets from that write-up past this floor:
+
+| reference set | coverage | 0.90 floor | CER |
+| :--- | ---: | :--- | ---: |
+| segoeui | 93.9% | **accepted** | 37.8% |
+| verdana | 92.4% | **accepted** | 27.4% |
+| LiberationSans | 89.3% | rejected | 26.8% |
+| trebuc | 87.8% | rejected | 36.0% |
+| tahoma | 84.0% | rejected | 29.3% |
+
+The floor rejects the **best** of the five and accepts the **worst**. Nothing about that is a
+tuning problem — a different value reorders which ones slip through without making coverage any more
+informative about correctness.
+
+So the gate catches tracks that could not be **read**. It does not catch tracks that were read
+**wrongly**, and no count in `Confidence` can. Mean match distance (`Report::mean_match_distance`)
+is the better signal for the second question and is now reported — Arial fits its own material at
+13.0 cells against 20.9–22.7 for the wrong typefaces — but the same measurement shows it is not
+sufficient either: a systematic substitution is by construction a *low*-distance one, so Liberation
+Sans sits at 14.8 while reading as badly as Verdana at 21.7.
+
+#### Per-cue or per-track: both, and they answer different questions
+
+"One unread glyph in a feature" and "40% of the track unread" deserve different answers, and only
+the second is visible at track level. So `Drop` and `Placeholder` act per cue as the track is built,
+and the floor runs afterwards over the accumulated tally. A rejection returns
+`Error::TrackRejected` carrying the policy, both counts and the floor, because the caller is being
+told to fall back to burn-in and that is expensive enough to deserve a reason:
+
+```
+track rejected by the threshold gate: 0 of 131 glyphs read (0.0%), floor is 90.0%
+```
+
+#### Still open: where the counts live
+
+Unchanged and not this repository's to decide. §4 of #1 notes the confidence tally has nowhere to
+live in Sovereign's `ExtractedSubtitle`, and that is a schema question on the Sovereign side. It
+shapes whether a partially-read track can be stored at all or whether the gate has to stay
+all-or-nothing; the extractor produces the numbers either way.
 
 ## Build times
 
