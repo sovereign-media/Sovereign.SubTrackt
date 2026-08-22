@@ -749,6 +749,57 @@ ever landed on the wrong one of them. Nothing before this had made the distincti
 That is the fourth feature measured before building and the second built before being disproved. The
 bench is cheap; running the sweep afterwards is what caught this one.
 
+## A mark wider than the letter under it, and the rule that could not say so
+
+#58, found while building #48's bench and fixed with one line and one guard.
+
+`GroupingRules::min_overlap_percent` was documented as *"minimum horizontal overlap with the base,
+in percent of the diacritic's width"*. The denominator is the mark, so **a mark wider than the letter
+under it can never reach 50%, however perfectly it is centred.** That is the `i`/`I` family, where
+the body is a bare stem. Component boxes at 96px in Arial:
+
+| character | mark box | body box | overlap | as % of the mark | grouped |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| `î` | w 28 | w 9 | 9 | **32%** | ✗ |
+| `Î` | w 29 | w 9 | 9 | **31%** | ✗ |
+| `ï` | w 9, w 9 | w 9 | **0** | **0%** | ✗ |
+| `ì` | w 17 | w 9 | 9 | 53% | ✓ barely |
+| `é` | w 17 | w 45 | 17 | 100% | ✓ |
+
+The question the rule exists to ask is whether a mark sits over *this* letter rather than a
+different one, and for a body narrower than the mark that cannot be expressed as a fraction of the
+mark. Denominating by **the narrower of the two boxes** asks it properly: `î` becomes 9/9.
+
+### The guard the change needed
+
+Denominating by the narrower has a failure of its own, and the prediction on the issue named it
+before the code did: a wide mark *straddling* two narrow letters covers half of each, so it would
+now claim whichever one `best_body` reached first — trading a missed attachment for a wrong one,
+which is worse.
+
+So the mark's horizontal centre must also fall inside the letter. A mark the typeface placed over a
+letter is centred on it; a mark between two is centred between them. It costs nothing measurable —
+the census is 46 of 51 with or without it — and it closes the hole.
+
+### What it moves
+
+| | before | after |
+| :--- | ---: | ---: |
+| Marks reaching their body, best neighbour | 44 of 51 | **46 of 51** |
+| Marks reaching their body, letters-only line | 25 of 51 | **26 of 51** |
+| Accuracy fixture, CER | 11.1% | 11.1% |
+
+`Î` and `î` group; `Ï` and `ï` still do not, and that was predicted. A diaeresis is two components
+straddling the stem — at x84 and x102 over a stem at x93 — so **neither dot overlaps it at all** and
+neither centre falls on it. Only their union does, and `best_body` tests each mark independently.
+Fixing that means grouping adjacent marks before matching them to bodies, which is a larger change
+with a hazard of its own: the dots of `ii` are also two marks at the same height, and merging those
+would attach one mark to one stem. #58 stays open for it.
+
+The fixture gained `S'il vous plaît, maître.` so the gain is visible in `xtask accuracy` rather than
+only in the census. Both `î` come out right; the line's remaining errors are `l` read as `I`, which
+is #12's, and post-correction now fixes one of them.
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
