@@ -33,6 +33,7 @@
 // represents exactly, so the precision-loss lint has nothing to warn about in this module.
 #![allow(clippy::cast_precision_loss)]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -59,11 +60,18 @@ struct Scored {
     charged_mean: f32,
     coverage: f64,
     cer: f64,
+    /// One entry per line of output, so agreement can be asked per line rather than only per
+    /// track. Lines rather than cues because the ground truth the fixture writes carries no cue
+    /// boundary, and because "lines made worse" is the unit `docs/post-correction.md` already
+    /// judges a stage by.
+    lines: Vec<String>,
 }
 
 /// Everything measured for one material font.
 struct Trial {
     material: String,
+    /// The ground truth the fixture was rendered from, one entry per line.
+    truth_lines: Vec<String>,
     /// Every candidate, including the material's own font.
     scores: Vec<Scored>,
 }
@@ -177,10 +185,13 @@ fn trial(
             charged_mean: charged as f32,
             coverage,
             cer: score_text(truth.trim(), text.trim()).character_error_rate() * 100.0,
+            lines: text.trim().lines().map(str::to_owned).collect(),
         });
     }
 
-    Ok(Trial { material: name, scores })
+    let truth_lines: Vec<String> = truth.trim().lines().map(str::to_owned).collect();
+
+    Ok(Trial { material: name, truth_lines, scores })
 }
 
 /// Report what each statistic picks when the right answer is available.
@@ -422,6 +433,375 @@ fn report_floor(trials: &[Trial]) {
     }
 }
 
+/// One material's agreement between winner and runner-up, beside what the winner actually read.
+struct AgreementRow {
+    agreement: f64,
+    winner_cer: f64,
+}
+
+/// Character error rate below which a read counts as good, for the separation question.
+///
+/// A line has to be drawn somewhere to ask whether agreement separates good reads from bad ones,
+/// and this one is generous to the idea: every material whose best candidate reads under it is
+/// unambiguously a success, and every material above it is unambiguously not.
+const GOOD_READ_PERCENT: f64 = 5.0;
+
+/// How many candidates vote in the per-line committee.
+///
+/// Three rather than two: two candidates that disagree say only that one of them is wrong, while
+/// three that agree is the first count at which "they corroborate each other" means anything. It is
+/// also the point where the cost is still one extra scan of glyphs already segmented.
+const COMMITTEE: usize = 3;
+
+/// Does the winner agreeing with its runner-up say anything about whether the winner is right?
+///
+/// The idea left standing when the floor and the margin both failed: stop asking how good the
+/// winner's score is and start asking whether anything corroborates it. Two reference sets that
+/// produce the same text are, the argument goes, unlikely to be wrong in the same way.
+///
+/// The arithmetic is discouraging before the run. If the winner reads at 2% and the runner-up at
+/// 15%, they disagree on about 13% — so disagreement largely measures the *runner-up's* error, and
+/// high agreement means the two typefaces are similar rather than that either is right. Verdana and
+/// Tahoma are siblings by the same designer. That is the reason to measure it rather than to assume
+/// either way.
+fn report_agreement(trials: &[Trial]) {
+    println!("\n--- does the winner agree with its runner-up? ---");
+    println!("  agreement is one minus the character error rate of the winner against the");
+    println!("  runner-up, which is a comparison between two extractions rather than a threshold");
+    println!("  on either one's score");
+    println!();
+    println!(
+        "  {:<12} {:>10} {:>12} {:>12} {:>12}",
+        "material", "winner", "runner-up", "agreement", "winner CER"
+    );
+
+    let mut rows: Vec<AgreementRow> = Vec::new();
+    for t in trials {
+        let mut ranked: Vec<&Scored> = t.scores.iter().collect();
+        ranked.sort_by(|a, b| a.matched_mean.total_cmp(&b.matched_mean));
+        let (Some(winner), Some(runner_up)) = (ranked.first(), ranked.get(1)) else {
+            continue;
+        };
+
+        let joined = |s: &Scored| s.lines.join("\n");
+        let agreement =
+            100.0 - score_text(&joined(runner_up), &joined(winner)).character_error_rate() * 100.0;
+        rows.push(AgreementRow { agreement, winner_cer: winner.cer });
+        println!(
+            "  {:<12} {:>10} {:>12} {:>11.1}% {:>11.1}%",
+            t.material, winner.candidate, runner_up.candidate, agreement, winner.cer
+        );
+    }
+
+    // The question, as a separation rather than a correlation: a floor on agreement is only worth
+    // having if every good read agrees more than every bad one does.
+    let (good, bad): (Vec<&AgreementRow>, Vec<&AgreementRow>) =
+        rows.iter().partition(|r| r.winner_cer < GOOD_READ_PERCENT);
+    let worst_good = good.iter().map(|r| r.agreement).fold(f64::MAX, f64::min);
+    let best_bad = bad.iter().map(|r| r.agreement).fold(f64::MIN, f64::max);
+
+    println!(
+        "\n  reads under 5% CER agree at least : {worst_good:.1}%  ({} of them)",
+        good.len()
+    );
+    println!(
+        "  reads over 5% CER agree at most   : {best_bad:.1}%  ({} of them)",
+        bad.len()
+    );
+    if worst_good > best_bad {
+        println!(
+            "  **separated** — a floor on agreement would accept the first and refuse the second"
+        );
+    } else {
+        println!(
+            "  **they overlap by {:.1} points** — agreement does not separate a good read from a bad one",
+            best_bad - worst_good
+        );
+    }
+}
+
+/// Where the top candidates disagree, is the winner wrong more often?
+///
+/// The per-line version of the same question, and the one that could survive the track-level answer
+/// failing. It is not a floor: it produces a fact about one line rather than a verdict about a
+/// track, which is the shape `--on-unmatched` already has for a glyph the matcher declined to call.
+///
+/// Judged on the two rates that matter rather than on an aggregate. A flag that fires on most lines
+/// of a *good* extraction is not a flag, however well it correlates.
+fn report_committee(trials: &[Trial]) {
+    println!("\n--- where the top {COMMITTEE} disagree, is the winner wrong? ---");
+    println!(
+        "  {:<12} {:>8} {:>10} {:>12} {:>12} {:>10}",
+        "material", "lines", "flagged", "wrong|flagged", "wrong|clean", "lift"
+    );
+
+    let (mut total_flagged, mut total_lines) = (0usize, 0usize);
+    for t in trials {
+        let mut ranked: Vec<&Scored> = t.scores.iter().collect();
+        ranked.sort_by(|a, b| a.matched_mean.total_cmp(&b.matched_mean));
+        let panel: Vec<&&Scored> = ranked.iter().take(COMMITTEE).collect();
+        if panel.len() < COMMITTEE {
+            continue;
+        }
+
+        let lines = t
+            .truth_lines
+            .len()
+            .min(panel.iter().map(|s| s.lines.len()).min().unwrap_or(0));
+        let (mut flagged_wrong, mut flagged, mut clean_wrong, mut clean) = (0, 0, 0, 0);
+
+        for index in 0..lines {
+            let winner = &panel[0].lines[index];
+            let agrees = panel
+                .iter()
+                .all(|s| s.lines[index].as_str() == winner.as_str());
+            let wrong = winner.as_str() != t.truth_lines[index].as_str();
+            match (agrees, wrong) {
+                (true, true) => {
+                    clean += 1;
+                    clean_wrong += 1;
+                }
+                (true, false) => clean += 1,
+                (false, true) => {
+                    flagged += 1;
+                    flagged_wrong += 1;
+                }
+                (false, false) => flagged += 1,
+            }
+        }
+
+        total_flagged += flagged;
+        total_lines += lines;
+        let rate = |wrong: usize, of: usize| {
+            if of == 0 {
+                f64::NAN
+            } else {
+                100.0 * wrong as f64 / of as f64
+            }
+        };
+        let (flagged_rate, clean_rate) = (rate(flagged_wrong, flagged), rate(clean_wrong, clean));
+        println!(
+            "  {:<12} {lines:>8} {:>9.0}% {:>11.0}% {:>11.0}% {:>10}",
+            t.material,
+            rate(flagged, lines),
+            flagged_rate,
+            clean_rate,
+            if clean_rate > 0.0 {
+                format!("{:.1}x", flagged_rate / clean_rate)
+            } else if flagged_rate > 0.0 {
+                "inf".to_owned()
+            } else {
+                "-".to_owned()
+            }
+        );
+    }
+
+    println!(
+        "\n  lines flagged across every fixture: {total_flagged} of {total_lines} ({:.0}%)",
+        100.0 * total_flagged as f64 / total_lines.max(1) as f64
+    );
+    println!("  a flag that fires on most lines of a good extraction is not a flag, whatever it");
+    println!("  correlates with — so read that share before the lift column.");
+}
+
+/// Which characters of `a` survive an alignment against `b` unchanged.
+///
+/// One flag per character of `a`: true where the alignment pairs it with an identical character in
+/// `b`, false where it was substituted or deleted. That is the per-character version of "do these
+/// two extractions agree here", and it is what the line-level test above could not express — a
+/// single differing character condemns a whole line, which is why that test flagged 100% of them.
+///
+/// Full matrix with a traceback rather than the two-row form used elsewhere in this file, because
+/// the answer needed is *where* the two differ and not merely how much. Run per line, so the matrix
+/// is tens of cells on a side.
+fn aligned_matches(a: &str, b: &str) -> Vec<bool> {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut cost = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+    for (i, row) in cost.iter_mut().enumerate() {
+        row[0] = u32::try_from(i).unwrap_or(u32::MAX);
+    }
+    for (j, cell) in cost[0].iter_mut().enumerate() {
+        *cell = u32::try_from(j).unwrap_or(u32::MAX);
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let substitute = cost[i - 1][j - 1] + u32::from(a[i - 1] != b[j - 1]);
+            cost[i][j] = substitute.min(cost[i - 1][j] + 1).min(cost[i][j - 1] + 1);
+        }
+    }
+
+    let mut matched = vec![false; a.len()];
+    let (mut i, mut j) = (a.len(), b.len());
+    while i > 0 && j > 0 {
+        let same = a[i - 1] == b[j - 1];
+        if cost[i][j] == cost[i - 1][j - 1] + u32::from(!same) {
+            matched[i - 1] = same;
+            i -= 1;
+            j -= 1;
+        } else if cost[i][j] == cost[i - 1][j] + 1 {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+    matched
+}
+
+/// Per character, does the committee agreeing predict the winner being right?
+///
+/// The line-level test above asked whether three extractions were byte-identical over a whole line
+/// and found that they essentially never are — which measures line length, not corroboration. This
+/// asks the same question one character at a time, which is the granularity a fitter would actually
+/// have: it would rescan one segmentation against several reference sets and hold N answers for
+/// each *glyph*, aligned by construction. Aligning the texts is the closest this harness can get to
+/// that without a scan-only path through the pipeline.
+///
+/// Reported as two rates rather than an aggregate, for the same reason the line version was: a flag
+/// that fires on most characters of a good extraction is not a flag.
+fn character_tally(t: &Trial, panel: &[&&Scored]) -> (Tally4, BTreeMap<char, usize>) {
+    let lines = t
+        .truth_lines
+        .len()
+        .min(panel.iter().map(|s| s.lines.len()).min().unwrap_or(0));
+    let mut counts = Tally4::default();
+    let mut agreed_wrong: BTreeMap<char, usize> = BTreeMap::new();
+
+    for index in 0..lines {
+        let winner = &panel[0].lines[index];
+        let correct = aligned_matches(winner, &t.truth_lines[index]);
+        let mut supported = vec![true; correct.len()];
+        for other in panel.iter().skip(1) {
+            for (slot, agrees) in aligned_matches(winner, &other.lines[index])
+                .into_iter()
+                .enumerate()
+            {
+                supported[slot] &= agrees;
+            }
+        }
+
+        let written: Vec<char> = winner.chars().collect();
+        for (slot, (right, backed)) in correct.into_iter().zip(supported).enumerate() {
+            if backed && !right {
+                if let Some(c) = written.get(slot) {
+                    *agreed_wrong.entry(*c).or_insert(0usize) += 1;
+                }
+            }
+            match (backed, right) {
+                (true, true) => counts.clean += 1,
+                (true, false) => {
+                    counts.clean += 1;
+                    counts.clean_wrong += 1;
+                }
+                (false, true) => counts.flagged += 1,
+                (false, false) => {
+                    counts.flagged += 1;
+                    counts.flagged_wrong += 1;
+                }
+            }
+        }
+    }
+    (counts, agreed_wrong)
+}
+
+/// The four cells of the flagged-against-wrong table.
+#[derive(Default, Clone, Copy)]
+struct Tally4 {
+    flagged: usize,
+    flagged_wrong: usize,
+    clean: usize,
+    clean_wrong: usize,
+}
+
+fn report_character_committee(trials: &[Trial]) {
+    println!("\n--- per character: where the top {COMMITTEE} disagree, is the winner wrong? ---");
+    println!(
+        "  {:<12} {:>8} {:>9} {:>14} {:>13} {:>8}",
+        "material", "chars", "flagged", "wrong|flagged", "wrong|clean", "lift"
+    );
+
+    let (mut all_flagged, mut all_chars, mut all_flagged_wrong, mut all_clean_wrong) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut agreed_errors: Vec<(String, String)> = Vec::new();
+
+    for t in trials {
+        let mut ranked: Vec<&Scored> = t.scores.iter().collect();
+        ranked.sort_by(|a, b| a.matched_mean.total_cmp(&b.matched_mean));
+        let panel: Vec<&&Scored> = ranked.iter().take(COMMITTEE).collect();
+        if panel.len() < COMMITTEE {
+            continue;
+        }
+
+        let (counts, agreed_wrong) = character_tally(t, &panel);
+        let (flagged, flagged_wrong, clean, clean_wrong) =
+            (counts.flagged, counts.flagged_wrong, counts.clean, counts.clean_wrong);
+
+        // What the committee agreed on and got wrong anyway. This is the diagnostic that says
+        // whether the idea failed by accident or by construction: a shared confusion is agreed on
+        // *because* every candidate resolves it the same way.
+        if !agreed_wrong.is_empty() {
+            let mut worst: Vec<(char, usize)> =
+                agreed_wrong.iter().map(|(c, n)| (*c, *n)).collect();
+            worst.sort_unstable_by_key(|(c, n)| (std::cmp::Reverse(*n), *c));
+            let listed: Vec<String> = worst
+                .iter()
+                .take(4)
+                .map(|(c, n)| format!("{c:?} x{n}"))
+                .collect();
+            agreed_errors.push((t.material.clone(), listed.join("  ")));
+        }
+
+        let chars = flagged + clean;
+        all_flagged += flagged;
+        all_chars += chars;
+        all_flagged_wrong += flagged_wrong;
+        all_clean_wrong += clean_wrong;
+
+        let rate = |wrong: usize, of: usize| {
+            if of == 0 {
+                0.0
+            } else {
+                100.0 * wrong as f64 / of as f64
+            }
+        };
+        let (flagged_rate, clean_rate) = (rate(flagged_wrong, flagged), rate(clean_wrong, clean));
+        println!(
+            "  {:<12} {chars:>8} {:>8.0}% {:>13.0}% {:>12.1}% {:>8}",
+            t.material,
+            rate(flagged, chars),
+            flagged_rate,
+            clean_rate,
+            if clean_rate > 0.0 {
+                format!("{:.0}x", flagged_rate / clean_rate)
+            } else if flagged_rate > 0.0 {
+                "inf".to_owned()
+            } else {
+                "-".to_owned()
+            }
+        );
+    }
+
+    let clean_total = all_chars - all_flagged;
+    println!(
+        "\n  flagged {all_flagged} of {all_chars} characters ({:.0}%)",
+        100.0 * all_flagged as f64 / all_chars.max(1) as f64
+    );
+    println!(
+        "  of the flagged, {:.0}% are wrong; of the unflagged, {:.1}% are",
+        100.0 * all_flagged_wrong as f64 / all_flagged.max(1) as f64,
+        100.0 * all_clean_wrong as f64 / clean_total.max(1) as f64
+    );
+    println!("  the second number is the one that decides it: a character three sets agree on is");
+    println!("  only safe to trust if it is almost never wrong.");
+
+    println!(
+        "
+  what the committee agreed on and got wrong anyway:"
+    );
+    for (material, listed) in &agreed_errors {
+        println!("    {material:<12} {listed}");
+    }
+}
+
 /// Run the leave-one-out fit selection experiment.
 ///
 /// # Errors
@@ -477,6 +857,9 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     report_withheld(&trials);
     report_floor(&trials);
     report_margin(&trials);
+    report_agreement(&trials);
+    report_committee(&trials);
+    report_character_committee(&trials);
 
     // #16 prices per-track invocation carefully enough that this should not arrive unmeasured.
     let extractions = trials.len() * sets.len();
@@ -524,11 +907,12 @@ mod tests {
             charged_mean: matched_mean + 2.0,
             coverage: 0.9,
             cer,
+            lines: Vec::new(),
         }
     }
 
     fn trial_of(material: &str, scores: Vec<Scored>) -> Trial {
-        Trial { material: material.to_owned(), scores }
+        Trial { material: material.to_owned(), truth_lines: Vec::new(), scores }
     }
 
     #[test]
@@ -591,6 +975,55 @@ mod tests {
         // Whatever else it does, it must never flatter a set relative to the mean it corrects.
         let s = scored("segoeui", 18.2, 16.9);
         assert!(charged_mean(&s) >= matched_mean(&s));
+    }
+
+    #[test]
+    fn alignment_marks_the_characters_that_survived_unchanged() {
+        assert_eq!(aligned_matches("abc", "abc"), vec![true, true, true]);
+        assert_eq!(aligned_matches("abc", "abd"), vec![true, true, false]);
+        assert_eq!(aligned_matches("abc", ""), vec![false, false, false]);
+        assert!(aligned_matches("", "abc").is_empty());
+    }
+
+    #[test]
+    fn an_insertion_does_not_condemn_every_character_after_it() {
+        // The reason this replaced the line-level test. Comparing two extractions position by
+        // position would call everything after an extra character a disagreement; aligning them
+        // says only the extra character disagrees.
+        let matched = aligned_matches("abcd", "abXcd");
+        assert_eq!(matched, vec![true, true, true, true]);
+    }
+
+    #[test]
+    fn a_shared_confusion_reads_as_agreement() {
+        // The finding, as a test. Three reference sets that all read `l` as `I` agree with each
+        // other on every character and are wrong together — so agreement corroborates the error
+        // rather than catching it, which is why the committee's lift inverts on Arial.
+        let winner = "FoIIow the yeIIow Iine";
+        let others = ["FoIIow the yeIIow Iine", "FoIIow the yeIIow Iine"];
+        let truth = "Follow the yellow line";
+
+        let correct = aligned_matches(winner, truth);
+        let mut supported = vec![true; correct.len()];
+        for other in others {
+            for (slot, agrees) in aligned_matches(winner, other).into_iter().enumerate() {
+                supported[slot] &= agrees;
+            }
+        }
+
+        let agreed_and_wrong = correct
+            .iter()
+            .zip(&supported)
+            .filter(|(right, backed)| **backed && !**right)
+            .count();
+        assert!(
+            agreed_and_wrong >= 5,
+            "the committee agreed on {agreed_and_wrong} wrong characters, and should have"
+        );
+        assert!(
+            supported.iter().all(|b| *b),
+            "and flagged none of them, because all three said the same thing"
+        );
     }
 
     #[test]
