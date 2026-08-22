@@ -7,6 +7,10 @@ nothing in the repository said **which characters** the missing 5.5% were. Every
 It is one character. **Half the errors on the disc, and every unread glyph in the ceiling fixture,
 are the full stop.**
 
+Since this was written, [`reference-rendering.md`](reference-rendering.md) fixed that one character
+and halved the disc's error rate. The last section here is what the census says *after* that, and it
+includes a correction to one of the conclusions below.
+
 [issue-97]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/97
 [issue-98]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/98
 [issue-99]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/99
@@ -117,7 +121,9 @@ a near miss on a marginal glyph; it is a shape that the reference set does not c
 generated from the right font.
 
 Components that could be fusions — wider than tall, on a measured line — total **22 glyphs, 2.8% of
-the unread population**.
+the unread population**. **That sentence is wrong**, and the section below has the correction: a
+fused `rt` is *square* and a fused `ry` is narrower than it is tall, so an aspect-ratio test finds
+neither. Read on before believing it.
 
 ## The ceiling fixture
 
@@ -150,16 +156,22 @@ had no instrument behind it. It is now 15 of 15, and it is one character rather 
 - **2. Insertions outnumber deletions.** *Wrong, and backwards twice.* Deletions outnumber
   insertions five to one, 164 against 32 — and the missed word spaces the prediction reasoned from
   are deletions, so the reasoning was pointing at the bucket it said would lose.
-- **3. Fewer than a third of the unread glyphs are fusions.** *Right, by a wide margin.* 2.8%.
+- **3. Fewer than a third of the unread glyphs are fusions.** *Right on the number and wrong on the
+  measurement, which cancelled out.* The figure quoted above, 2.8%, came from an aspect-ratio test
+  that misses square fusions; the honest figure at the time was about 13%, still under a third.
+  After [`reference-rendering.md`](reference-rendering.md) removed the full stops it is **90%**,
+  because the denominator was the thing that got fixed.
 
 [issue-100]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/100
 
 ## What it settles
 
-**Candidate C — split/merge recovery of unmatched components — closes.** Its bench was this census
-and its condition was that the unmatched population is actually fusions and shattered punctuation.
-It is neither: it is 87% one missing reference shape. A de-fusing pass would fire on 22 glyphs out
-of 20,524 and could at best recover 0.1% of the track.
+**Candidate C — split/merge recovery of unmatched components — looked closed and is not.** Its
+bench was this census and its condition was that the unmatched population is actually fusions and
+shattered punctuation. At the time it was neither: it was 87% one missing reference shape. Two
+things then changed that, and the section below is the correction — the fusion test used here was
+wrong, and [`reference-rendering.md`](reference-rendering.md) removed the full stops that were
+crowding the population. **C is now 28% of what is left.**
 
 **[#99][issue-99] moves to the front, and its third prediction is already confirmed.** #99 predicted
 before its own bench that "a period is a few pixels square at 21–50px and letterboxes to a solid
@@ -189,3 +201,143 @@ $ cargo run -p xtask -- srt-score disc.srt release.eng.srt
 $ cargo run -p xtask -- unread movie.mkv arial-ri.subtref
 $ cargo run -p xtask -- accuracy
 ```
+
+## The four candidates #97 held, settled on counts — and one of them was closed wrongly
+
+[#97][issue-97] promoted four proposals to sub-issues and **held** four more, each for the same
+reason: the bench is a count, and if the count comes back small the count is the whole write-up.
+All four counts are now in. Three close. **One was closed above on a bad measurement and reopens as
+the second-largest opportunity left on the disc.**
+
+[issue-97]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/97
+
+### C — recovering an unmatched component by splitting it. **Reopened.**
+
+The section above closed C on the sentence "components that could be fusions — wider than tall, on a
+measured line — total 22 glyphs, 2.8% of the unread population". **That test was wrong**, and it was
+wrong in a way worth recording rather than quietly fixing.
+
+A fused `rt` at 1080p is **42×44 — square**, because `r` and `t` are both narrow. A fused `ry` is
+31×42, *narrower than it is tall*. An aspect-ratio test finds neither, and it was measuring
+punctuation against nothing.
+
+Width against the line's own **cap height** is the scale-free measure and it is no better: the same
+disc's fusions run from **73% to 200%** of it. `rt` is 73% because both letters are narrow.
+
+What settles it is reading the text where the components sat, which the size groups make cheap.
+Forty-one components of exactly 42×44, each 82 cells from the nearest entry in the material's own
+typeface, are forty-one instances of one recurring *pair*:
+
+```
+  want: Please don't hurt me.        got: PIease don't hu?  me.      31x42 = rt
+  want: I'm sorry.                   got: I'm sor?                   42x44 = ry
+  want: One year, maybe two.         got: One year, maybe ?o.        57x42 = tw
+  want: She never went anywhere      got: She never went an?here     69x43 = yw
+  want: You know, everywhere.        got: You know, eve?here.        84x44 = ryw
+  want: Yeah, that's awful.          got: Yeah, that's a?uI.         60x42 = wf
+```
+
+**Of 105 unread glyphs, 6 are full stops, about 5 are a graphic in two cues, and the remaining ~94
+are fusions.** Each costs two characters — a placeholder where the pair belonged and the second
+letter missing entirely — and the confusion census agrees to within a few characters:
+
+| the same events, counted from the text | errors |
+| :--- | ---: |
+| `y`, `t`, `w`, `v`, `f` read as unread | 95 |
+| `r`, `t`, `y`, `f`, `w` never read at all | 98 |
+| **total** | **193** |
+
+**193 of the 687 errors left on the disc — 28% of them.** C is the second-largest class after
+`l` → `I`, and after [`reference-rendering.md`](reference-rendering.md) removed the full stop it is
+what the unread population now *is*. It is
+[#106](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/106), with its prediction
+recorded there.
+
+Two things it changes about C as #97 specified it:
+
+- **The split trigger cannot be width.** #97 proposed cutting "a component whose width against its
+  line's cap height exceeds any single reference character's". `rt` at 73% never reaches that
+  trigger. The trigger has to be simply *unread, on a measured line, at ordinary glyph size* — which
+  is safe, because C's acceptance criterion does the work: cut at the column projection's minima and
+  accept **only** if every part matches within the ceiling.
+- **The merge half is separately justified.** `"` read as two single quotes is still 20 errors and
+  still the documented case in `group.rs`.
+
+`r` is the common factor in almost all of it, and `docs/glyph-stability.md` records why 8-connected
+labelling fuses characters that touch at a corner as *accepted behaviour with no de-fusing pass
+anywhere in the tree*. An `r`'s arm reaches over the letter after it. That is the pin, and this is
+the measurement that says what it costs.
+
+### E — zero-radius cross-instance voting. Closed on the count.
+
+**32 glyphs in 20,524.** `xtask shape-votes` groups every glyph in a stream by its shape vector
+alone, scans each distinct cache key the way the runtime does, and counts the shapes that receive
+more than one answer.
+
+```
+  20524 glyphs, 154 distinct shapes, 354 distinct cache keys
+  12 of 154 distinct shapes received more than one answer
+
+    glyphs   majority  the answers this shape received
+      1563          o  unread x1   o x1562
+      1358          a  unread x1   a x1357
+       982          i  i x979     Í x3
+       965          I  I x956     Í x9
+       676          .  unread x6  . x670
+       465          y  unread x1  y x464
+```
+
+The proposal was sound, and it is not #10: the radius is exactly zero, no two reference entries are
+ever merged, and the objection that killed clustering cannot apply. The majority is also *right* in
+every case listed. There is simply almost nothing to aggregate — **32 glyphs sit on the losing side
+of a split, 0.16% of the stream**, and only if the majority is right every time.
+
+Worth keeping from the count: 154 distinct shapes produce **354 distinct cache keys**, so the
+reference set is scanned 2.3 times per shape. That is the price of keying the cache on metrics and
+mark as well as shape, and it is the number to look at if scan count ever matters.
+
+### F — restricting candidates to the line's own typographic cut. Closed on the census.
+
+The hold was that #66 had already taken the italic act from 35.7% to 4.7% by putting both cuts in
+one set, so the remaining headroom was small — and to promote F if the census said otherwise.
+
+It does not. After [`reference-rendering.md`](reference-rendering.md) the disc reads **2.7% upright
+and 4.3% italic**, and the italic act is 1,505 of 24,522 characters. Taking italic all the way to the
+upright rate would recover **24 characters, 0.1 points of CER**. #97's own figure for what carrying
+an extra cut costs is **0.2 points and 17% more ambiguous glyphs** — so the price of the machinery
+exceeds the whole of what it could win.
+
+### G — a faded-in cue keeping the palette it opened with. Closed at zero.
+
+`pgs/mod.rs` drops a repeat composition when the bitmap and position match, and the open cue keeps
+whichever palette it opened under. During a fade-in that would be the most transparent step in the
+sequence, and the binarizer rejects anything under half alpha — so such a cue could reach the
+matcher thin or empty.
+
+Measured two ways, because the direct count and the operational effect are different questions:
+
+- **Instrumented count.** Not one dropped repeat, on either of two discs, carried a palette more
+  opaque than the one retained. **Literally zero**, over 2,588 cues.
+- **The change, made and measured.** Keeping the most opaque palette a composition is ever seen
+  under produces a **byte-identical** extraction on both discs.
+
+So the hazard is real in the format and absent from this material: these discs do not author fades
+as palette-only updates over a fixed bitmap. The change was written, measured, and **reverted**,
+which is what #97 pre-committed to. It is four lines whenever a disc turns up that needs it, and the
+instrumented count is how to tell.
+
+### What is left on the disc
+
+| release → read | errors | share of what is left |
+| :--- | ---: | ---: |
+| `l` → `I` | 330 | **48%** |
+| **fusions** (`rt`, `ry`, `tw`, `yw`, `wf`) | **193** | **28%** |
+| word spaces never read | 66 | 10% |
+| everything else | 98 | 14% |
+
+Two classes are three-quarters of it, and they are completely different problems. Fusions are a
+segmentation fault with a bounded, checkable fix — C, above. `l` → `I` is the pair #10 measured at
+distance **zero**: the same 256-bit vector, the same height, so neither the shape representation nor
+#37's line metrics carries a single bit that separates them. Post-correction's context arm already
+fires on it and on nothing else — all 363 corrections on this track are `I` → `l` — and 330 of the
+pair still come out wrong.

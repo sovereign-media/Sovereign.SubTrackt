@@ -26,6 +26,7 @@ mod spacing;
 mod stability;
 mod sweep;
 mod unread;
+mod voting;
 
 use std::path::PathBuf;
 
@@ -159,6 +160,7 @@ fn main() -> anyhow::Result<()> {
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
+        Some("shape-votes") => return voting::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -179,5 +181,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask body-box [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
     eprintln!("  xtask unread <media> <reference.subtref>");
+    eprintln!("  xtask shape-votes <media> <reference.subtref>");
     std::process::exit(2);
 }
