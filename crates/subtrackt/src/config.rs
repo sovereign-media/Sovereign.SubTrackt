@@ -103,6 +103,12 @@ impl UnmatchedPolicy {
 }
 
 /// Everything the pipeline needs beyond an input path.
+///
+/// The bool count is what a configuration is. Each one is an independent switch a caller sets on
+/// its own — `grey_coverage` is a vectoriser decision, `post_correct` a text-stage one,
+/// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
+/// combinations that do not exist and hide the ones that do.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Config {
     /// Which stream to read, or `None` for the first bitmap subtitle stream found.
@@ -141,6 +147,23 @@ pub struct Config {
     pub track_vocabulary: bool,
     /// How that vocabulary is built and consulted.
     pub vocabulary: VocabularyRules,
+    /// Whether a survey keeps each glyph's un-normalised ink alongside its feature vector.
+    ///
+    /// Off, and it costs nothing while it is: the mask is built during segmentation either way and
+    /// dropped at the end of it, so this only decides whether a copy is kept. Keeping one is not
+    /// free at scale — a feature film is tens of thousands of glyphs — and the two commands that
+    /// survey in anger, `glyphs` and `fit`, have no use for it.
+    ///
+    /// It exists because the feature vector is a lossy projection *by design*: letterboxed onto a
+    /// 16x16 grid and thresholded per cell, built so two renderings of one character converge.
+    /// Anything asking what a glyph's ink is *like* rather than which character it is — stroke
+    /// weight, contrast, the shape of a terminal — cannot be answered from it. `xtask font-id`
+    /// measured that gap at 46 to 54 points of font-retrieval accuracy, which is what #63 needs and
+    /// what nothing else in the pipeline does.
+    ///
+    /// Nothing on the matching path reads this. It changes what a survey carries, never what an
+    /// extraction decides.
+    pub glyph_masks: bool,
 }
 
 impl Config {
