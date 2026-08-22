@@ -749,6 +749,59 @@ ever landed on the wrong one of them. Nothing before this had made the distincti
 That is the fourth feature measured before building and the second built before being disproved. The
 bench is cheap; running the sweep afterwards is what caught this one.
 
+## A band of nothing but accents is not a text line
+
+#57, and the last of the three grouping faults #48's bench turned up.
+
+`line_bands` cuts a line at any row carrying no ink **across its whole width**, which is the right
+rule for a line break and the wrong one for an accent. The accent on a *capital* sits above every
+letterform this charset can spell, so in a line of nothing but letters the row beneath it is blank
+and it bands on its own. `À` then segmented as a bare `A` plus a floating grave — a correctly
+spelled wrong word with no counter saying so.
+
+### The rule
+
+The issue offered a blank-row tolerance or attaching across bands. Both reason about the *gap*, and
+the gap is not what tells the two cases apart. What does:
+
+> **A band holding nothing but mark-height components is not a line.**
+
+A text line always carries at least one full-height letterform; a row of accents never does. Being a
+test on the band's *contents* rather than its distance is what makes it safe — it cannot merge two
+lines of text however tightly they are set.
+
+The gap survives as a *second* condition, for one case the contents test cannot see: a cue whose
+opening line is genuinely all marks, an ellipsis or a row of dashes, is mark-only too. Line leading
+is wider than the space above an accent, so `max_gap_percent` holds them apart. Both thresholds are
+the ones grouping already uses, applied at band scale.
+
+### What it moves
+
+| | before | after |
+| :--- | ---: | ---: |
+| Marks reaching their body, letters-only line | 26 of 51 | **46 of 51** |
+| Marks reaching their body, best neighbour | 46 of 51 | 46 of 51 |
+| Accuracy fixture with an accented capital, CER | **13.1%** | **11.0%** |
+
+The letters-only row now equals the best-case row exactly, which is the point: the `$` neighbour was
+only ever a way of filling the blank row by hand, and nothing needs filling any more.
+
+The CER figures are the same fixture measured both ways, with the banding change as the only
+variable. The fixture gained `ÉTAIT-CE ÀPRE? ÎLE.` to carry the case — #48 kept accented capitals
+out precisely because the gap would have been scored as a matching error, and that reason has gone.
+
+### What still does not read
+
+`ÎLE` comes out `ILE` at the fixture's 42px. `Î` groups at the 96px the census renders at, so this
+is the narrow-stem case of #58 failing at a smaller size rather than a banding failure — the
+circumflex over a capital `I` is a wide mark on a one-stroke body, and at 42px the overlap and centre
+tests are deciding on a handful of pixels. `Ï` and `ï` remain open in #58 for the diaeresis straddle.
+
+Line metrics move for accented capitals, and correctly: once the accent is part of the glyph box an
+`À` measures taller than an `A`, which is what `LineMetrics` documents ("more than 100 for a round
+capital's overshoot **or an accented one**"). Nothing regressed — the fixture without the new line
+reads 11.1% before and after.
+
 ## A mark wider than the letter under it, and the rule that could not say so
 
 #58, found while building #48's bench and fixed with one line and one guard.

@@ -275,11 +275,12 @@ pub(crate) fn build_sup(
 /// grouped at all. `naïve` above carries the half of that issue still open — a diaeresis straddles
 /// its stem, so neither dot overlaps it and only their union would.
 ///
-/// The twelve remaining pairs are the same letters in capitals, and they are deliberately absent.
-/// An accent over a capital sits above every letterform this charset can spell, so `line_bands`
-/// bands it as a line of its own and it never reaches the letter under it — see
-/// `docs/glyph-stability.md`. Including one would score that segmentation gap inside a figure read
-/// as a matching result, which is #6's problem measured in #48's instrument.
+/// The all-capitals line is #57's. An accent over a capital sits above every letterform this
+/// charset can spell, so the row beneath it is blank across the line and it used to band on its own
+/// — `À` segmenting as a bare `A` plus a floating grave. #48 deliberately kept accented capitals
+/// out of the fixture while that was true, because including one would have scored a segmentation
+/// gap inside a figure read as a matching result. Now that `group::text_lines` merges a band of
+/// nothing but marks into the line beneath it, the line belongs here and is what shows the fix.
 fn default_cues() -> Vec<Vec<String>> {
     [
         vec!["The quick brown fox jumps"],
@@ -290,7 +291,7 @@ fn default_cues() -> Vec<Vec<String>> {
         vec!["Follow the yellow line", "to Iowa in 2015."],
         vec!["Où est-il? Là, à côté.", "S'il vous plaît, maître."],
         vec!["Está más allá: adiós, Perú."],
-        vec!["Però è così che sarà."],
+        vec!["Però è così che sarà.", "ÉTAIT-CE ÀPRE? ÎLE."],
     ]
     .iter()
     .map(|lines| lines.iter().map(|s| (*s).to_owned()).collect())
@@ -426,9 +427,10 @@ mod tests {
             );
         }
         assert!(
-            !all.chars().any(|c| ('\u{c0}'..='\u{dd}').contains(&c)),
-            "no accented capital: its mark never reaches its body, so including one would score a \
-             segmentation gap as a matching error"
+            all.chars().any(|c| ('\u{c0}'..='\u{dd}').contains(&c)),
+            "an accented capital, which is #57's. Until a band of nothing but marks was merged \
+             into the line beneath it, `À` segmented as a bare `A` plus a floating grave, and this \
+             line was deliberately absent so the gap would not be scored as a matching error"
         );
         assert!(
             all.contains("yellow"),

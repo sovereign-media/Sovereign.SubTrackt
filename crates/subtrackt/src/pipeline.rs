@@ -296,8 +296,11 @@ impl Segmenter for ImageSegmenter {
         // vector reads the coverage plane, and only when asked to.
         let coverage = self.grey_coverage.then(|| self.binarizer.coverage(image));
         let components = ccl::label(&mask, ComponentFilter::default())?;
-        let bands = group::line_bands(&mask);
-        let lines = group::assign_lines(&mask, &components)?;
+        // One banding, used for both the assignment and the metrics. A band of nothing but accents
+        // is not a text line — see `group::text_lines` — and a caller that banded twice could
+        // measure line anchors against a different set than it grouped by.
+        let bands = group::text_lines(&mask, &components, GroupingRules::default());
+        let lines = group::assign_to(&bands, &components)?;
         let grouped = group::group(&components, &lines, GroupingRules::default())?;
 
         // Where each glyph stands in its line, which the feature vector cannot express and which is
