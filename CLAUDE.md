@@ -28,6 +28,11 @@ directly.
 Commit messages explain *why*, not what — the diff already says what. Record decisions that a
 reader would otherwise have to re-derive, and non-obvious behaviour the format or the domain forced.
 
+That style is load-bearing beyond review: release notes are generated from pull request titles, so
+there is no `CHANGELOG.md` to maintain and a vague title is the only thing that would need one.
+Releases are cut with `scripts/release.sh <version>`, then a tag once it lands — the version appears
+in seven places and the script is what keeps them in step. `docs/distribution.md` has the rest.
+
 ## Dependencies
 
 **Library crates take no dependencies.** `subtrackt-core` through `subtrackt` use only the standard

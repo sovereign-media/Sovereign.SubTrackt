@@ -18,8 +18,9 @@ it did not exist yet. They do now, and they are lopsided enough that the decisio
 
 The binary was 1.45 MB when these were taken and grew 114 KB (7.7%) when #80 put a font rasteriser
 in it, which is the only thing that has moved it. Cold start is the mean of three runs of fifty
-`subtrackt --version` invocations, 14.7–16.5 ms across runs. That is a Windows figure and Windows has the slowest process creation of the three platforms
-here, so it is an upper bound on what Linux will do rather than an estimate of it.
+`subtrackt --version` invocations, 14.7–16.5 ms across runs. That is a Windows figure, and Windows
+has the slowest process creation of the platforms here, so it is an upper bound on what Linux will
+do rather than an estimate of it.
 
 The comparison that matters is against the 37-track file §4 names as the worst case in the queue.
 Thirty-seven spawns cost **0.6 s**. The extraction those spawns exist to start costs on the order of
@@ -87,6 +88,40 @@ Both ARM64 targets are cross-compiled from x86-64 runners rather than built nati
 ARM64 runners are a paid add-on for private repositories, and cross-compiling a tree with no C in it
 is the cheaper half of that trade. All four targets are type-checked on every pull request by the
 `cross` and `windows` jobs in `ci.yml`, so a target cannot rot silently between tags.
+
+## Cutting a release
+
+```console
+$ scripts/release.sh 0.2.0     # bump, prove, open the pull request
+$ # ...merge it...
+$ git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag is the trigger; everything after it is automatic. Nothing else creates one, on purpose — a
+tag names a commit, so it has to come after the version bump has landed on `main` rather than
+alongside it.
+
+The version lives in **seven** places: `[workspace.package]` sets it, and each of the six path
+dependencies in `[workspace.dependencies]` repeats it as a constraint. Bumping only the first leaves
+Cargo unable to resolve the workspace; bumping all seven by hand is a transcription exercise with
+six chances to get it wrong. That is what `scripts/release.sh` is for, and it verifies it changed
+exactly seven before going on.
+
+A tag that disagrees with `Cargo.toml` fails the release in its first job, before anything is built.
+That check is not bureaucracy: the artifacts are named for the *tag* while `--version` reports what
+the *manifest* said, nothing downstream compares the two, and once published the mismatch is
+permanent.
+
+### The changelog
+
+There is no `CHANGELOG.md`, and that is a decision rather than an omission. GitHub generates release
+notes from the pull requests merged since the previous tag, and this project writes pull request
+titles as sentences about *why* — so that list already reads as release notes. A hand-maintained
+file would duplicate commit messages that carry more reasoning than it would, and then drift from
+them.
+
+A tag carrying a pre-release suffix — `v0.2.0-rc.1` — is published as a pre-release, so it does not
+become the "latest" that a download link resolves to.
 
 ## What a consumer still has to supply
 
