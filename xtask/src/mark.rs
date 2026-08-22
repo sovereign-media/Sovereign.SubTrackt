@@ -551,6 +551,8 @@ fn report_reach(font: &Font) -> usize {
         );
     }
 
+    report_reach_by_size(font, &marked, generous);
+
     println!(
         "\n  a mark that does not reach its body is not a mark. It bands as a line of its own,"
     );
@@ -561,6 +563,35 @@ fn report_reach(font: &Font) -> usize {
     println!("  wherever a line of text carries nothing that overshoots cap height.");
     println!("  Everything below is measured in the best case, the wider of the two contexts.");
     best
+}
+
+/// Does a mark still reach its body at the sizes real material ships at?
+///
+/// The census above renders at 96px, which is the comfortable end and the wrong end. Real subtitle
+/// glyphs are 21 to 50 px — the range `docs/library-survey.md` measured — and at 21px an accent is
+/// three or four pixels sitting over a stem that may be one. Every rule deciding whether a mark
+/// attaches is a fraction of something, and a fraction of four pixels rounds.
+///
+/// The question was forced by #57: `Î` groups at 96px and loses its accent at the accuracy
+/// fixture's 42px, which says the rules are size-sensitive somewhere between the two.
+fn report_reach_by_size(font: &Font, marked: &[char], ink: u8) {
+    let neighbour = neighbours(font)[1].1;
+    println!("\n  and at the sizes real material ships at, on a letters-only line:");
+    println!("  {:>6}   {:>13}   the ones that do not", "px", "reach");
+
+    for size in SURVEY_SIZES {
+        let missing: Vec<char> = marked
+            .iter()
+            .copied()
+            .filter(|character| decompose(font, *character, neighbour, size, ink).is_none())
+            .collect();
+        let listed: String = missing.iter().collect();
+        println!(
+            "  {size:>6}   {:>5} of {:<5}   {listed}",
+            marked.len() - missing.len(),
+            marked.len()
+        );
+    }
 }
 
 /// Report the three candidates against the pairs #48 names.

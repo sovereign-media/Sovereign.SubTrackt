@@ -85,12 +85,12 @@ plausible wrong answer once, and an aggregate would hide it.
 
 | | off | on |
 | :--- | ---: | ---: |
-| Character error rate | 11.0% | **8.9%** |
+| Character error rate | 10.6% | **8.5%** |
 | Word error rate | 35.6% | **30.5%** |
 | Lines improved | — | 3 |
 | **Lines made worse** | — | **0** |
 
-Seven substitutions, from 66 glyphs the matcher declined to call. Every one of them:
+Seven substitutions, from 65 glyphs the matcher declined to call. Every one of them:
 
 ```
 cue 3 line 0 col  9: 'I' -> 'l' in "na<?>l<?>ve,"

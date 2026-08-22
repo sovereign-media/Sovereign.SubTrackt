@@ -790,17 +790,73 @@ The CER figures are the same fixture measured both ways, with the banding change
 variable. The fixture gained `ÉTAIT-CE ÀPRE? ÎLE.` to carry the case — #48 kept accented capitals
 out precisely because the gap would have been scored as a matching error, and that reason has gone.
 
-### What still does not read
+### What still did not read, and why the first explanation was wrong
 
-`ÎLE` comes out `ILE` at the fixture's 42px. `Î` groups at the 96px the census renders at, so this
-is the narrow-stem case of #58 failing at a smaller size rather than a banding failure — the
-circumflex over a capital `I` is a wide mark on a one-stroke body, and at 42px the overlap and centre
-tests are deciding on a handful of pixels. `Ï` and `ï` remain open in #58 for the diaeresis straddle.
+`ÎLE` came out `ILE` at the fixture's 42px, and this document first blamed #58's narrow-stem case
+failing at a smaller size. **That was wrong**, and extending the census to the sizes real material
+ships at is what showed it: `Î` reaches its body at every size from 21px to 50px. The glyph is
+assembled correctly — `subtrackt glyphs` shows it as one group, `w12 h38`, circumflex included.
+
+Ranking the reference set by shape distance against that exact glyph settles it:
+
+| distance | character | reference height |
+| ---: | :--- | ---: |
+| **0** | `Î` | 126% |
+| 6 | `I`, `i`, `l`, `\|` | 100% |
+
+The shape says `Î` exactly. What flipped it to `I` was the *line-metric* term, and that is #75 —
+a separate defect this merge made reachable. See below.
+
+`Ï` and `ï` remain open in #58 for the diaeresis straddle.
 
 Line metrics move for accented capitals, and correctly: once the accent is part of the glyph box an
 `À` measures taller than an `A`, which is what `LineMetrics` documents ("more than 100 for a round
 capital's overshoot **or an accented one**"). Nothing regressed — the fixture without the new line
 reads 11.1% before and after.
+
+## Only unmarked glyphs may say where the cap line is
+
+#75, found within minutes of #57 landing and caused by it becoming reachable.
+
+`metrics::anchors` chose the cap line as *the highest row that enough glyphs reach*, with
+`min_cap_support_percent` at 15 as the floor. On a seventeen-glyph line that floor is two. The three
+accented capitals of `ÉTAIT-CE ÀPRE? ÎLE.` sit together eight pixels above the eleven plain ones,
+clear a floor of two between them, and `.min()` takes their row.
+
+Cap height then came out 38 instead of 30, and every glyph on the line was measured against a unit
+27% too large:
+
+| | measured | its reference | penalty |
+| :--- | ---: | ---: | ---: |
+| `Î` against `Î` | 100% | 126% | ~13 cells |
+| `Î` against `I` | 100% | 100% | 0 |
+
+So `Î` — the character #57 had just fixed the segmentation of — matched `I`, on a shape distance of
+6 against its own exact match at 0.
+
+### The fix is not a mode
+
+The obvious repair is to make the cap line a mode, the way the baseline is, and the comment above
+that code even claims the same argument applies. **It does not.** On ordinary mixed-case text the
+x-height glyphs outnumber the capitals, so the most popular row is the x-height and every capital
+would measure 136%. The existing tests caught that immediately.
+
+The cap line is genuinely the *highest well-supported* row. What was wrong is not the selection but
+the electorate: **a glyph carrying a diacritic has its box top at the mark**, which sits above the
+cap line by construction, so it cannot be allowed to vote on where the cap line is. Only unmarked
+glyphs do now. A line with nothing but marked glyphs falls back to all of them, which is worse than
+the usual estimate and better than refusing a line that may still be readable.
+
+Before #57 the question could not arise: an accent over a capital banded separately, so the glyph
+box stopped at cap height and never rose above it.
+
+### What it moves
+
+| | before | after |
+| :--- | ---: | ---: |
+| Accuracy fixture, CER | 11.0% | **10.6%** |
+| Post-correction, on | 8.9% | **8.5%** |
+| `ÎLE` | `ILE` | **`ÎLE`** |
 
 ## A mark wider than the letter under it, and the rule that could not say so
 

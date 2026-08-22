@@ -47,8 +47,10 @@ pub struct MetricRules {
     /// Fewest glyphs that must reach a row before it can be the cap line, in percent of the line's
     /// glyphs standing on the baseline.
     ///
-    /// The cap line is the *highest* row enough glyphs reach — not the highest row anything
-    /// reaches. One accented capital rises above cap height and would otherwise define it alone.
+    /// A secondary guard only. The cap line is the row the *most* standing glyphs agree on, and
+    /// this stops a two-glyph coincidence from being that row. #75 is what happens when the floor
+    /// is the whole rule: three accented capitals on a seventeen-glyph line cleared it and defined
+    /// the cap line above the eleven plain ones that should have.
     pub min_cap_support_percent: u32,
     /// How much taller the tallest standing glyph must be than the shortest, in percent of the
     /// tallest, before the cap line means anything.
@@ -112,14 +114,29 @@ fn mode(values: &[u32], tolerance: u32) -> Option<(u32, usize)> {
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
 }
 
+/// One glyph as the anchor estimate sees it.
+///
+/// The flag is what #75 turned on. A glyph carrying a diacritic has its box top *at the mark*,
+/// which sits above the cap line by construction, so it cannot be allowed to say where the cap line
+/// is. Before #57 the question did not arise: an accent over a capital banded separately and never
+/// reached the glyph box at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineGlyph {
+    /// Where the glyph sits, marks included.
+    pub bounds: Rect,
+    /// Whether it carries a diacritic.
+    pub marked: bool,
+}
+
 /// Find a line's baseline and cap height from the glyphs on it.
 ///
 /// Returns `None` when the line cannot support the estimate.
 #[must_use]
-pub fn anchors(band: LineBand, boxes: &[Rect], rules: MetricRules) -> Option<LineAnchors> {
-    if boxes.len() < rules.min_glyphs || band.height() == 0 {
+pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Option<LineAnchors> {
+    if glyphs.len() < rules.min_glyphs || band.height() == 0 {
         return None;
     }
+    let boxes: Vec<Rect> = glyphs.iter().map(|g| g.bounds).collect();
     let tolerance = band.height() * rules.edge_tolerance_percent / 100;
 
     // The baseline is where glyph bottoms agree. Descenders and floating marks are the minority and
@@ -140,6 +157,21 @@ pub fn anchors(band: LineBand, boxes: &[Rect], rules: MetricRules) -> Option<Lin
         return None;
     }
 
+    // Only unmarked glyphs vote on the cap line. See the comment below the height-variety guard.
+    let unmarked: Vec<Rect> = glyphs
+        .iter()
+        .filter(|g| !g.marked && (g.bounds.y + g.bounds.height).abs_diff(baseline) <= tolerance)
+        .map(|g| g.bounds)
+        .collect();
+    let voting = if unmarked.is_empty() {
+        // Every glyph on the line carries a mark. There is nothing unmarked to anchor against, so
+        // the marked ones are the only evidence there is — worse than the usual estimate and
+        // better than refusing a line that may still be readable.
+        standing.iter().map(|b| **b).collect()
+    } else {
+        unmarked
+    };
+
     // A line whose glyphs are all one height cannot say which height that is. Refusing here is
     // what stops an all-lowercase line from reading as all capitals.
     let tallest = standing.iter().map(|b| b.height).max()?;
@@ -148,11 +180,18 @@ pub fn anchors(band: LineBand, boxes: &[Rect], rules: MetricRules) -> Option<Lin
         return None;
     }
 
-    // The cap line is the highest row that enough glyphs reach. Taking the highest row *any* glyph
-    // reaches would hand the decision to a single accented capital, which sits above cap height by
-    // design — the same argument that made the baseline a mode rather than a maximum.
-    let tops: Vec<u32> = standing.iter().map(|b| b.y).collect();
-    let support = (standing.len() * rules.min_cap_support_percent as usize / 100).max(2);
+    // The cap line is the highest row that enough glyphs reach, and it is deliberately *not* a
+    // mode: on ordinary mixed-case text the x-height glyphs outnumber the capitals, so the most
+    // popular row is the wrong one. It is also deliberately not a maximum, because a single
+    // accented capital rises above cap height by design.
+    //
+    // What votes is what matters. #75 is what happens when a marked glyph votes: three accented
+    // capitals on a seventeen-glyph line agreed on a row 8px above the eleven plain ones and
+    // defined the cap line between them, making every glyph on the line measure short. So the vote
+    // is taken over glyphs carrying *no mark* — an accented capital's box top is its accent, which
+    // is above the cap line by construction and has no business defining it.
+    let tops: Vec<u32> = voting.iter().map(|b| b.y).collect();
+    let support = (voting.len() * rules.min_cap_support_percent as usize / 100).max(2);
     let cap_top = tops
         .iter()
         .map(|candidate| {
@@ -203,12 +242,12 @@ pub fn measure_all(
         .iter()
         .enumerate()
         .map(|(index, band)| {
-            let boxes: Vec<Rect> = glyphs
+            let line: Vec<LineGlyph> = glyphs
                 .iter()
                 .filter(|g| g.line == index)
-                .map(GroupedGlyph::bounds)
+                .map(|g| LineGlyph { bounds: g.bounds(), marked: g.parts.len() > 1 })
                 .collect();
-            anchors(*band, &boxes, rules)
+            anchors(*band, &line, rules)
         })
         .collect();
 
@@ -244,9 +283,21 @@ mod tests {
     ///
     /// Mixed rather than uniform because that is what a line of text is, and because a line of one
     /// height carries no information about which height it is — see `min_height_variety_percent`.
-    fn capitals() -> Vec<Rect> {
-        let mut boxes: Vec<Rect> = (0..3).map(|i| Rect::new(i * 20, 10, 14, 30)).collect();
-        boxes.extend((3..7).map(|i| Rect::new(i * 20, 18, 14, 22)));
+    /// A plain glyph, carrying no mark.
+    fn plain(bounds: Rect) -> LineGlyph {
+        LineGlyph { bounds, marked: false }
+    }
+
+    /// A glyph whose box top is a diacritic.
+    fn marked(bounds: Rect) -> LineGlyph {
+        LineGlyph { bounds, marked: true }
+    }
+
+    fn capitals() -> Vec<LineGlyph> {
+        let mut boxes: Vec<LineGlyph> = (0..3)
+            .map(|i| plain(Rect::new(i * 20, 10, 14, 30)))
+            .collect();
+        boxes.extend((3..7).map(|i| plain(Rect::new(i * 20, 18, 14, 22))));
         boxes
     }
 
@@ -267,7 +318,7 @@ mod tests {
         // The reason the estimate is a mode and not a maximum. A single `p` on a line of capitals
         // would move the baseline eight pixels and shift every measurement on the line with it.
         let mut boxes = capitals();
-        boxes.push(Rect::new(200, 18, 14, 30)); // a descender: bottom at 48
+        boxes.push(plain(Rect::new(200, 18, 14, 30))); // a descender: bottom at 48
         let anchors = anchors(band(), &boxes, MetricRules::default()).unwrap();
         assert_eq!(anchors.baseline, 40, "the majority still decides");
     }
@@ -277,9 +328,45 @@ mod tests {
         // The same argument at the other end: an `É` reaches above cap height, and taking a maximum
         // would make every other glyph on the line measure short.
         let mut boxes = capitals();
-        boxes.push(Rect::new(200, 2, 14, 38)); // accented capital, top at 2
+        boxes.push(marked(Rect::new(200, 2, 14, 38))); // accented capital, top at 2
         let anchors = anchors(band(), &boxes, MetricRules::default()).unwrap();
         assert_eq!(anchors.cap_top, 10, "the majority still decides");
+    }
+
+    #[test]
+    fn several_accented_capitals_do_not_define_the_cap_line_between_them() {
+        // #75, which is what one accented capital being harmless does not guarantee. Three of them
+        // agreeing on a row eight pixels above the plain capitals cleared the support floor and
+        // took the cap line with them, because the floor was the whole rule. Only unmarked glyphs
+        // vote now, so the number of accented capitals on the line stops mattering.
+        let mut boxes = capitals();
+        for i in 0..3 {
+            boxes.push(marked(Rect::new(200 + i * 20, 2, 14, 38)));
+        }
+
+        let anchors = anchors(band(), &boxes, MetricRules::default()).unwrap();
+        assert_eq!(
+            anchors.cap_top, 10,
+            "the plain capitals still say where the cap line is"
+        );
+        assert_eq!(anchors.cap_height(), 30);
+
+        // And the accented capital measures taller than one, which is what its reference entry
+        // records and what lets it match itself rather than its unaccented twin.
+        let accented = measure(Rect::new(200, 2, 14, 38), anchors);
+        assert!(accented.height_percent > 100, "measured {}", accented.height_percent);
+    }
+
+    #[test]
+    fn a_line_of_nothing_but_accented_capitals_still_reports_anchors() {
+        // No unmarked glyph to vote, so the marked ones are the only evidence there is. Worse than
+        // the usual estimate and better than refusing a line that may still be readable.
+        let mut boxes: Vec<LineGlyph> = (0..4)
+            .map(|i| marked(Rect::new(i * 20, 2, 14, 38)))
+            .collect();
+        boxes.extend((4..7).map(|i| marked(Rect::new(i * 20, 10, 14, 30))));
+
+        assert!(anchors(band(), &boxes, MetricRules::default()).is_some());
     }
 
     #[test]
@@ -317,7 +404,10 @@ mod tests {
     fn a_line_with_too_few_glyphs_reports_nothing_rather_than_guessing() {
         // Two glyphs have no mode. A plausible baseline invented here would be indistinguishable
         // from a measured one and would bias every match on the line.
-        let boxes = vec![Rect::new(0, 10, 14, 30), Rect::new(20, 10, 14, 30)];
+        let boxes = vec![
+            plain(Rect::new(0, 10, 14, 30)),
+            plain(Rect::new(20, 10, 14, 30)),
+        ];
         assert!(anchors(band(), &boxes, MetricRules::default()).is_none());
     }
 
@@ -325,8 +415,8 @@ mod tests {
     fn a_line_whose_bottoms_scatter_has_no_baseline() {
         // A line of nothing but punctuation at assorted heights. There is no baseline to find and
         // saying so is the correct answer.
-        let boxes: Vec<Rect> = (0..6)
-            .map(|i| Rect::new(i * 20, 10 + i * 4, 6, 6))
+        let boxes: Vec<LineGlyph> = (0..6)
+            .map(|i| plain(Rect::new(i * 20, 10 + i * 4, 6, 6)))
             .collect();
         assert!(anchors(band(), &boxes, MetricRules::default()).is_none());
     }
@@ -391,14 +481,14 @@ mod tests {
         let rules = MetricRules::default();
 
         // Bottoms scattered by 4% of the band height must bucket together at either size.
-        let scatter = |height: u32| -> Vec<Rect> {
+        let scatter = |height: u32| -> Vec<LineGlyph> {
             (0..8)
                 .map(|i| {
                     // Bottoms jittered by 4% of the band, heights mixed so the line has variety.
                     let jitter = (i % 2) * (height * 4 / 100);
                     let tall = i < 4;
                     let glyph_height = if tall { height * 2 / 3 } else { height / 2 };
-                    Rect::new(i * 20, height - glyph_height - jitter, 10, glyph_height)
+                    plain(Rect::new(i * 20, height - glyph_height - jitter, 10, glyph_height))
                 })
                 .collect()
         };
