@@ -745,6 +745,7 @@ mod tests {
         Cue {
             span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(500)),
             lines: lines.iter().map(|l| (*l).to_owned()).collect(),
+            italic: Vec::new(),
             confidence: Confidence { matched: 5, unmatched: 0, ambiguous: 2 },
             forced: false,
         }
