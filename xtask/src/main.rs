@@ -29,6 +29,7 @@ mod stability;
 mod sweep;
 mod unread;
 mod voting;
+mod widthsweep;
 
 use std::path::PathBuf;
 
@@ -165,6 +166,7 @@ fn main() -> anyhow::Result<()> {
         Some("glyph-geometry") => return geometry::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
         Some("shape-votes") => return voting::run(&args[1..]),
+        Some("width-sweep") => return widthsweep::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -188,5 +190,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask glyph-geometry <media> <reference.subtref> <release.srt> [--pair lI]");
     eprintln!("  xtask unread <media> <reference.subtref>");
     eprintln!("  xtask shape-votes <media> <reference.subtref>");
+    eprintln!("  xtask width-sweep <media> <reference.subtref> <release.srt> [--post-correct]");
     std::process::exit(2);
 }

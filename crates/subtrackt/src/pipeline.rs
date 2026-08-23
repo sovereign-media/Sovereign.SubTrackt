@@ -545,6 +545,10 @@ fn part_glyph(
         // `group` had attached as a mark travelled with the whole component. Saying `NONE` is the
         // honest answer and costs nothing, since the term is off.
         mark: MarkSlope::NONE,
+        // The aspect ratio, on the other hand, is exactly what a part has and its parent did not:
+        // the cut is what gave it a box of its own, and unlike the metrics above it needs nothing
+        // recovered to measure.
+        aspect: subtrackt_core::InkAspect::measure(bounds.width, bounds.height),
     })
 }
 
@@ -649,6 +653,11 @@ impl ImageSegmenter {
                     // Read off the binary mask before the boxes are merged: once base and mark
                     // share a bounding box, letterboxing scales the direction away.
                     mark: mark::slope(mask, glyph),
+                    // The same box the vector was built from. #109: letterboxing keeps this ratio,
+                    // and keeps it only to within a grid cell — the `l`/`I` difference is a fifth of
+                    // one. Nothing about the line enters it, so it is measurable on a line whose
+                    // metrics are not.
+                    aspect: subtrackt_core::InkAspect::measure(bounds.width, bounds.height),
                 })
             })
             .collect()
@@ -815,6 +824,7 @@ mod tests {
                     features: g.features,
                     metrics: LineMetrics::UNKNOWN,
                     mark: MarkSlope::NONE,
+                    aspect: subtrackt_core::InkAspect::UNKNOWN,
                 })
                 .collect(),
         )

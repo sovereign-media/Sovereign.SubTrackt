@@ -10,7 +10,7 @@
 //! embed.
 
 use subtrackt_core::{
-    Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, LineMetrics, MarkSlope, Result,
+    Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, InkAspect, LineMetrics, MarkSlope, Result,
 };
 
 /// Typographic variant of a reference glyph.
@@ -75,6 +75,13 @@ pub struct ReferenceEntry {
     /// The other thing the shape vector cannot express — see [`MarkSlope`]. Sixteen of the 21 pairs
     /// the matcher calls ambiguous are one base letter differing only in this.
     pub mark: MarkSlope,
+    /// How wide this character's ink stands against its face's cap height.
+    ///
+    /// The third — see [`InkAspect`], and note that the vector *nearly* expresses it. Letterboxing
+    /// keeps a glyph's aspect ratio but keeps it onto sixteen cells, and the difference between an
+    /// `l` and an `I` is a fifth of one cell. Generated at a larger render than the vectors are,
+    /// because at 96 pixels that difference is six tenths of a pixel and rounds away.
+    pub aspect: InkAspect,
 }
 
 /// A named collection of reference glyphs.
@@ -140,11 +147,14 @@ impl ReferenceSet {
 
 /// Magic at the head of a serialised reference set, last byte being the format version.
 ///
-/// Version 2 added line metrics, version 3 the mark slope. Older sets still load, and an entry
-/// from one reports the field it predates as unknown rather than as a default standing in for a
-/// measurement — which is what keeps a distance term from being applied to data that never carried
-/// it.
-const MAGIC: &[u8; 8] = b"SUBTREF\x03";
+/// Version 2 added line metrics, version 3 the mark slope, version 4 the ink width. Older sets
+/// still load, and an entry from one reports the field it predates as unknown rather than as a
+/// default standing in for a measurement — which is what keeps a distance term from being applied
+/// to data that never carried it.
+const MAGIC: &[u8; 8] = b"SUBTREF\x04";
+
+/// The version 3 magic, still readable. Its entries carry metrics and a mark but no width.
+const MAGIC_V3: &[u8; 8] = b"SUBTREF\x03";
 
 /// The version 2 magic, still readable. Its entries carry metrics but no mark.
 const MAGIC_V2: &[u8; 8] = b"SUBTREF\x02";
@@ -153,10 +163,13 @@ const MAGIC_V2: &[u8; 8] = b"SUBTREF\x02";
 const MAGIC_V1: &[u8; 8] = b"SUBTREF\x01";
 
 /// Bytes per entry: codepoint, style, metrics-known flag, height, descent, mark-known flag, slope,
-/// then the vector.
-const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + 1 + 2 + FEATURE_WORDS * 8;
+/// width-known flag, width, then the vector.
+const ENTRY_LEN: usize = 4 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 2 + FEATURE_WORDS * 8;
 
-/// Bytes per entry in version 2: as above without the mark-known flag and the slope.
+/// Bytes per entry in version 3: as above without the width-known flag and the width.
+const ENTRY_LEN_V3: usize = 4 + 1 + 1 + 2 + 2 + 1 + 2 + FEATURE_WORDS * 8;
+
+/// Bytes per entry in version 2: as version 3 without the mark-known flag and the slope.
 const ENTRY_LEN_V2: usize = 4 + 1 + 1 + 2 + 2 + FEATURE_WORDS * 8;
 
 /// Bytes per entry in version 1: codepoint, style, two reserved, then the vector.
@@ -198,6 +211,12 @@ impl ReferenceSet {
             );
             out.push(u8::from(entry.mark.known));
             out.extend_from_slice(&i16::try_from(entry.mark.percent).unwrap_or(0).to_le_bytes());
+            out.push(u8::from(entry.aspect.known));
+            out.extend_from_slice(
+                &u16::try_from(entry.aspect.permille)
+                    .unwrap_or(u16::MAX)
+                    .to_le_bytes(),
+            );
             for word in entry.features.words() {
                 out.extend_from_slice(&word.to_le_bytes());
             }
@@ -224,6 +243,7 @@ impl ReferenceSet {
         }
         let entry_len = match &bytes[..8] {
             m if m == MAGIC => ENTRY_LEN,
+            m if m == MAGIC_V3 => ENTRY_LEN_V3,
             m if m == MAGIC_V2 => ENTRY_LEN_V2,
             m if m == MAGIC_V1 => ENTRY_LEN_V1,
             _ => return Err(bad("bad magic")),
@@ -262,14 +282,20 @@ impl ReferenceSet {
             } else {
                 LineMetrics::UNKNOWN
             };
-            let mark = if entry_len == ENTRY_LEN && chunk[10] != 0 {
+            let mark = if matches!(entry_len, ENTRY_LEN | ENTRY_LEN_V3) && chunk[10] != 0 {
                 MarkSlope::new(i32::from(i16::from_le_bytes([chunk[11], chunk[12]])))
             } else {
                 MarkSlope::NONE
             };
+            let aspect = if entry_len == ENTRY_LEN && chunk[13] != 0 {
+                InkAspect::new(u32::from(u16::from_le_bytes([chunk[14], chunk[15]])))
+            } else {
+                InkAspect::UNKNOWN
+            };
 
             let words_at = match entry_len {
-                ENTRY_LEN => 13,
+                ENTRY_LEN => 16,
+                ENTRY_LEN_V3 => 13,
                 ENTRY_LEN_V2 => 10,
                 _ => 7,
             };
@@ -288,6 +314,7 @@ impl ReferenceSet {
                 features: FeatureVector::from_words(words),
                 metrics,
                 mark,
+                aspect,
             });
         }
 
@@ -337,6 +364,8 @@ mod tests {
                     metrics: LineMetrics::new(100, 0),
                     // A bare capital carries no mark, which is a fact about it rather than a gap.
                     mark: MarkSlope::NONE,
+                    // Nearly as wide as the cap is tall, which is what an `A` is.
+                    aspect: InkAspect::new(928),
                 },
                 ReferenceEntry {
                     character: '\u{e9}',
@@ -346,6 +375,7 @@ mod tests {
                     metrics: LineMetrics::new(96, -3),
                     // An acute rises left to right, so its cross term is negative.
                     mark: MarkSlope::new(-66),
+                    aspect: InkAspect::new(652),
                 },
             ],
         )
@@ -389,6 +419,54 @@ mod tests {
     }
 
     #[test]
+    fn an_aspect_ratio_survives_the_round_trip_at_the_resolution_it_was_measured_at() {
+        // Tenths of a percent, and the round trip has to keep every one of them: the gap this
+        // field exists to carry — an `l` against an `I` — is eight of them. A format that stored
+        // whole percent would round the two together and the entry would say they are the same
+        // width, which is exactly the claim #109 disproved.
+        let decoded = ReferenceSet::decode(&sample().encode()).unwrap();
+        assert_eq!(decoded.entries()[0].aspect, InkAspect::new(928));
+        assert_eq!(decoded.entries()[1].aspect, InkAspect::new(652));
+    }
+
+    #[test]
+    fn a_set_written_before_aspect_ratios_existed_reports_unknown_rather_than_zero() {
+        // A version 3 set carries no width, and an entry from one has to say so. Zero would be a
+        // measurement — a glyph with no ink — and every glyph on the disc would then be charged the
+        // full width term against it. `InkAspect::difference` returning `None` is what keeps a term
+        // from being applied to data that predates it, the same contract version 2 kept for the
+        // mark.
+        let mut bytes = sample().encode();
+        assert_eq!(&bytes[..8], MAGIC, "the sample is written at the current version");
+
+        // Rewrite it as version 3: the same entries with the last three bytes of each dropped.
+        let v3: Vec<u8> = bytes[..HEADER_LEN + "fitted-2026".len()]
+            .iter()
+            .copied()
+            .chain(
+                bytes[HEADER_LEN + "fitted-2026".len()..]
+                    .as_chunks::<ENTRY_LEN>()
+                    .0
+                    .iter()
+                    .flat_map(|entry| entry[..13].iter().chain(&entry[16..]).copied()),
+            )
+            .collect();
+        bytes = v3;
+        bytes[..8].copy_from_slice(MAGIC_V3);
+
+        let decoded = ReferenceSet::decode(&bytes).unwrap();
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded.entries()[0].aspect, InkAspect::UNKNOWN);
+        assert_eq!(
+            decoded.entries()[0].mark,
+            MarkSlope::NONE,
+            "and everything version 3 did carry still arrives"
+        );
+        assert_eq!(decoded.entries()[1].mark, MarkSlope::new(-66));
+        assert_eq!(decoded.entries()[1].features, FeatureVector::EMPTY);
+    }
+
+    #[test]
     fn a_negative_slope_survives_the_round_trip() {
         // The sign is the whole feature. An encoding that dropped it would leave an acute and a
         // grave at the same value and separate nothing, with every distance still looking sane.
@@ -413,9 +491,10 @@ mod tests {
                     .0
                     .iter()
                     .flat_map(|entry| {
-                        // Drop the mark-known flag and the slope, which sit between the metrics and
-                        // the vector.
-                        entry[..10].iter().chain(&entry[13..]).copied()
+                        // Drop everything between the metrics and the vector: the mark-known flag
+                        // and the slope, which version 2 predates, and the width-known flag and the
+                        // width, which it predates by two more versions.
+                        entry[..10].iter().chain(&entry[16..]).copied()
                     }),
             )
             .collect();

@@ -568,3 +568,146 @@ $ cargo run -p xtask -- dump-sup movie.mkv clover.sup
 $ cargo run -p xtask -- glyph-geometry clover.sup arial-ri.subtref release.eng.srt \
       --font C:/Windows/Fonts/arial.ttf --italic C:/Windows/Fonts/ariali.ttf
 ```
+
+## Carrying the ratio the grid rounds away
+
+[#110](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/110), built after the section
+above found the evidence. **The disc reads at 0.8% character error, down from 2.1%**, and the
+ceiling fixture at **1.2%**, down from 6.4%.
+
+| | before | after |
+| :--- | ---: | ---: |
+| character error, all cues | 2.1% | **0.8%** |
+| upright | 1.9% | **0.6%** |
+| italic | 4.1% | 4.1% |
+| `l` → `I` | 330 | **2** |
+| ceiling fixture, CER | 6.4% | **1.2%** |
+| ceiling fixture, WER | 22.1% | **2.9%** |
+| post-corrections made | 363 | **3** |
+| `I`/`l` distance in the set | 0 | 1 |
+
+199 cues improved and 12 got worse. Extraction time and the pipeline's dependencies are unchanged;
+a reference set grows by three bytes per entry, 21.4 KB to 22.3 KB.
+
+### What it does
+
+A reference entry carries the character's **ink aspect ratio** — its width as tenths of a percent of
+its own height — measured at 512px rather than at the 96 a set is rendered at. The matcher adds
+`difference × weight ÷ 1000`, omitted rather than defaulted when either side lacks it, exactly as
+[#37's line metrics](../crates/subtrackt-core/src/glyph.rs) and #48's mark slope are. The cache key
+and the cluster distance carry it too, and that half is not optional: an `l` and an `I` on one line
+agree in vector, in height, in descent and in mark, so without it the first of the two scanned would
+answer for both and the term would never be reached.
+
+### Against the glyph's own height, not against the line's cap height
+
+The first version measured width against the line's cap height, which is strictly more informative —
+it says how big a character is as well as how wide. **It measured worse**, and the reason is worth
+more than the version that worked:
+
+| | cap-relative width | aspect ratio |
+| :--- | ---: | ---: |
+| CER | 1.1% | **0.8%** |
+| cues worse | 31 | **12** |
+| unread components | 43 | **17** |
+| `o` → `C` | 32 | 0 |
+| `s` → `S` | 20 | 20 |
+
+Cap-relative width inherits every error in the line metrics. On a line whose cap height is found at
+the **x-height** — which happens where few glyphs reach the cap line — every glyph measures a third
+too tall *and* a third too wide, and the two wrong terms then agree with each other. `xtask
+glyph-geometry` finds those lines by name: an `o` on a line whose cap measured 32 pixels instead of
+42 reads 87.3% of cap height, and Arial's `C` is 88.25%.
+
+An aspect ratio is a property of one component's own bounding box. It is right on a line nothing
+else could measure, and #37's height term supplies the size the two of them together would have
+carried anyway.
+
+### The weight, and the window it sits in
+
+`xtask width-sweep` runs the whole pipeline at each setting and scores it against the release,
+because the pair this term exists for sits at distance zero in the set and a set-internal statistic
+would call it fixed the moment the weight was non-zero — `docs/glyph-stability.md` records what
+trusting that cost last time.
+
+```
+    weight      CER  upright   italic    l -> I   unread    worse
+         0     2.1%     1.9%     4.1%       330       16        0
+       196     2.0%     1.8%     4.1%       308       17        0
+       340     0.8%     0.6%     4.1%         2       17       12
+       440     0.8%     0.6%     4.1%         2       17       12
+       540     0.8%     0.6%     4.1%         2       17       12
+       580     1.1%     0.9%     4.1%         2       17       62
+      1500     8.7%     8.3%    15.2%         2      102      603
+```
+
+**The window is 340 to 540 and the shipped setting is 440, its middle.**
+
+The floor is integer rounding, and the arithmetic predicts it exactly. The disc draws an `l` at
+11.9% of its own height; the entries say `l` is 12.3% and `I` 13.1%, so the two differences the
+matcher compares are **4 points and 12 points**. A weight buys `points × weight ÷ 1000` cells, so
+until 12 points reaches one whole cell the two candidates tie and the term does nothing — which
+happens at 328, and the sweep's first working row is 340.
+
+The ceiling is disagreement between the disc and the font. Above 540 the term starts overruling
+shape for characters the disc draws a few points from what the outlines predict, and by 1500 it is
+rejecting them outright rather than demoting them — the same failure `xtask mark-sweep` watched
+#48's term produce above 78.
+
+That the floor is set by *rounding* is why the unit is tenths of a percent. In whole percent the
+pair is one point apart, and one point at any of these weights is zero cells.
+
+### What it costs: 20 `s` read as `S`
+
+Named rather than folded into the total, because it is the whole of what got worse and it has a
+mechanism:
+
+```
+  the disc draws s at 75.76% of its own height and S at 75.00%
+  the font draws  s at 79.42%                  and S at 77.04%
+```
+
+The disc's `s` sits **nearer the font's `S` than its own `s`**, so the term charges the right answer
+more than the wrong one and a line whose metrics do not already settle it goes the wrong way. The
+cause is a systematic bias, visible across the whole alphabet in `xtask glyph-geometry`'s
+calibration table: the disc draws x-height letters 3 to 5 points *narrower* relative to their height
+than the outlines do — `o` −5.0, `m` and `n` and `u` −4.3, `s` −3.6 — because at 33 pixels tall one
+rounded-away column is 4% of the width. Cap-height characters, being taller, lose 1 to 3.
+
+This is [#99](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/99)'s finding in another
+form — the reference side and the runtime measuring the same quantity under different
+quantisation — and the fix is likely to be the same shape: carry more than one sample per character
+and let the nearer one win. It is filed rather than guessed at.
+
+### Predictions, scored
+
+- **1. The disc goes from 2.1% to under 1.0%.** *Right.* 0.8%.
+- **2. The italic act does not improve and may get slightly worse.** *Half right.* It does not
+  improve — 4.1% before and after, unchanged to the character — and it does not get worse either.
+  The cap-relative version *did* make it worse, 4.1% to 4.7%, which is one more thing that decided
+  between the two.
+- **3. The ceiling fixture barely moves.** ***Wrong, and completely.*** 6.4% → **1.2%**, and word
+  error 22.1% → 2.9%. The reasoning was that a fixture generated at 48px cannot see this, the way it
+  could not see #106. But the fixture's text was written to include `- Is it 1 or l?` and
+  `0123456789 O o I l 1` and `Follow the yellow line to Iowa` — it was *built* to exercise this pair
+  and was never blind to it. A prediction about an instrument should be checked against what the
+  instrument actually contains.
+- **4. A weight sweep has a floor and a ceiling and they are far apart.** *Right.* 340 to 540, with
+  a hard floor set by integer rounding and a soft ceiling set by rendering disagreement.
+
+### What is left
+
+194 errors, against 508 before:
+
+| release → read | errors | share |
+| :--- | ---: | ---: |
+| word spaces never read | 66 | **34%** |
+| `"` read as two `'` | 40 | 21% |
+| `s` → `S` | 20 | 10% |
+| everything else | 68 | 35% |
+
+No class is a third of it any more, and the largest single one is a **word space** — [#49][issue-49]'s
+decisiveness margin, of which 38 of 66 are in the italic act, on 6% of the track's characters. The
+second is the documented `"`-reads-as-two-quotes case in
+[`group.rs`](../crates/subtrackt-glyph/src/group.rs), which costs twice per occurrence: a
+substitution and an insertion.

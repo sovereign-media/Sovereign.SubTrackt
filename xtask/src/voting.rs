@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use subtrackt::{Config, Pipeline};
-use subtrackt_core::{FeatureVector, LineMetrics, MarkSlope};
+use subtrackt_core::{FeatureVector, InkAspect, LineMetrics, MarkSlope};
 use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::matcher::{HammingMatcher, MatchThresholds};
 
@@ -32,6 +32,7 @@ use subtrackt_glyph::matcher::{HammingMatcher, MatchThresholds};
 struct Keyed {
     metrics: LineMetrics,
     mark: MarkSlope,
+    aspect: InkAspect,
     /// How many glyphs in the stream carried this exact key.
     glyphs: usize,
     answer: Option<char>,
@@ -64,14 +65,14 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let mut by_shape: BTreeMap<[u64; 4], Vec<Keyed>> = BTreeMap::new();
     for glyph in &survey.glyphs {
         let entry = by_shape.entry(*glyph.features.words()).or_default();
-        match entry
-            .iter_mut()
-            .find(|k| k.metrics == glyph.metrics && k.mark == glyph.mark)
-        {
+        match entry.iter_mut().find(|k| {
+            k.metrics == glyph.metrics && k.mark == glyph.mark && k.aspect == glyph.aspect
+        }) {
             Some(keyed) => keyed.glyphs += 1,
             None => entry.push(Keyed {
                 metrics: glyph.metrics,
                 mark: glyph.mark,
+                aspect: glyph.aspect,
                 glyphs: 1,
                 answer: None,
             }),
@@ -84,7 +85,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         let features = FeatureVector::from_words(*words);
         for keyed in keys.iter_mut() {
             keyed.answer = matcher
-                .scan_with(&features, keyed.metrics, keyed.mark)
+                .scan_with(&features, keyed.metrics, keyed.mark, keyed.aspect)
                 .character;
             scans += 1;
         }

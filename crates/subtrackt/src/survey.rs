@@ -12,7 +12,9 @@
 use std::path::Path;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
-use subtrackt_core::{Error, FeatureVector, LineMetrics, MarkSlope, Rect, Result, TimeSpan};
+use subtrackt_core::{
+    Error, FeatureVector, InkAspect, LineMetrics, MarkSlope, Rect, Result, TimeSpan,
+};
 use subtrackt_demux::StreamInfo;
 
 use crate::pipeline::ImageSegmenter;
@@ -38,6 +40,12 @@ pub struct GlyphRecord {
     pub metrics: LineMetrics,
     /// Which way its diacritic leans, carried for the same reason.
     pub mark: MarkSlope,
+    /// How wide its ink stands against its line, carried for the same reason again.
+    ///
+    /// #109: the shape vector nearly expresses this and misses by the width of a grid cell, which
+    /// is the difference between an `l` and an `I`. A survey that dropped it would rank candidate
+    /// sets without the term the extraction it predicts actually applies.
+    pub aspect: InkAspect,
     /// The glyph's un-normalised ink, cropped to [`Self::bounds`].
     ///
     /// `None` unless [`Config::glyph_masks`](crate::Config::glyph_masks) asked for it, and the
@@ -163,6 +171,7 @@ impl crate::Pipeline {
                         features: glyph.features,
                         metrics: glyph.metrics,
                         mark: glyph.mark,
+                        aspect: glyph.aspect,
                         mask: cropped,
                     });
                 }
@@ -258,6 +267,7 @@ mod tests {
             features,
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
             mask: None,
         };
         let survey = GlyphSurvey {

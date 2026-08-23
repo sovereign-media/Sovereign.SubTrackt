@@ -17,7 +17,7 @@
 //! disagree.
 
 use fontdue::{Font, FontSettings};
-use subtrackt_core::{Error, FeatureVector, LineMetrics, MarkSlope, Rect, Result};
+use subtrackt_core::{Error, FeatureVector, InkAspect, LineMetrics, MarkSlope, Rect, Result};
 
 use crate::binarize::{BinaryMask, CoverageMask};
 use crate::ccl::{self, ComponentFilter};
@@ -229,6 +229,45 @@ fn ink_bounds(mask: &BinaryMask) -> Option<Rect> {
     any.then(|| Rect::new(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
 }
 
+/// The size a character's aspect ratio is read at.
+///
+/// Not [`RENDER_PX`], and #109 is the whole reason. `I` is 7% wider than `l` in Arial's outlines,
+/// which at 96 pixels is **six tenths of one pixel**: the rasteriser rounds both stems to nine and
+/// the difference is gone. It reappears at 128px and is stable from 256 up, so the ratio is read at
+/// a size where it has converged and the ratio — not the pixel count — is what is stored.
+///
+/// It costs one extra rasterisation per character at generation time and nothing at all at runtime.
+/// The shape vectors stay at [`RENDER_PX`]: a bigger render does not help *them*, because the grid
+/// they letterbox onto is sixteen cells wide either way. `docs/error-census.md` has the table.
+const ASPECT_PX: f32 = 512.0;
+
+/// The aspect ratio of a character's ink.
+///
+/// Measured off the thresholded **ink** box, because that is the box a component is: a value taken
+/// from the rasteriser's box, which includes every pixel with any coverage at all, would be a second
+/// instance of the #99 mismatch, and that one carried a whole error class on its own.
+///
+/// Nothing about the line enters it, which is the property that decided the shape of this feature.
+/// See [`InkAspect`].
+fn aspect_for(font: &Font, ch: char) -> InkAspect {
+    match ink_box(font, ch, ASPECT_PX) {
+        Some(box_) => InkAspect::measure(box_.width, box_.height),
+        None => InkAspect::UNKNOWN,
+    }
+}
+
+/// The thresholded ink box of one character at one size.
+fn ink_box(font: &Font, ch: char, px: f32) -> Option<Rect> {
+    let (metrics, coverage) = font.rasterize(ch, px);
+    let width = u32::try_from(metrics.width).ok()?;
+    let height = u32::try_from(metrics.height).ok()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
+    ink_bounds(&BinaryMask::from_bits(width, height, bits).ok()?)
+}
+
 /// Where a character stands in a line of text, from the font's own metrics.
 ///
 /// This has to mean the same thing as `subtrackt_glyph::metrics`, which derives its anchors from a
@@ -359,6 +398,7 @@ pub fn generate_under(
             // makes the extra entries purely a shape question.
             let metrics = metrics_for(&font, ch, cap_height);
             let mark = mark_for(&font, ch);
+            let aspect = aspect_for(&font, ch);
             for features in vectors {
                 entries.push(ReferenceEntry {
                     character: ch,
@@ -366,6 +406,7 @@ pub fn generate_under(
                     features,
                     metrics,
                     mark,
+                    aspect,
                 });
             }
         }
