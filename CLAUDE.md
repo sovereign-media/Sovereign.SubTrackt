@@ -122,6 +122,39 @@ Treat its number as a ceiling. Fixture and reference share a font, so typeface m
 by construction and real material can only do worse. A change that improves coverage but worsens CER
 has made things worse.
 
+### The bench
+
+The fixture is the ceiling. **`scripts/bench/` is the floor**, and it is what prices a change on real
+material. `roster.json` names seven tracks and says what each one covers; `run.py` extracts and
+scores all of them and diffs two runs.
+
+```console
+$ scripts/bench/run.py dump  --cache bench-cache            # once, ~30 min and 184 MB
+$ scripts/bench/run.py score --cache bench-cache --reference arial-ri.subtref --out before.json
+$ scripts/bench/run.py score --cache bench-cache --reference arial-ri.subtref --out after.json
+$ scripts/bench/run.py compare before.json after.json
+```
+
+Dump first. A pass then costs about twenty seconds against hours of network reads, which is what
+makes running it before *and* after the cheap option rather than the diligent one.
+
+**Read the `worse` column, not the CER.** #110 gained character error on one disc while making 232
+cues worse on another, and #113 found it only because two more discs were scored.
+
+Two rules the roster exists to hold, both learned by breaking them:
+
+- **A scored track needs a sidecar of matching convention**, not just any sidecar. The Prestige's
+  track is SDH and its only sidecar is not, so correcting `[CROWD LAUGHlNG]` to `[CROWD LAUGHING]`
+  scored as a *regression* against unrelated dialogue. It is a `smoke` entry for that reason: a
+  track that puts false entries in the `worse` column poisons the one number you are told to read.
+- **A track with no scoreable sidecar still earns a place.** `smoke` entries claim no accuracy and
+  assert only that the track survives its own shape — which is the whole point of the 106-cue forced
+  track, where every per-line median has no population to work from.
+
+Adding a track is cheap; adding one that duplicates another's coverage costs attention, which is the
+expensive half. #133 has the survey the seven were chosen from: SDH is ~75% of the library and the
+bench had none of it until then.
+
 ## Scope
 
 Stages are traits in `subtrackt-core::stage`. No stage crate depends on another stage crate; the

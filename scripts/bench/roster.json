@@ -1,0 +1,83 @@
+{
+  "_comment": [
+    "The standing accuracy bench. Until #133 this was a convention recorded in prose and nowhere",
+    "runnable, so every measurement re-derived its own shell and nothing stopped the next one",
+    "quietly using two discs instead of three.",
+    "",
+    "Every entry earns its place by covering something the others cannot. Adding one is cheap --",
+    "a bench pass is about a second per track once dumped -- but an entry that duplicates another's",
+    "coverage costs attention rather than time, which is the expensive half.",
+    "",
+    "kind: 'scored' has a release sidecar and yields CER/WER. 'smoke' does not, and claims no",
+    "accuracy at all -- it asserts the pipeline survives the shape of the track. A forced track",
+    "scored against a full transcript would report a meaningless number, and reporting one would be",
+    "the invented-data failure CLAUDE.md forbids."
+  ],
+  "root": "//nas/MEDIA/movies",
+  "tracks": [
+    {
+      "key": "cloverfield",
+      "folder": "10 Cloverfield Lane (2016) [tmdbid-333371]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "10.Cloverfield.Lane.2016.720p.BluRay.DD5.1.x264-HiDt-Obfuscated.eng.srt",
+      "covers": "the tuned baseline; a marked italic act at 6% of characters",
+      "glyphs": 22851
+    },
+    {
+      "key": "gonegirl",
+      "folder": "Gone Girl (2014) [tmdbid-210577]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "Gone Girl (2014) [imdbid-tt2267998] - [Bluray-1080p][DTS-ES 5.1][x264]-HDMaNiAcS.eng.srt",
+      "covers": "the long end (p100 of the library); 18% of lines lean and no sidecar marks one",
+      "glyphs": 66438
+    },
+    {
+      "key": "wanda",
+      "folder": "A Fish Called Wanda (1988) [tmdbid-623]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "A Fish Called Wanda (1988) [imdbid-tt0095159] - [Bluray-1080p][AC3 5.1][x264]-VietHD.eng.srt",
+      "covers": "material where l and I are both five pixels wide, so the pair is undecidable",
+      "glyphs": 31000
+    },
+    {
+      "key": "prestige",
+      "folder": "The Prestige (2006) [tmdbid-1124]",
+      "stream": 0,
+      "kind": "smoke",
+      "sidecar": null,
+      "_sidecar_rejected": "The Prestige (2006) [imdbid-tt0482571] - [Bluray-1080p Proper][AC3 5.1][x264]-GAiA.eng.Subtitles-ENGLISH.srt",
+      "covers": "SDH speaker labels and sound cues, at the best fit of the three SDH tracks (10.5). Smoke rather than scored, and the reason is a bench-design lesson: its track is SDH and its only sidecar is not, so every sound cue is scored against unrelated dialogue. That does not merely inflate its CER -- it puts FALSE entries in the `worse` column, which is the one column this bench tells you to read. Correcting `[CROWD LAUGHlNG]` to `[CROWD LAUGHING]` scored as a regression against a sidecar carrying different text entirely. A scored track needs a sidecar of matching convention, not just any sidecar.",
+      "glyphs": 51377
+    },
+    {
+      "key": "kingkong",
+      "folder": "King Kong (2005) [tmdbid-254]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "King Kong (2005) - [WEBDL-1080p][EAC3 5.1][h264]-BiOMA.eng.SDH.srt",
+      "covers": "SDH, scored against an SDH sidecar",
+      "glyphs": 42311
+    },
+    {
+      "key": "airplane",
+      "folder": "Airplane! (1980) [tmdbid-813]",
+      "stream": 1,
+      "kind": "scored",
+      "sidecar": "Airplane! (1980) [imdbid-tt0080339] - [Bluray-1080p Proper][DV HDR10][FLAC 2.0][x265]-WiLF.eng.SDH.srt",
+      "covers": "an SDH track against an SDH sidecar, so speaker labels exist on both sides; also the all-caps spacing failure of #134",
+      "glyphs": 30000
+    },
+    {
+      "key": "mexico-forced",
+      "folder": "Once Upon a Time in Mexico (2003) [tmdbid-1428]",
+      "stream": 0,
+      "kind": "smoke",
+      "sidecar": null,
+      "covers": "the short and sparse extreme: 106 cues, 2,247 glyphs, forced-subtitle shape. Every per-line median -- the spacing rule, the cap line of #75, the slant estimator of #123 -- needs a population, and nothing else here is small enough to test what happens when there is not one.",
+      "glyphs": 2247
+    }
+  ]
+}
