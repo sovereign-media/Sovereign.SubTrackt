@@ -21,6 +21,10 @@ Both are confirmed, at very different sizes:
   takes the slant axis from 47 cells to 26, which is below the median distance to an entirely
   different character. It does not reach the 8-to-11 of the cheap axes, and a sweep proves the
   residual is not a bad angle: it is the characters a true italic **redraws** rather than leans.
+  [#122][issue-122] then found what those 21 cells are worth on a disc, and it is *not* what the
+  bench implied: a deskew and an italic reference cut are **alternatives**. Against a set with no
+  italic entries the deskew takes Cloverfield's italic act from **47.1% to 8.1%**; against a set
+  carrying #66's cut it makes it worse. See "The matching half, and what it is an alternative to".
 - **Detection is nearly free.** One number per line separates the two acts at **99.4%** and
   **98.9%** per cue on the two discs whose release marks its italics, and the cues it gets wrong do
   not lean at all — the transcript and the disc disagree there, so this is close to the ceiling
@@ -382,6 +386,83 @@ Two approximations are knowingly in the shipped path:
 [issue-110]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/110
 [issue-121]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/121
 
+## The matching half, and what it is an alternative to
+
+[#122][issue-122] shipped the other insertion point: a leaning line's glyphs are sampled along the
+line's own slant, so each grid cell's preimage is a **parallelogram** and the ink is never resampled.
+The result is not the one the issue predicted, and the correction is worth more than the prediction
+was.
+
+**A deskew and an italic reference cut are two answers to the same question, not a stage and an
+improvement to it.** Four configurations on 10 Cloverfield Lane's italic act:
+
+| italic CER | no deskew | deskewed |
+| :--- | ---: | ---: |
+| **regular-only set** | 47.1% | **8.1%** |
+| **with #66's italic cut** | **2.0%** | 5.4% |
+
+Read either way round it says the same thing. Against a set with no italic entries the deskew is
+worth **47.1% down to 8.1%** — a factor of six, and #14's most expensive axis paid back almost in
+full. Against a set that carries the cut it makes things *worse*, because the cut already holds an
+entry shaped like the ink and the deskew moves the glyph away from it.
+
+The same table on the other two discs:
+
+| whole disc, CER | regular-only | regular-only, deskewed | with the italic cut |
+| :--- | ---: | ---: | ---: |
+| 10 Cloverfield Lane | 3.4% | **1.0%** | 0.6% |
+| Gone Girl | 11.6% | **3.2%** | 2.0% |
+| A Fish Called Wanda | 5.5% | **4.2%** | 4.2% |
+
+### What the bench got wrong, and it is the same mistake twice
+
+`measure-stability --deskew` says slant falls from 47 cells to 26. Both numbers are distances to the
+**upright** vector — and that is the right question only for a set with no italic entry. Where #66's
+cut is present the baseline is not 47 at all; it is the *italic* entry's own intra-character spread,
+which is far below 26. The bench answered a question the shipped configuration does not ask.
+
+That is `docs/error-census.md`'s lesson arriving a third time. "Ambiguous" and "wrong" are not the
+same set, and `xtask separability` only sees the first; a matchability statistic and a CER are not
+the same question, and `docs/fit-confidence.md` is six statistics long on that; and now a distance
+to the upright vector and a distance to the *nearest* vector are not the same question either. Each
+time the instrument was sound and was measuring something adjacent to what shipped.
+
+### So the reference set decides
+
+Nothing here is a threshold or a heuristic. A set either holds an entry for a slanted rendering or
+it does not, and it says so — so the deskew is on exactly when the set cannot read a slanted letter
+as it is drawn:
+
+| | cues better | cues worse |
+| :--- | ---: | ---: |
+| regular-only set, Cloverfield | **41** | 7 |
+| regular-only set, Gone Girl | **416** | 20 |
+| regular-only set, Wanda | **63** | 25 |
+| **with an italic cut, all three discs** | **0** | **0** |
+
+Zero on the last row is the whole safety argument: a user who followed
+[`reference-set.md`](reference-set.md) and generated `arial-ri` gets a bit-identical extraction.
+
+**Who this is for.** `subtrackt gen-reference arial.ttf out.subtref` — one font file, no `--italic` —
+is the documented first invocation and it produces a regular-only set. Until #122 that set read
+Cloverfield's italic act at 47.1% and Gone Girl at 11.6%. A user who never learned that this project
+has an `--italic` flag was paying #14's slant axis in full on every leaning line.
+
+### One disc says the deskew is better than the cut
+
+A Fish Called Wanda reads its italic act at **13.8%** with Arial's italic cut and **12.9%** with a
+regular-only set and the deskew. It is the only disc of the three where that holds, and it is the
+disc whose italic act reads worst — which is what "the cut does not fit this material" looks like
+from the inside.
+
+It is not actionable and that is a finding rather than an omission.
+[`fit-confidence.md`](fit-confidence.md) is six statistics long on exactly this: nothing in this
+pipeline can tell a good reference fit from a bad one without ground truth, so nothing can choose
+between the cut and the deskew per title. The shipped rule takes the cut where one exists because
+two discs of three prefer it and because a user who supplied an italic face asked for it to be used.
+
+[issue-122]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/122
+
 ## What this does not settle
 
 The spaces are answered above. What is left:
@@ -390,9 +471,11 @@ The spaces are answered above. What is left:
   which would fix segmentation as well as spacing — a slanted ascender touching its neighbour is
   #106's class, in the act where slant makes it likeliest. Measuring the gap between deskewed
   extents does not touch a component that was already fused into one, and #121 did not try to.
-- **The matching half.** Slant is still 26 cells after a deskew and 47 without one, and nothing in
-  #121 changes what the matcher sees: a glyph's feature vector is still built from its bounding box.
-  That is #122.
+- **Whether a set should carry an italic cut at all.** #122 measured the deskew against the cut and
+  the cut wins on two discs of three — but it wins as a *whole configuration*, and the per-character
+  table above says ten letters deskew onto their upright entry to within five cells. A set that
+  carried italic entries only for the letters a shear cannot recover would be smaller than #66's and
+  might read as well. Nothing has measured it.
 - **Whether [#49][issue-49]'s decisiveness margin would have reached some of these anyway.** It is
   a smaller change than #121 and it is now measurable against a much smaller residual: 36 missed
   spaces on Cloverfield rather than 66, and 29 of the 36 are on upright lines this cannot help.

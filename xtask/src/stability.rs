@@ -645,6 +645,13 @@ fn analyse(all: &BTreeMap<char, Vec<Variant>>, pick: fn(&Variant) -> FeatureVect
 
 /// What one shear did to each character, worst first.
 ///
+/// **Every distance in this report is to the *upright* vector**, and #122 is the record of what
+/// that does and does not settle. It is the right question for a reference set with no italic
+/// entries, where the deskew took a real disc's italic act from 47.1% CER to 8.1%. It is the wrong
+/// question for a set carrying #66's italic cut, where the baseline is not 47 cells but the italic
+/// entry's own intra-character spread — and there the same deskew makes things worse. A bench can
+/// be sound and still be measuring something adjacent to what ships.
+///
 /// #115's third prediction, printed rather than asserted: a shear recovers a letter that was
 /// *leaned* and cannot recover one that was **redrawn**. Arial Italic redraws `a`, `e`, `f` and
 /// friends outright, so the expected shape of this table is a long tail that falls onto the upright

@@ -108,6 +108,12 @@ $ subtrackt gen-reference /usr/share/fonts ./sets
 | `--italic <FONT>` | Italic cut of the same typeface, contributing its own vector for every character. |
 | `--bold <FONT>` | Bold cut, likewise. |
 
+**`--italic` is worth more than it looks and you do not have to use it.** A set that carries an
+italic cut reads a real Blu-ray's italic act at 2.0% CER against 8.1% without one, so supply it if
+you have the font. Where you do not, `extract` samples a leaning line along its own slant instead —
+which is worth 47.1% down to 8.1% on the same act, and switches itself off the moment a set carries
+an italic cut. [`docs/italic-slant.md`](docs/italic-slant.md) has the four-way table.
+
 `--name`, `--italic` and `--bold` describe one typeface, so they cannot be combined with a directory
 of fonts. `.ttf` and `.otf` are read; `.ttc` collections are skipped, because picking the first face
 silently would file it under a name that does not describe it.
@@ -402,7 +408,7 @@ the plan it was meant to confirm.
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
 | [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — six statistics, three mechanisms. The fifth identifies a typeface from its font file 79–85% of the time and still cannot gate a track, because a decoded glyph drifts further from its own typeface than the typefaces sit apart. The sixth scores the read text against a language prior and overlaps at every threshold, because the characters a model cannot score are exactly the ones where the read went wrong. |
 | [`library-accuracy.md`](docs/library-accuracy.md) | What the pipeline reads on a real library rather than on the three discs it was tuned against: 50 titles, 1950–2025, 268 GB. **13.56% CER** pooled, 8.21% median, and the upper tail is mostly the instrument — a title read at 99.6% coverage and a good fit still scores 77.6% when the sidecar it is scored against is a different transcript. Per-title font selection moves the corpus figure by 0.4 points; three characters fail *every single time*. |
-| [`italic-slant.md`](docs/italic-slant.md) | Why the italic act is a third of the errors left on a real disc while being 6% of it. **27% of an italic line's gaps reach the spacing rule already saturated at zero**, against 0.7% of an upright line's, because a slanted box overhangs the box after it — a failure two stages before the matcher, which is why no reference set ever touched it. Measuring the gap between deskewed ink instead took **Gone Girl from 2.8% to 2.0% CER** and gave back 618 of its 783 missing word spaces, on a disc whose release marks none of its 18% italic lines. Shearing the *sampling* also takes #14's most expensive axis from 47 cells to 26, and one number tells the two acts apart at 99.4% per cue. |
+| [`italic-slant.md`](docs/italic-slant.md) | Why the italic act is a third of the errors left on a real disc while being 6% of it. **27% of an italic line's gaps reach the spacing rule already saturated at zero**, against 0.7% of an upright line's, because a slanted box overhangs the box after it — a failure two stages before the matcher, which is why no reference set ever touched it. Measuring the gap between deskewed ink instead took **Gone Girl from 2.8% to 2.0% CER** and gave back 618 of its 783 missing word spaces, on a disc whose release marks none of its 18% italic lines. Sampling along the line's own slant takes #14's most expensive axis from 47 cells to 26 — and a disc then says a deskew and an italic reference cut are **alternatives**, not a stage and an improvement to it: **47.1% to 8.1%** on a set with no italic entries, and worse on a set that has them. One number tells the two acts apart at 99.4% per cue. |
 | [`distribution.md`](docs/distribution.md) | CLI over `cdylib`, static musl over glibc, and the binary-size and cold-start numbers behind both. |
 | [`architecture.md`](docs/architecture.md) | How the workspace is laid out, and where each decision lives. |
 

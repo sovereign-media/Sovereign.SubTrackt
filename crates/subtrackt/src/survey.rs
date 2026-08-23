@@ -132,6 +132,12 @@ impl crate::Pipeline {
         let segmenter = ImageSegmenter::new(
             Binarizer::new(self.config().binarize),
             self.config().grey_coverage,
+            // Never deskewed, and that is the point of a survey. #122 lets the *reference set*
+            // decide whether a leaning line is sampled along its slant, and a survey exists to be
+            // scored against several candidate sets at once — `subtrackt fit` ranks twenty-one of
+            // them over one pass. Segmenting differently per candidate would rank sets on
+            // segmentations rather than on fit.
+            false,
         );
         let keep_masks = self.config().glyph_masks;
 
