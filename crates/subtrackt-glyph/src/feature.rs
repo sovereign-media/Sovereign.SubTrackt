@@ -72,6 +72,178 @@ pub fn vectorize_coverage(
     vectorize_with(bounds, policy, |x, y| f32::from(mask.get(x, y)) / 255.0)
 }
 
+/// Normalise a glyph onto the grid with its line's slant taken out of the **sampling**.
+///
+/// [#122](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/122). #14 priced slant at
+/// 47 cells median, the most expensive axis in `docs/glyph-stability.md` — above bold's 38 and well
+/// above the 31-cell median distance to an entirely *different character*. Sampling along the
+/// line's own slant takes it to 26, which is below the 27-cell distance to a different character:
+/// a deskewed italic glyph is nearer its own upright entry than a letter is to its nearest
+/// neighbour in the alphabet. `docs/italic-slant.md` has the sweep.
+///
+/// **The sampling, not the pixels.** Each output cell's preimage is a *parallelogram* rather than a
+/// rectangle, so the glyph is never resampled and no interpolation or nearest-neighbour rounding
+/// stands between the ink and the grid. That form was chosen before it was benched and the reason
+/// is a pattern rather than a preference: #99, #110 and #113 were each one side of this pipeline
+/// putting a measurement through a quantisation the other side never saw, and a deskewed glyph is
+/// matched against an **upright** reference vector — so a resample here would be exactly that
+/// asymmetry, with the reference side blind to it.
+///
+/// `shear` is `k` in `x' = x - k·y`, from [`crate::slant::line_shear`]. Zero reproduces
+/// [`vectorize`] to within the difference between `f32` and `f64`, which
+/// `a_zero_shear_reproduces_the_ordinary_vectoriser` pins.
+///
+/// # Errors
+/// Returns [`subtrackt_core::Error::Config`] if `bounds` has zero width or height, or if the ink
+/// inside it is empty — a glyph with no ink has no deskewed box to letterbox onto, and inventing
+/// one would be a fabricated measurement.
+pub fn vectorize_sheared(
+    bounds: Rect,
+    shear: f64,
+    policy: AspectPolicy,
+    ink: impl Fn(u32, u32) -> f32,
+) -> Result<FeatureVector> {
+    if bounds.width == 0 || bounds.height == 0 {
+        return Err(subtrackt_core::Error::Config(format!(
+            "cannot vectorize a {}x{} glyph box",
+            bounds.width, bounds.height
+        )));
+    }
+    let (x0, width) = sheared_extent(bounds, shear, &ink).ok_or_else(|| {
+        subtrackt_core::Error::Config(format!(
+            "the {}x{} box at ({}, {}) holds no ink to deskew",
+            bounds.width, bounds.height, bounds.x, bounds.y
+        ))
+    })?;
+    let height = f64::from(bounds.height);
+
+    let grid = f64::from(u32::try_from(FEATURE_GRID).unwrap_or(u32::MAX));
+    let (inner_x, inner_y, inner_w, inner_h) = match policy {
+        AspectPolicy::Stretch | AspectPolicy::StretchWithAspect => (0.0, 0.0, grid, grid),
+        AspectPolicy::Letterbox => {
+            let scale = (grid / width).min(grid / height);
+            let (w, h) = (width * scale, height * scale);
+            ((grid - w) / 2.0, (grid - h) / 2.0, w, h)
+        }
+    };
+
+    let mut vector = FeatureVector::EMPTY;
+    for cell_y in 0..FEATURE_GRID {
+        for cell_x in 0..FEATURE_GRID {
+            let (cx, cy) = (cell(cell_x), cell(cell_y));
+            let coverage = sheared_cell_coverage(
+                &ink,
+                bounds,
+                (x0, width, height),
+                shear,
+                (
+                    (cx - inner_x) / inner_w,
+                    (cx + 1.0 - inner_x) / inner_w,
+                    (cy - inner_y) / inner_h,
+                    (cy + 1.0 - inner_y) / inner_h,
+                ),
+            );
+            if coverage * 100.0 >= f64::from(CELL_COVERAGE_PERCENT) {
+                vector.set(cell_y * FEATURE_GRID + cell_x);
+            }
+        }
+    }
+    Ok(vector)
+}
+
+/// A grid index as a coordinate. The grid is sixteen cells, so nothing is lost.
+#[allow(clippy::cast_precision_loss)]
+fn cell(index: usize) -> f64 {
+    index as f64
+}
+
+/// Where the ink in `bounds` begins and ends once the shear is out, as `(left, width)`.
+///
+/// In the glyph's own frame — `y` measured from the top of `bounds` — because the vector is
+/// letterboxed and therefore translation-invariant, so the pivot cannot reach the answer and a
+/// local one keeps the numbers small.
+///
+/// Taken over each pixel's **square** rather than its top-left corner: a pixel at row `y` occupies
+/// rows `y..y+1`, and under a shear those two rows do not map to the same column. Reading the
+/// corner alone would lose most of a stem's width at the extremes.
+///
+/// `None` when the box holds no ink at all.
+fn sheared_extent(bounds: Rect, shear: f64, ink: &impl Fn(u32, u32) -> f32) -> Option<(f64, f64)> {
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    for y in 0..bounds.height {
+        for x in 0..bounds.width {
+            if ink(bounds.x + x, bounds.y + y) <= 0.0 {
+                continue;
+            }
+            let (x, y) = (f64::from(x), f64::from(y));
+            for (cx, cy) in [(x, y), (x + 1.0, y), (x, y + 1.0), (x + 1.0, y + 1.0)] {
+                let sheared = cx - shear * cy;
+                lo = lo.min(sheared);
+                hi = hi.max(sheared);
+            }
+        }
+    }
+    (hi > lo).then_some((lo, hi - lo))
+}
+
+/// Fraction of one grid cell that is ink, sampled along slanted columns.
+///
+/// The same area integration [`cell_coverage`] does, with the cell's preimage a parallelogram
+/// rather than a rectangle. Within one source row the shear offset varies by at most `shear` — a
+/// fifth of a pixel for an ordinary italic — and the row's own midpoint is used for the whole row.
+/// That is a smooth approximation rather than a quantisation: it snaps nothing to a pixel boundary
+/// and it shrinks as the rendering grows.
+fn sheared_cell_coverage(
+    ink: &impl Fn(u32, u32) -> f32,
+    bounds: Rect,
+    (x0, width, height): (f64, f64, f64),
+    shear: f64,
+    (u0, u1, v0, v1): (f64, f64, f64, f64),
+) -> f64 {
+    // Clipped to the glyph box, and divided by the *unclipped* area so a cell half outside the
+    // glyph is at most half ink. Both are `cell_coverage`'s choices, kept so the two vectorisers
+    // differ in the shape of the preimage and in nothing else.
+    let full_area = (u1 - u0) * width * (v1 - v0) * height;
+    if full_area <= 0.0 {
+        return 0.0;
+    }
+    let (xa, xb) = (x0 + u0.clamp(0.0, 1.0) * width, x0 + u1.clamp(0.0, 1.0) * width);
+    let (ya, yb) = (v0.clamp(0.0, 1.0) * height, v1.clamp(0.0, 1.0) * height);
+    if xb <= xa || yb <= ya {
+        return 0.0;
+    }
+
+    let mut covered = 0.0f64;
+    let mut row = ya.floor();
+    while row < yb {
+        let weight_y = span_overlap_f64(ya, yb, row);
+        if weight_y > 0.0 && row >= 0.0 && row < height {
+            // The shear, read at the midpoint of the part of this row the cell actually covers.
+            let shift = shear * f64::midpoint(ya.max(row), yb.min(row + 1.0));
+            let (sxa, sxb) = (xa + shift, xb + shift);
+            let mut column = sxa.floor();
+            while column < sxb {
+                if column >= 0.0 && column < f64::from(bounds.width) {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let (px, py) = (column as u32, row as u32);
+                    let value = f64::from(ink(bounds.x + px, bounds.y + py));
+                    if value > 0.0 {
+                        covered += span_overlap_f64(sxa, sxb, column) * weight_y * value;
+                    }
+                }
+                column += 1.0;
+            }
+        }
+        row += 1.0;
+    }
+    covered / full_area
+}
+
+/// How much of the pixel starting at `index` falls inside the span `lo..hi`.
+fn span_overlap_f64(lo: f64, hi: f64, index: f64) -> f64 {
+    (hi.min(index + 1.0) - lo.max(index)).max(0.0)
+}
+
 /// The shared body of both, parameterised by how much ink a source pixel holds.
 fn vectorize_with(
     bounds: Rect,
@@ -192,6 +364,141 @@ pub fn aspect_ratio_centi(bounds: Rect) -> u32 {
 mod tests {
     use super::*;
 
+    /// A stem `width` wide and `height` tall whose top sits `lean` columns right of its foot, drawn
+    /// into a canvas wide enough to hold the lean.
+    fn leaning_stem(width: u32, height: u32, lean: u32) -> BinaryMask {
+        let mut mask = BinaryMask::blank(width + lean, height);
+        for y in 0..height {
+            let shift = lean * (height - 1 - y) / (height - 1).max(1);
+            for x in 0..width {
+                mask.set(x + shift, y, true);
+            }
+        }
+        mask
+    }
+
+    /// A capital `H` filling the box, so its ink touches all four edges.
+    fn aitch(width: u32, height: u32) -> BinaryMask {
+        let mut mask = BinaryMask::blank(width, height);
+        for y in 0..height {
+            mask.set(0, y, true);
+            mask.set(width - 1, y, true);
+            if y == height / 2 {
+                for x in 0..width {
+                    mask.set(x, y, true);
+                }
+            }
+        }
+        mask
+    }
+
+    /// The same `H`, leaned so that `x' = x - k·y` stands it upright again.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn leaning_aitch(width: u32, height: u32, k: f64) -> BinaryMask {
+        let upright = aitch(width, height);
+        let lean = (k.abs() * f64::from(height)).ceil() as u32;
+        let mut mask = BinaryMask::blank(width + lean, height);
+        for y in 0..height {
+            let shift = (k * f64::from(y) + f64::from(lean)).round().max(0.0) as u32;
+            for x in 0..width {
+                if upright.get(x, y) {
+                    mask.set(x + shift, y, true);
+                }
+            }
+        }
+        mask
+    }
+
+    fn whole(mask: &BinaryMask) -> Rect {
+        Rect::new(0, 0, mask.width(), mask.height())
+    }
+
+    fn sheared_of(mask: &BinaryMask, shear: f64) -> FeatureVector {
+        vectorize_sheared(whole(mask), shear, AspectPolicy::Letterbox, |x, y| {
+            if mask.get(x, y) { 1.0 } else { 0.0 }
+        })
+        .expect("has ink")
+    }
+
+    #[test]
+    fn a_zero_shear_reproduces_the_ordinary_vectoriser() {
+        // The sheared sampler is the shipped one with a parallelogram in place of a rectangle, so
+        // at zero shear it has to *be* the shipped one. Without this, any figure the deskew moves
+        // could be the difference between two integrators rather than the effect of a shear.
+        for mask in [aitch(21, 33), aitch(9, 40), leaning_stem(4, 30, 0)] {
+            assert_eq!(
+                vectorize(&mask, whole(&mask), AspectPolicy::Letterbox).unwrap(),
+                sheared_of(&mask, 0.0),
+                "a {}x{} glyph",
+                mask.width(),
+                mask.height()
+            );
+        }
+    }
+
+    #[test]
+    fn shearing_a_leaning_glyph_upright_moves_it_toward_the_upright_vector() {
+        // #14's most expensive axis, in one assertion. 47 cells median across a real charset, and
+        // the whole of #122 is that a shear takes most of it back.
+        let upright = aitch(21, 33);
+        let leaning = leaning_aitch(21, 33, -0.2);
+        let want = vectorize(&upright, whole(&upright), AspectPolicy::Letterbox).unwrap();
+        let before = vectorize(&leaning, whole(&leaning), AspectPolicy::Letterbox).unwrap();
+        let after = sheared_of(&leaning, -0.2);
+        assert!(
+            after.distance(&want) < before.distance(&want),
+            "leaning {} cells away, deskewed {}",
+            before.distance(&want),
+            after.distance(&want)
+        );
+    }
+
+    #[test]
+    fn a_deskewed_stem_reads_the_same_at_two_resolutions() {
+        // The property the whole normalisation exists for, and a sheared sampling may not lose it:
+        // the same letterform at 480p and at 1080p must land on nearly the same bits.
+        let small = sheared_of(&leaning_stem(3, 20, 4), -0.2);
+        let large = sheared_of(&leaning_stem(9, 60, 12), -0.2);
+        assert!(
+            small.distance(&large) <= 8,
+            "the same stem at two sizes sat {} cells apart",
+            small.distance(&large)
+        );
+    }
+
+    #[test]
+    fn a_box_with_no_ink_is_a_configuration_error_not_a_guess() {
+        // A glyph with no ink has no deskewed box, and inventing one would put a fabricated
+        // measurement into the matcher. `CLAUDE.md` has the rule.
+        let blank = BinaryMask::blank(8, 8);
+        assert!(
+            vectorize_sheared(whole(&blank), -0.2, AspectPolicy::Letterbox, |_, _| 0.0).is_err()
+        );
+    }
+
+    #[test]
+    fn a_zero_sized_box_is_a_configuration_error_for_the_sheared_sampler_too() {
+        let mask = aitch(8, 8);
+        assert!(
+            vectorize_sheared(Rect::new(0, 0, 0, 8), -0.2, AspectPolicy::Letterbox, |x, y| {
+                if mask.get(x, y) { 1.0 } else { 0.0 }
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_deskewed_glyph_sits_nearer_its_upright_self_than_a_leaning_one_does() {
+        // The same claim as above at the size real subtitles are drawn, where a stem is three or
+        // four pixels and the grid is sixteen cells — which is where a normalisation is most able
+        // to throw the difference away.
+        let upright = leaning_stem(4, 40, 0);
+        let leaning = leaning_stem(4, 40, 8);
+        let want = vectorize(&upright, whole(&upright), AspectPolicy::Letterbox).unwrap();
+        let before = vectorize(&leaning, whole(&leaning), AspectPolicy::Letterbox).unwrap();
+        let after = sheared_of(&leaning, -0.2);
+        assert!(after.distance(&want) < before.distance(&want));
+    }
     /// Build a mask from rows of `#` and `.`.
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();

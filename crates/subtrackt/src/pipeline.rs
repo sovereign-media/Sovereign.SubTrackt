@@ -167,8 +167,11 @@ impl Pipeline {
         decoder.configure(&stream.codec_private)?;
         let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?
             .with_cluster_rules(self.config.clustering);
-        let segmenter =
-            ImageSegmenter::new(Binarizer::new(self.config.binarize), self.config.grey_coverage);
+        let segmenter = ImageSegmenter::new(
+            Binarizer::new(self.config.binarize),
+            self.config.grey_coverage,
+            !carries_a_slanted_cut(matcher.references()),
+        );
         let assembler = SpatialAssembler::new(self.config.layout_rules());
 
         let mut report = Report {
@@ -562,6 +565,40 @@ fn part_glyph(
     })
 }
 
+/// Whether a reference set holds an entry for a *slanted* rendering of anything.
+///
+/// The one question that decides #122. A set with such an entry can read an italic letter as it is
+/// drawn and reads it well — 2.0% on a real disc — and deskewing the glyph then moves it away from
+/// the entry that fitted. A set without one is reading italic text against upright vectors, which
+/// is #14's 47-cell axis paid in full, and on the same disc that is 47.1% CER.
+///
+/// Read off the set rather than configured, because it is a property of the set and a user who
+/// generated one from a single font file did not make a choice about slant — they simply have no
+/// italic to offer. The documented first invocation of `gen-reference` produces exactly that set.
+fn carries_a_slanted_cut(reference: &subtrackt_glyph::ReferenceSet) -> bool {
+    use subtrackt_glyph::reference::Style;
+    reference
+        .entries()
+        .iter()
+        .any(|entry| matches!(entry.style, Style::Italic | Style::BoldItalic))
+}
+
+/// A glyph's ink aspect ratio, measured in whatever frame its vector was.
+///
+/// The deskewed width where the line's slant was measurable and the bounding box where it was not —
+/// the same pairing the vector and the spacing rule make, so a glyph is measured entirely one way
+/// or entirely the other.
+fn upright_aspect(
+    span: Option<subtrackt_core::UprightSpan>,
+    bounds: Rect,
+) -> subtrackt_core::InkAspect {
+    let width = span.filter(|span| span.known).map_or(bounds.width, |span| {
+        u32::try_from(span.right - span.left).unwrap_or(0)
+            / subtrackt_core::SPAN_TENTHS.unsigned_abs()
+    });
+    subtrackt_core::InkAspect::measure(width, bounds.height)
+}
+
 /// The shear of each line that has one, with the pivot its spans are measured about.
 ///
 /// A line missing from the map is one [`slant::line_shear`] declined to measure — too little ink,
@@ -605,11 +642,23 @@ pub(crate) struct ImageSegmenter {
     binarizer: Binarizer,
     /// Whether the feature vector reads ink coverage rather than the binary mask.
     grey_coverage: bool,
+    /// Whether to sample a leaning line's glyphs along its own slant.
+    ///
+    /// **Decided by the reference set, not by a threshold.** #122 measured the deskew and the
+    /// italic reference cut as what they are: two answers to the same question, not a stage and an
+    /// improvement to it. On 10 Cloverfield Lane's italic act, against a set with no italic
+    /// entries, deskewing is worth **47.1% CER down to 8.1%** — and against a set that carries
+    /// #66's italic cut the same deskew takes 2.0% *up* to 5.4%, because the cut already holds an
+    /// entry shaped like the ink and the deskew moves the glyph away from it.
+    ///
+    /// So this is on exactly when the set cannot read a slanted letter as it is drawn, which the
+    /// set itself says. `docs/italic-slant.md` has the four-way table.
+    deskew: bool,
 }
 
 impl ImageSegmenter {
-    pub(crate) const fn new(binarizer: Binarizer, grey_coverage: bool) -> Self {
-        Self { binarizer, grey_coverage }
+    pub(crate) const fn new(binarizer: Binarizer, grey_coverage: bool, deskew: bool) -> Self {
+        Self { binarizer, grey_coverage, deskew }
     }
 
     /// The foreground mask for an image.
@@ -687,30 +736,69 @@ impl ImageSegmenter {
                     .map(|p| p.bounds)
                     .reduce(subtrackt_core::Rect::union)
                     .unwrap_or_default();
+                // `None` unless the whole configuration wants a deskewed vector *and* this
+                // line was measurable. The span below is computed either way: spacing wants it on
+                // every leaning line, and #121 measured that separately.
+                let shear = self
+                    .deskew
+                    .then(|| shears.get(&glyph.line).map(|(shear, _)| *shear))
+                    .flatten();
+                let aspect;
+                // How much ink one pixel holds, for this glyph and no other. The label test is what
+                // #122 adds beyond the shear: a slanted letter's box contains its neighbour's ink,
+                // and a sheared sampling would drag that neighbour's foot across the grid rather
+                // than leave it in a corner. `ccl::Component::label` has the mechanism.
+                let ink = |x: u32, y: u32| {
+                    let label = labels.at(x, y);
+                    if label == subtrackt_glyph::ccl::NO_LABEL
+                        || !glyph.parts.iter().any(|p| p.label == label)
+                    {
+                        return 0.0;
+                    }
+                    coverage
+                        .as_ref()
+                        .map_or(1.0, |c| f32::from(c.get(x, y)) / 255.0)
+                };
                 Ok(subtrackt_core::Glyph {
                     bounds,
                     line: glyph.line,
-                    features: coverage.as_ref().map_or_else(
-                        || feature::vectorize(mask, bounds, AspectPolicy::default()),
-                        |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
-                    )?,
+                    features: match shear {
+                        Some(shear) => {
+                            feature::vectorize_sheared(bounds, shear, AspectPolicy::default(), ink)
+                        }
+                        None => coverage.as_ref().map_or_else(
+                            || feature::vectorize(mask, bounds, AspectPolicy::default()),
+                            |c| feature::vectorize_coverage(c, bounds, AspectPolicy::default()),
+                        ),
+                    }?,
                     metrics: line_metrics,
                     // Read off the binary mask before the boxes are merged: once base and mark
                     // share a bounding box, letterboxing scales the direction away.
                     mark: mark::slope(mask, glyph),
+                    // #121: where the ink stands once the line's lean is divided out, which the
+                    // box gets wrong by most of a stem on an italic line. A line whose shear could
+                    // not be measured reports the box, which is what the spacing rule used before
+                    // any of this — never a fabricated zero shear.
+                    upright: {
+                        let span = shears.get(&glyph.line).map_or_else(
+                            || slant::box_span(bounds),
+                            |(shear, pivot)| slant::upright_span(&labels, glyph, *shear, *pivot),
+                        );
+                        aspect = upright_aspect(shear.map(|_| span), bounds);
+                        span
+                    },
                     // The same box the vector was built from. #109: letterboxing keeps this ratio,
                     // and keeps it only to within a grid cell — the `l`/`I` difference is a fifth of
                     // one. Nothing about the line enters it, so it is measurable on a line whose
                     // metrics are not.
-                    aspect: subtrackt_core::InkAspect::measure(bounds.width, bounds.height),
-                    // #121: where the ink stands once the line's lean is divided out, which the box
-                    // above gets wrong by most of a stem on an italic line. A line whose shear could
-                    // not be measured reports the box, which is what the spacing rule used before
-                    // any of this — never a fabricated zero shear.
-                    upright: shears.get(&glyph.line).map_or_else(
-                        || slant::box_span(bounds),
-                        |(shear, pivot)| slant::upright_span(&labels, glyph, *shear, *pivot),
-                    ),
+                    //
+                    // #122 moves it into the *deskewed* frame wherever the vector moved too. A
+                    // slanted `l` stands across a third of cap height where its ink is an eighth,
+                    // so the box ratio of an italic glyph is a fact about the slant rather than
+                    // about the letter — and the reference entry it is scored against was rendered
+                    // upright. Measuring one side sheared and the other not is what #99, #110 and
+                    // #113 each cost a release to find.
+                    aspect,
                 })
             })
             .collect()
@@ -734,6 +822,78 @@ mod tests {
     use subtrackt_core::{IndexedBitmap, Palette, PaletteEntry, Rect, TimeSpan, Timestamp};
     use subtrackt_glyph::matcher::MatchThresholds;
 
+    /// A reference entry for `character` in one style. Only the style is under test here.
+    fn entry(
+        character: char,
+        style: subtrackt_glyph::reference::Style,
+    ) -> subtrackt_glyph::reference::ReferenceEntry {
+        subtrackt_glyph::reference::ReferenceEntry {
+            character,
+            style,
+            features: subtrackt_core::FeatureVector::EMPTY,
+            metrics: subtrackt_core::LineMetrics::UNKNOWN,
+            mark: subtrackt_core::MarkSlope::NONE,
+            aspect: subtrackt_core::InkAspect::UNKNOWN,
+        }
+    }
+
+    #[test]
+    fn a_set_generated_from_one_font_carries_no_slanted_cut() {
+        // Which is what makes #122 decidable rather than heuristic. The documented first
+        // invocation of `gen-reference` takes one font file, so this is the default a user gets and
+        // it is the configuration the deskew is worth 39 points of italic CER to.
+        use subtrackt_glyph::reference::Style;
+        let plain = subtrackt_glyph::ReferenceSet::new(
+            "one face",
+            vec![entry('a', Style::Regular), entry('b', Style::Regular)],
+        );
+        assert!(!carries_a_slanted_cut(&plain));
+    }
+
+    #[test]
+    fn a_set_with_an_italic_cut_says_so_and_a_bold_one_does_not() {
+        // Bold is upright. A set carrying a bold face can no more read a slanted letter than a
+        // regular-only one can, so it must not turn the deskew off.
+        use subtrackt_glyph::reference::Style;
+        let bold = subtrackt_glyph::ReferenceSet::new(
+            "regular and bold",
+            vec![entry('a', Style::Regular), entry('a', Style::Bold)],
+        );
+        assert!(!carries_a_slanted_cut(&bold));
+
+        for slanted in [Style::Italic, Style::BoldItalic] {
+            let set = subtrackt_glyph::ReferenceSet::new(
+                "with a slant",
+                vec![entry('a', Style::Regular), entry('a', slanted)],
+            );
+            assert!(carries_a_slanted_cut(&set), "{slanted:?}");
+        }
+    }
+
+    #[test]
+    fn a_deskewed_glyph_is_measured_wide_the_way_its_vector_was() {
+        // Both sides of #113's ink ratio have to be read in one frame. A slanted `l` stands across
+        // a third of cap height where its ink is an eighth, so feeding the box width beside a
+        // deskewed vector would be #99, #110 and #113's mistake a fourth time.
+        let bounds = Rect::new(10, 0, 30, 40);
+        let sheared = subtrackt_core::UprightSpan::new(100, 300);
+        assert_eq!(
+            upright_aspect(Some(sheared), bounds),
+            subtrackt_core::InkAspect::measure(20, 40)
+        );
+        assert_eq!(upright_aspect(None, bounds), subtrackt_core::InkAspect::measure(30, 40));
+    }
+
+    #[test]
+    fn a_glyph_on_an_unmeasurable_line_keeps_its_box_ratio() {
+        // The boundary `CLAUDE.md` requires, carried through to the ratio: a span that was never
+        // measured must not become a width.
+        let bounds = Rect::new(0, 0, 30, 40);
+        assert_eq!(
+            upright_aspect(Some(subtrackt_core::UprightSpan::UNKNOWN), bounds),
+            subtrackt_core::InkAspect::measure(30, 40)
+        );
+    }
     /// An 8x8 image holding one 4x4 block: big enough to survive the component area filter, and
     /// small enough relative to the image to survive the coverage filter.
     fn image() -> SubtitleImage {
@@ -759,7 +919,7 @@ mod tests {
         // read a glyph's un-normalised ink, and if it segmented even slightly differently from the
         // shipped path then every measurement taken through it would be about a pipeline nobody
         // runs.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let plain = segmenter.segment(&image()).unwrap();
         let (with_mask, mask) = segmenter.segment_with_mask(&image()).unwrap();
         assert_eq!(plain, with_mask);
@@ -771,7 +931,7 @@ mod tests {
         // The 4x4 block is 16 pixels of ink in a 4x4 box: solid. The feature vector letterboxes
         // that onto 16x16 and says which cells are inked, so it can say the shape is square but
         // not that the stroke is four pixels wide -- which is the whole reason this exists.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (glyphs, mask) = segmenter.segment_with_mask(&image()).unwrap();
         assert_eq!(glyphs.len(), 1);
 
@@ -789,7 +949,7 @@ mod tests {
 
     #[test]
     fn the_binarizer_runs_end_to_end_inside_the_segmenter() {
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let bitmap = segmenter.binarize(&image()).unwrap();
         assert_eq!(bitmap.width(), 8);
         assert_eq!(bitmap.get(3, 3), Some(1), "inside the block is foreground");
@@ -798,7 +958,7 @@ mod tests {
 
     #[test]
     fn segmentation_carries_a_component_through_to_a_feature_vector() {
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         // Segmentation is complete now, so this no longer fails at all. What the test still
         // pins is that a glyph-sized component makes it all the way to a feature vector.
         let glyphs = segmenter.segment(&image()).unwrap();
@@ -864,7 +1024,7 @@ mod tests {
     /// asks is whether a *cut* half lands close enough to that to be read, which is the same
     /// question a real fusion asks.
     fn block_set() -> subtrackt_glyph::ReferenceSet {
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let glyphs = segmenter.segment(&two_blocks(false)).unwrap();
         assert_eq!(glyphs.len(), 2, "without a bridge they are two components");
         subtrackt_glyph::ReferenceSet::new(
@@ -887,7 +1047,7 @@ mod tests {
     fn two_characters_that_touched_are_read_as_two_rather_than_left_unread() {
         // The whole of #106 as one assertion. The fused component matches nothing, both halves
         // match the block, so the pass replaces one unread glyph with two read ones.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (mut glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
         assert_eq!(glyphs.len(), 1, "the bridge makes it one component");
         // A line of one glyph has no measurable anchors, and the pass refuses a glyph whose line
@@ -922,7 +1082,7 @@ mod tests {
         // The safety property, and the reason this pass is allowed to be permissive about *where*
         // it cuts. It never sees a glyph the matcher answered, so it cannot turn a match into a
         // wrong answer however wrong a cut would have been.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
         let answers = vec![subtrackt_core::GlyphMatch {
             character: Some('q'),
@@ -942,7 +1102,7 @@ mod tests {
         // Half a fusion read and half not is a wrong answer with a plausible shape, which is worse
         // than the placeholder it would replace. An empty reference set makes every part unread, so
         // every candidate cut has to be rejected and the glyph left exactly as it was.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
         let mut matcher = HammingMatcher::new(
             subtrackt_glyph::ReferenceSet::new("empty", Vec::new()),
@@ -965,7 +1125,7 @@ mod tests {
         // `r` against a `t` differs in height and in little else the shape vector keeps. The cap
         // height is recovered from the parent's own pair, so a part half the parent's height
         // reports half the height percentage.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
         let mut parent = glyphs[0].clone();
         parent.metrics = LineMetrics::new(100, 0);
@@ -980,7 +1140,7 @@ mod tests {
     fn a_part_of_a_glyph_on_an_unmeasurable_line_is_refused() {
         // `LineMetrics::UNKNOWN` carries no cap height, so there is nothing to scale a part
         // against. Inventing one would be exactly the fabrication `LineMetrics` exists to refuse.
-        let segmenter = ImageSegmenter::new(Binarizer::default(), false);
+        let segmenter = ImageSegmenter::new(Binarizer::default(), false, false);
         let (glyphs, mask) = segmenter.segment_with_mask(&fused_image()).unwrap();
         let mut matcher = HammingMatcher::new(block_set(), MatchThresholds::default()).unwrap();
         let mut glyph = glyphs[0].clone();
