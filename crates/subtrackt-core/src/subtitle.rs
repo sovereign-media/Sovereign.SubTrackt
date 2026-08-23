@@ -47,13 +47,28 @@ impl Confidence {
     }
 
     /// Fraction of glyphs identified, in `0.0..=1.0`. An empty cue counts as fully read.
+    ///
+    /// **Computed in `f64` because the operands are `u32` and both are routinely larger than a
+    /// `u16`.** This used to narrow with `u16::try_from(..).unwrap_or(u16::MAX)`, which saturates:
+    /// a feature film with 66,438 glyphs divided 65,535 by 65,535 and reported **100.0% read while
+    /// 68 glyphs were unmatched**. Worse than the display, this is the number
+    /// [`UnmatchedPolicy::Threshold`](../../subtrackt/config/enum.UnmatchedPolicy.html) gates on,
+    /// so a 100,000-glyph track that was 40% unread computed 91.6% and was *accepted* against a
+    /// floor of 90%. The gate this project's whole thesis rests on was disabled on long tracks.
+    ///
+    /// The narrowing was there to satisfy `clippy::cast_precision_loss`, since `f32::from(u16)` is
+    /// lossless where `u32 as f32` is not. `f64::from(u32)` is lossless too and needs no cast at
+    /// all, so the lint is satisfied by being *right* rather than by rounding the inputs. Only the
+    /// quotient narrows to `f32`, and a ratio in `0.0..=1.0` has precision to spare there.
     #[must_use]
     pub fn ratio(self) -> f32 {
         if self.total() == 0 {
             return 1.0;
         }
-        f32::from(u16::try_from(self.matched).unwrap_or(u16::MAX))
-            / f32::from(u16::try_from(self.total()).unwrap_or(u16::MAX))
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            (f64::from(self.matched) / f64::from(self.total())) as f32
+        }
     }
 
     /// Combine two tallies, for rolling a track-level total.
@@ -193,6 +208,44 @@ mod tests {
             italic: italic.to_vec(),
             confidence: Confidence::default(),
             forced: false,
+        }
+    }
+
+    #[test]
+    fn a_feature_length_track_reports_the_ratio_it_actually_read() {
+        // Gone Girl, as extracted: 66,370 matched and 68 unmatched. Both counts are larger than a
+        // `u16`, and the old narrowing saturated both to 65,535 and reported a clean 100%.
+        let track = Confidence { matched: 66_370, unmatched: 68, ambiguous: 7_046 };
+        assert!((track.ratio() - 0.998_977).abs() < 1e-5, "{}", track.ratio());
+        assert!(track.ratio() < 1.0, "68 unmatched glyphs is not a complete read");
+    }
+
+    #[test]
+    fn a_track_the_gate_should_refuse_is_not_rounded_into_passing() {
+        // The failure that matters. Saturating both operands turned 60% into 91.6%, which clears
+        // the 0.90 floor -- so a track that was 40% unread would have been accepted and shipped
+        // instead of routed to burn-in.
+        let bad = Confidence { matched: 60_000, unmatched: 40_000, ambiguous: 0 };
+        assert!((bad.ratio() - 0.6).abs() < 1e-6, "{}", bad.ratio());
+        assert!(bad.ratio() < 0.90, "the floor has to be able to see this");
+    }
+
+    #[test]
+    fn the_ratio_is_monotonic_across_the_old_saturation_point() {
+        // Reading *more* of a track can never lower its ratio. The narrowing broke this: past
+        // 65,535 the numerator stopped growing while the denominator did, and then both stopped.
+        let mut previous = 0.0;
+        for unmatched in [0_u32, 1, 100, 10_000, 60_000, 100_000] {
+            let ratio =
+                Confidence { matched: 200_000 - unmatched, unmatched, ambiguous: 0 }.ratio();
+            assert!(ratio <= 1.0, "a ratio cannot exceed one: {ratio}");
+            if previous > 0.0 {
+                assert!(
+                    ratio < previous,
+                    "more unmatched must read lower: {ratio} vs {previous}"
+                );
+            }
+            previous = ratio;
         }
     }
 
