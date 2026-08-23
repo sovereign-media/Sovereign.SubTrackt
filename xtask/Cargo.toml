@@ -12,6 +12,7 @@ publish = false
 subtrackt-core.workspace = true
 subtrackt.workspace = true
 subtrackt-decode.workspace = true
+subtrackt-demux.workspace = true
 subtrackt-glyph = { workspace = true, features = ["font"] }
 subtrackt-text.workspace = true
 

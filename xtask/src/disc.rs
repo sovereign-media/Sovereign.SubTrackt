@@ -39,13 +39,13 @@ use anyhow::Context as _;
 /// Two releases of one film share an authoring pass but not a frame rate or a cut, so a constant
 /// offset of up to a second or so between them is ordinary. Wider than this and it stops being the
 /// same cue; narrower and an ordinary release difference reads as a missing cue.
-const TOLERANCE_MS: i64 = 2_000;
+pub(crate) const TOLERANCE_MS: i64 = 2_000;
 
 /// One subtitle cue: when it starts, what it says, and whether the release marked it italic.
-struct Cue {
-    start_ms: i64,
-    text: String,
-    italic: bool,
+pub(crate) struct Cue {
+    pub(crate) start_ms: i64,
+    pub(crate) text: String,
+    pub(crate) italic: bool,
 }
 
 /// Parse an SRT into cues, keeping the italic marking and discarding every other tag.
@@ -55,7 +55,7 @@ struct Cue {
 /// would mean refusing the only real ground truth available. Nothing downstream depends on the file
 /// being well-formed, which is why this differs from the decoder's posture of rejecting anything
 /// malformed.
-fn parse(text: &str) -> Vec<Cue> {
+pub(crate) fn parse(text: &str) -> Vec<Cue> {
     let mut cues: Vec<Cue> = Vec::new();
     let mut current: Option<(i64, Vec<String>)> = None;
 
@@ -117,7 +117,7 @@ fn strip_tags(text: &str) -> String {
 }
 
 /// Collapse every run of whitespace to one space.
-fn flatten(text: &str) -> String {
+pub(crate) fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -217,7 +217,7 @@ impl Tally {
     }
 }
 
-fn read(path: &str) -> anyhow::Result<Vec<Cue>> {
+pub(crate) fn read(path: &str) -> anyhow::Result<Vec<Cue>> {
     let bytes = std::fs::read(Path::new(path)).with_context(|| format!("reading {path}"))?;
     // Release subtitles are not always valid UTF-8 and not always what their BOM claims. A lossy
     // read costs a replacement character in a cue that was already going to score badly; refusing
@@ -429,7 +429,26 @@ enum Op {
     Delete(char),
 }
 
-/// Align two strings, returning the edit operations that turn `want` into `got`.
+/// One column of an alignment: what the release had there, and what the extraction read.
+///
+/// Exactly one side is `None` for an insertion or a deletion, and both are `Some` for a match or a
+/// substitution — so a column names an error *and* names a glyph that was read correctly. The
+/// census only ever wanted the first, but #109 needs the second: to ask what an `l` looks like on
+/// this disc, something has to say which read characters *were* the release's `l`s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Step {
+    /// The release character, or `None` where the extraction read one the release does not have.
+    pub(crate) want: Option<char>,
+    /// Its index in `want`, carried so a caller can look at what stood beside it — a word space in
+    /// particular, which the extraction may never have produced.
+    pub(crate) want_at: Option<usize>,
+    /// The character read, or `None` where the release has one the extraction never produced.
+    pub(crate) got: Option<char>,
+    /// Its index in `got`, which is what lets a caller join a column back to the glyph behind it.
+    pub(crate) got_at: Option<usize>,
+}
+
+/// Align two strings, returning one [`Step`] per column of the alignment.
 ///
 /// A second pass rather than a widening of [`edit`]. #98 named both options and this is the safer
 /// one: the score keeps its rolling row, so nothing about the census can move a CER figure by
@@ -437,9 +456,9 @@ enum Op {
 /// characters.
 ///
 /// `a_census_accounts_for_exactly_the_errors_the_score_counted` is what makes the two provably
-/// agree — the operation count returned here equals the distance [`edit`] reports on the same
-/// input, which is the only guarantee that a census row corresponds to a scored error.
-fn align(want: &str, got: &str) -> Vec<Op> {
+/// agree — the operation count [`align`] derives from this equals the distance [`edit`] reports on
+/// the same input, which is the only guarantee that a census row corresponds to a scored error.
+pub(crate) fn trace(want: &str, got: &str) -> Vec<Step> {
     let want: Vec<char> = want.chars().collect();
     let got: Vec<char> = got.chars().collect();
 
@@ -465,29 +484,55 @@ fn align(want: &str, got: &str) -> Vec<Op> {
     // wrongly is then counted as substitutions rather than as an insertion and a deletion that
     // happen to cost the same, which is the reading a confusion table exists to give.
     let (mut i, mut j) = (want.len(), got.len());
-    let mut ops = Vec::new();
+    let mut steps = Vec::new();
     while i > 0 || j > 0 {
         if i > 0 && j > 0 {
             let step = usize::from(want[i - 1] != got[j - 1]);
             if cost[i][j] == cost[i - 1][j - 1] + step {
-                if step == 1 {
-                    ops.push(Op::Substitute(want[i - 1], got[j - 1]));
-                }
+                steps.push(Step {
+                    want: Some(want[i - 1]),
+                    want_at: Some(i - 1),
+                    got: Some(got[j - 1]),
+                    got_at: Some(j - 1),
+                });
                 i -= 1;
                 j -= 1;
                 continue;
             }
         }
         if i > 0 && cost[i][j] == cost[i - 1][j] + 1 {
-            ops.push(Op::Delete(want[i - 1]));
+            steps.push(Step {
+                want: Some(want[i - 1]),
+                want_at: Some(i - 1),
+                got: None,
+                got_at: None,
+            });
             i -= 1;
             continue;
         }
-        ops.push(Op::Insert(got[j - 1]));
+        steps.push(Step {
+            want: None,
+            want_at: None,
+            got: Some(got[j - 1]),
+            got_at: Some(j - 1),
+        });
         j -= 1;
     }
-    ops.reverse();
-    ops
+    steps.reverse();
+    steps
+}
+
+/// The edit operations that turn `want` into `got`, which is [`trace`] with the matches dropped.
+fn align(want: &str, got: &str) -> Vec<Op> {
+    trace(want, got)
+        .into_iter()
+        .filter_map(|step| match (step.want, step.got) {
+            (Some(want), Some(got)) if want != got => Some(Op::Substitute(want, got)),
+            (Some(want), None) => Some(Op::Delete(want)),
+            (None, Some(got)) => Some(Op::Insert(got)),
+            (Some(_), Some(_)) | (None, None) => None,
+        })
+        .collect()
 }
 
 /// Counts for one bucket, split into the two populations the existing output splits by.
@@ -717,6 +762,42 @@ mod tests {
         let b = "Just talk to me,\nokay? I can't believe you just left.";
         assert!(edit(a, b) > 0, "the break moved");
         assert_eq!(edit(&flatten(a), &flatten(b)), 0);
+    }
+
+    #[test]
+    fn a_correctly_read_character_is_a_column_of_the_alignment_rather_than_nothing() {
+        // What #109 needs and the census never did. An error names itself; a character that was
+        // read *correctly* is only visible as a column with both sides filled in, and without it
+        // nothing can say which glyph on the disc the release calls an `l`.
+        let steps = trace("all", "aII");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(
+            steps[0],
+            Step {
+                want: Some('a'),
+                want_at: Some(0),
+                got: Some('a'),
+                got_at: Some(0)
+            },
+            "a match carries both sides and both positions"
+        );
+        assert_eq!(steps[1].want, Some('l'));
+        assert_eq!(steps[1].got, Some('I'));
+    }
+
+    #[test]
+    fn a_deletion_names_the_release_position_and_no_read_one() {
+        let steps = trace("a b", "ab");
+        let space = steps
+            .iter()
+            .find(|s| s.want == Some(' '))
+            .expect("the space is a column");
+        assert_eq!(
+            space.got, None,
+            "a space the extraction never produced was read as nothing"
+        );
+        assert_eq!(space.got_at, None);
+        assert_eq!(space.want_at, Some(1));
     }
 
     #[test]
