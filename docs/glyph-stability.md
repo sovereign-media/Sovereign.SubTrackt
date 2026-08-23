@@ -54,6 +54,12 @@ foreign speech — improves it but does not rescue it: p75 of 51 against an inte
 | Slant (italic) | 47 | 82 |
 | Weight + slant | 55 | 93 |
 
+**The slant row has since moved.** #122 sampled a leaning glyph along its own line's slant instead
+of along the pixel grid, which takes that axis from **47 cells to 26** — below the median distance
+to an entirely different character. What the residual 26 is made of, and why it is letterform rather
+than a badly estimated angle, is in [`italic-slant.md`](italic-slant.md). The rest of this table is
+as measured.
+
 Two things stand out.
 
 **Scale and anti-aliasing are cheap.** Rendering size moves a glyph 11 cells at the median across a

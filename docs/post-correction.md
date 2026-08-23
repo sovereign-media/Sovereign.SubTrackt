@@ -11,6 +11,14 @@ The number moves when the fixture does, and it has four times: #48 added three c
 text, #58 a line carrying `î`, #57 a line of accented capitals, and #60 a cue supplying case-folded
 evidence. What has not changed across any of them is that no line was made worse.
 
+**Read the whole of this document as history from #110 onward.** Giving the matcher an ink aspect
+ratio took the substitutions this stage makes on a real Blu-ray from 363 to **3**, and on the
+ceiling fixture to **none at all** — the corrector no longer moves either instrument, because the
+glyphs it existed to rescue are now decided by shape. That is the right direction and it is also a
+demotion: the stage is a backstop for what shape genuinely cannot decide, not a lever on the error
+rate. The default is unaffected — it was never argued from the size of the gain. "Those 363 are now
+3" below has the detail, and [`error-census.md`](error-census.md) has the change that caused it.
+
 [issue-12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
 ## What it does
@@ -185,11 +193,11 @@ nine characters cannot move it.
 
 **Those 363 are now 3.** Every one of them was `I` → `l`, and #110 gave the matcher a way to tell
 the two apart before the corrector ever sees them: an ink aspect ratio on the reference entry, which
-Arial draws 7% wider for `I` and the 16-cell grid rounds away. The stage is unchanged and still on
-by default; what changed is that almost nothing now reaches it. That is the right direction — a
-correction is evidence about a glyph the matcher could not call, and the fewer of those there are
-the better — and it is also the answer to what this stage is *for*: not carrying the pipeline, but
-catching what shape genuinely cannot decide.
+Arial draws 7% wider for `I` and the 16-cell grid rounds away. The stage itself is unchanged, and
+still off by default; what changed is that almost nothing now reaches it. That is the right
+direction — a correction is evidence about a glyph the matcher could not call, and the fewer of
+those there are the better — and it is also the answer to what this stage is *for*: not carrying the
+pipeline, but catching what shape genuinely cannot decide.
 
 ### The sweep, and what it settled
 
@@ -215,6 +223,36 @@ wearing a hat, and a stemmer over-collapses by design — `universe` and `univer
 Prefix matching against the track's own clear tokens gets most of it with no dependency and no
 knowledge of any language. It over-matches, and over-matching is harmless here: the substitution
 decides one character within a confusion set, not which word the line holds.
+
+### The row is now worth nothing, and that is the finding
+
+#127 found that the CLI had been overriding this default: `--vocab-prefix` was declared as a bare
+`bool`, so a plain `bool`'s zero value reached `VocabularyRules` on every run that did not pass the
+flag. Every extraction through the binary had prefix matching **off** from #78 to #128, against the
+`true` the table above chose.
+
+Re-running the three discs both ways to price what that cost found the answer is **nothing**:
+
+| | upright | italic | all | corrections | output |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| 10 Cloverfield Lane | 0.5% | 2.0% | **0.6%** | 3, all context | byte-identical |
+| Gone Girl | 2.0% | — | **2.0%** | — | byte-identical |
+| A Fish Called Wanda | 3.8% | 13.4% | **4.2%** | — | byte-identical |
+
+Not "within noise" — the two SRTs compare equal on all three titles, and the vocabulary arm makes
+zero substitutions on any of them at either setting.
+
+**#110 is why.** The sweep above ran when this stage made 363 corrections on Cloverfield; the ink
+aspect ratio took that to 3, and all three are the context arm. The vocabulary arm exists to reach
+word-*edge* ambiguity that context cannot, and there is no longer any word-edge ambiguity on these
+discs for prefix matching to make a difference to. Nine against seven was a real measurement of a
+population that has since been removed.
+
+So the fix is correct and its blast radius is zero, which are two separate facts and both worth
+recording. The setting should follow the measurement whatever the measurement is worth — a default
+the CLI silently inverts is a bug even in the year it changes nothing, because the thing that made
+it harmless is a *different* change that could be revisited. What this does retire is the idea that
+the vocabulary arm is a lever: on current material it is a backstop that never fires.
 
 ## Why the default is still off
 
@@ -304,7 +342,7 @@ had stopped refusing.
   means inventing or destroying a character. They are two components fused or one component split,
   and the place to notice that is where components are grouped.
 - ~~**A track's own vocabulary is the next lever**~~ — **built and measured**, see below. It fires,
-  it never damaged a cue, and on a feature film it corrected seven characters out of twenty-four
+  it never damaged a cue, and on a feature film it corrected nine characters out of twenty-four
   thousand. A real result and a small one.
 - **Ambiguity is a per-glyph property, not a per-cluster one.** #12 was written expecting #10's
   clustering to make it the latter — one wrong label being wrong for every instance of it, which

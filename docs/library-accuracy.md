@@ -35,6 +35,12 @@ before the numbers below meant anything:
 The **track** row is therefore the headline, and the cue-level rows are kept because they are the
 only ones that can separate upright from italic.
 
+**These figures predate #121.** The run below was taken before word gaps were measured between
+deskewed ink extents, which on three discs recovered most of an italic line's missing word spaces
+and took one of them from 2.8% to 2.0% CER. The italic row in particular should be read as an upper
+bound on today's error rather than a measurement of it; the corpus has not been re-scored.
+[`italic-slant.md`](italic-slant.md) has what changed.
+
 ## Method
 
 50 titles, drawn deterministically from the 823 in the library that carry both a bitmap subtitle

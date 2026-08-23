@@ -31,9 +31,10 @@ twelve VOBSUB titles were requested from the 1,328 in the library inventory.
 
 Two gaps, both of which limit what this can claim:
 
-- **All twelve VOBSUB samples failed**, because #3 is unimplemented. The DVD-era half of the library
-  is entirely unsurveyed. It is only 4% of titles but it is the part most likely to differ, being
-  lower resolution and older. **This survey is about PGS only.**
+- **All twelve VOBSUB samples failed**, because #3 was unimplemented when this ran — it has landed
+  since, and the survey has not been re-run. The DVD-era part of the library is therefore entirely
+  unsurveyed. It is only 4% of titles but it is the part most likely to differ, being lower
+  resolution and older. **This survey is about PGS only.**
 - **Four PGS titles failed to parse** with a malformed composition segment — 6.6% of the PGS files
   attempted — so the numbers below are over the files readable at the time. That was [#26][issue-26]
   and is now fixed: the composition object's cropped and forced flag bits were the wrong way round.
@@ -186,8 +187,8 @@ other than to the nearest different character; #14 found the nearest different c
 [glyph-stability.md](glyph-stability.md).
 
 **5. Survey VOBSUB once #3 lands.** #3 landed — control sequences, out-of-band palette and nibble
-RLE all decode — but the survey was never re-run. Nothing here still describes DVD-era subtitles, and
-that remains the largest unmeasured corner of the library at 60 titles.
+RLE all decode — but the survey was never re-run. Nothing here describes DVD-era subtitles, and that
+remains the largest unmeasured corner of the library at 60 titles.
 
 ## Reproducing
 

@@ -187,8 +187,12 @@ pub struct ExtractArgs {
 
     /// Let a candidate match the start of a clear word rather than all of it, so `look` is
     /// supported by a clear `looking`.
-    #[arg(long)]
+    #[arg(long, overrides_with = "no_vocab_prefix")]
     pub vocab_prefix: bool,
+
+    /// Require a candidate to match a clear word in full.
+    #[arg(long, overrides_with = "vocab_prefix")]
+    pub no_vocab_prefix: bool,
 
     /// Print the extraction summary to stderr.
     #[arg(long)]
@@ -408,6 +412,24 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether the vocabulary arm may match the start of a clear word, resolved the same way.
+    ///
+    /// This one is a pair rather than a bare flag because a bare flag *is* a decision: a plain
+    /// `bool` defaults to `false`, so the CLI would have silently overridden the setting the sweep
+    /// in `docs/post-correction.md` chose. Prefix matching found nine substitutions against exact
+    /// matching's seven with zero cues made worse either way, and a caller reaching the library
+    /// through the binary should get the measurement rather than clap's zero value.
+    #[must_use]
+    pub fn vocab_prefix(&self) -> bool {
+        if self.vocab_prefix {
+            true
+        } else if self.no_vocab_prefix {
+            false
+        } else {
+            VocabularyRules::default().prefix_match
+        }
+    }
+
     /// Build the pipeline configuration these arguments describe.
     #[must_use]
     pub fn to_config(&self) -> Config {
@@ -420,7 +442,7 @@ impl ExtractArgs {
             vocabulary: VocabularyRules {
                 min_occurrences: self.vocab_min_occurrences,
                 min_len: self.vocab_min_len,
-                prefix_match: self.vocab_prefix,
+                prefix_match: self.vocab_prefix(),
             },
             unmatched: match self.on_unmatched {
                 Unmatched::Drop => UnmatchedPolicy::Drop,
@@ -489,6 +511,40 @@ mod tests {
             Config::default().track_vocabulary,
             "with neither flag it follows the library"
         );
+    }
+
+    #[test]
+    fn prefix_matching_follows_the_library_rather_than_clap_s_zero_value() {
+        // This was a bare `--vocab-prefix` bool, so the CLI shipped prefix matching *off* while
+        // the sweep in `docs/post-correction.md` had chosen it on. A plain bool cannot express
+        // "unset": its absence and an explicit `false` are the same value, and the pair is what
+        // separates them.
+        assert_eq!(
+            extract(&["subtrackt", "extract", "a.sup"]).vocab_prefix(),
+            VocabularyRules::default().prefix_match,
+            "with neither flag it follows the library"
+        );
+        assert!(extract(&["subtrackt", "extract", "a.sup", "--vocab-prefix"]).vocab_prefix());
+        assert!(!extract(&["subtrackt", "extract", "a.sup", "--no-vocab-prefix"]).vocab_prefix());
+        assert!(
+            extract(&[
+                "subtrackt",
+                "extract",
+                "a.sup",
+                "--no-vocab-prefix",
+                "--vocab-prefix"
+            ])
+            .vocab_prefix(),
+            "the last flag on the line wins, as it does for every other pair"
+        );
+    }
+
+    #[test]
+    fn the_configuration_carries_the_resolved_vocabulary_rules() {
+        // The resolver is only worth having if `to_config` calls it, which is the half that was
+        // wrong: the three knobs sat beside each other and only two of them reached the library.
+        let config = extract(&["subtrackt", "extract", "a.sup"]).to_config();
+        assert_eq!(config.vocabulary, VocabularyRules::default());
     }
 
     #[test]
