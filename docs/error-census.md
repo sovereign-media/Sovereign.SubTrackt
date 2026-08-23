@@ -677,7 +677,9 @@ rounded-away column is 4% of the width. Cap-height characters, being taller, los
 This is [#99](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/99)'s finding in another
 form — the reference side and the runtime measuring the same quantity under different
 quantisation — and the fix is likely to be the same shape: carry more than one sample per character
-and let the nearer one win. It is filed rather than guessed at.
+and let the nearer one win. That is
+[#113](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/113), filed with its prediction
+rather than guessed at here.
 
 ### Predictions, scored
 
