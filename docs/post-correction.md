@@ -183,6 +183,14 @@ Nine characters out of 24,522. Every one of them right, every one logged with th
 it — `'I' -> 'l' in "lucky" (vocabulary: "lucky" x1)` — and the aggregate does not move, because
 nine characters cannot move it.
 
+**Those 363 are now 3.** Every one of them was `I` → `l`, and #110 gave the matcher a way to tell
+the two apart before the corrector ever sees them: an ink aspect ratio on the reference entry, which
+Arial draws 7% wider for `I` and the 16-cell grid rounds away. The stage is unchanged and still on
+by default; what changed is that almost nothing now reaches it. That is the right direction — a
+correction is evidence about a glyph the matcher could not call, and the fewer of those there are
+the better — and it is also the answer to what this stage is *for*: not carrying the pipeline, but
+catching what shape genuinely cannot decide.
+
 ### The sweep, and what it settled
 
 Both thresholds were guesses. On the disc:

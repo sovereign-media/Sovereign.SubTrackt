@@ -14,8 +14,8 @@
 //! rather than a placeholder one — and it is what makes the accuracy gate meaningful.
 
 use subtrackt_core::{
-    Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, LineMetrics, MarkSlope,
-    Result,
+    Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, InkAspect, LineMetrics,
+    MarkSlope, Result,
 };
 
 use crate::cache::SessionCache;
@@ -82,6 +82,26 @@ pub struct MatchThresholds {
     /// fitted to the title removes the base-letter confusions that dominated when this was measured
     /// — so the sweep is worth re-running against a fitted set.
     pub mark_weight_permille: u32,
+    /// What a **full cap height** of difference in ink width is worth, in tenths of a percent of
+    /// [`FEATURE_BITS`].
+    ///
+    /// The third term, and #109's. The shape vector cannot separate `l` from `I` — #10 measured
+    /// them at distance zero — and #37's line metrics cannot either, because both stand from the
+    /// baseline to the cap line. What does separate them is that `I` is 7% wider, which is a fact
+    /// about the typeface that survives to the disc: every upright `l` on a real Blu-ray is five
+    /// pixels wide and every `I` is six.
+    ///
+    /// Priced per full cap height, matching the other two, and applied to a difference counted in
+    /// **tenths of a percent** of one. The finer unit is not a detail: the gap between an `l` and an
+    /// `I` is eight tenths of a percent of cap height, so in whole percent it would be a difference
+    /// of one point, and one point at the metric weight rounds to zero cells.
+    ///
+    /// The setting is what `xtask width-sweep` measured against a real disc, and the sweep is in
+    /// `docs/glyph-stability.md`. It is deliberately at the low end of the window that works: for
+    /// the pair it exists to separate the shape distance is *zero*, so any positive weight decides
+    /// them, and everything above that is only risk to characters the disc draws a few points off
+    /// what the font predicts.
+    pub width_weight_permille: u32,
 }
 
 impl Default for MatchThresholds {
@@ -91,6 +111,7 @@ impl Default for MatchThresholds {
             ambiguity_margin_percent: 3,
             metric_weight_permille: 196,
             mark_weight_permille: 0,
+            width_weight_permille: 440,
         }
     }
 }
@@ -136,6 +157,17 @@ impl MatchThresholds {
         Self::metric_weight_at(self.mark_weight_permille, FEATURE_BITS as u32)
     }
 
+    /// What a full cap height of ink-width difference costs, in cells.
+    ///
+    /// The same conversion as the other two. The *difference* it multiplies is counted in tenths of
+    /// a percent rather than whole percent, so the division in [`Self::distance`] is by 1000 and not
+    /// by 100 — which is where the extra resolution actually lands.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn width_weight(self) -> u32 {
+        Self::metric_weight_at(self.width_weight_permille, FEATURE_BITS as u32)
+    }
+
     /// Distance between a glyph and a reference: shape, plus the line-metric term.
     ///
     /// The metric term is `points × weight ÷ 100`: the weight is what a whole cap height costs and
@@ -151,6 +183,7 @@ impl MatchThresholds {
         shape: &FeatureVector,
         metrics: LineMetrics,
         mark: MarkSlope,
+        aspect: InkAspect,
         entry: &ReferenceEntry,
     ) -> u32 {
         let mut total = shape.distance(&entry.features);
@@ -159,6 +192,12 @@ impl MatchThresholds {
         }
         if let Some(points) = mark.difference(entry.mark) {
             total += points * self.mark_weight() / 100;
+        }
+        // Divided by 1000 rather than 100: the difference is in tenths of a percent of cap height
+        // while the weight is priced per whole cap height. A set generated before #109 carries no
+        // width, `InkAspect::difference` returns `None`, and this term is not applied at all.
+        if let Some(points) = aspect.difference(entry.aspect) {
+            total += points * self.width_weight() / 1000;
         }
         total
     }
@@ -248,7 +287,7 @@ impl HammingMatcher {
     /// Scan the reference set, ignoring the cache.
     #[must_use]
     pub fn scan(&self, features: &FeatureVector) -> GlyphMatch {
-        self.scan_with(features, LineMetrics::UNKNOWN, MarkSlope::NONE)
+        self.scan_with(features, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
     }
 
     /// Scan the reference set for a glyph whose position in its line, or mark, is known.
@@ -258,6 +297,7 @@ impl HammingMatcher {
         features: &FeatureVector,
         metrics: LineMetrics,
         mark: MarkSlope,
+        aspect: InkAspect,
     ) -> GlyphMatch {
         // The winner, and the nearest entry naming a *different* character. Tracking the second as
         // a (distance, character) pair rather than a bare minimum is what keeps the runner-up
@@ -268,7 +308,9 @@ impl HammingMatcher {
         let mut runner_up: Option<(u32, char)> = None;
 
         for entry in self.references.entries() {
-            let distance = self.thresholds.distance(features, metrics, mark, entry);
+            let distance = self
+                .thresholds
+                .distance(features, metrics, mark, aspect, entry);
             match best {
                 None => best = Some((distance, entry.character)),
                 Some((best_distance, winner)) if entry.character == winner => {
@@ -317,7 +359,7 @@ impl GlyphMatcher for HammingMatcher {
     fn prepare(&mut self, glyphs: &[Glyph]) -> Result<()> {
         let mut shapes = Shapes::new();
         for glyph in glyphs {
-            shapes.add(&glyph.features, glyph.metrics, glyph.mark);
+            shapes.add(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect);
         }
         self.distinct_shapes = shapes.distinct().try_into().unwrap_or(u64::MAX);
 
@@ -328,30 +370,36 @@ impl GlyphMatcher for HammingMatcher {
         // and filling the cache borrows the matcher.
         let answers: Vec<GlyphMatch> = clusters
             .iter()
-            .map(|c| self.scan_with(&c.centroid, c.centroid_metrics, c.centroid_mark))
+            .map(|c| {
+                self.scan_with(&c.centroid, c.centroid_metrics, c.centroid_mark, c.centroid_aspect)
+            })
             .collect();
         self.scans += answers.len().try_into().unwrap_or(u64::MAX);
 
         for (group, answer) in clusters.iter().zip(answers) {
-            for ((features, metrics, mark), _) in &group.members {
-                self.cache.insert(features, *metrics, *mark, answer.clone());
+            for ((features, metrics, mark, width), _) in &group.members {
+                self.cache
+                    .insert(features, *metrics, *mark, *width, answer.clone());
             }
         }
         Ok(())
     }
 
     fn match_glyph(&mut self, glyph: &Glyph) -> Result<GlyphMatch> {
-        if let Some(hit) = self.cache.get(&glyph.features, glyph.metrics, glyph.mark) {
+        if let Some(hit) = self
+            .cache
+            .get(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect)
+        {
             return Ok(hit);
         }
         // Only reachable without a preparation pass, or for a shape it did not see. Answering
         // from a bare scan is worse than answering from a cluster, but it is still an answer, and
         // silently returning "unmatched" for a glyph the matcher simply had not been shown would
         // be a much harder failure to notice.
-        let result = self.scan_with(&glyph.features, glyph.metrics, glyph.mark);
+        let result = self.scan_with(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect);
         self.scans += 1;
         self.cache
-            .insert(&glyph.features, glyph.metrics, glyph.mark, result.clone());
+            .insert(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect, result.clone());
         Ok(result)
     }
 
@@ -382,6 +430,7 @@ mod tests {
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
         }
     }
 
@@ -392,6 +441,7 @@ mod tests {
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
         }
     }
 
@@ -602,15 +652,22 @@ mod tests {
             features: shape,
             metrics: LineMetrics::new(104, 0),
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
         };
 
         let none = MarkSlope::NONE;
-        assert_eq!(t.distance(&shape, LineMetrics::new(104, 0), none, &reference), 0);
         assert_eq!(
-            t.distance(&shape, LineMetrics::new(76, 0), none, &reference),
+            t.distance(&shape, LineMetrics::new(104, 0), none, InkAspect::UNKNOWN, &reference),
+            0
+        );
+        assert_eq!(
+            t.distance(&shape, LineMetrics::new(76, 0), none, InkAspect::UNKNOWN, &reference),
             28 * t.metric_weight() / 100
         );
-        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, none, &reference), 0);
+        assert_eq!(
+            t.distance(&shape, LineMetrics::UNKNOWN, none, InkAspect::UNKNOWN, &reference),
+            0
+        );
     }
 
     /// A reference `à`: a grave, which leans the opposite way to an acute.
@@ -621,6 +678,7 @@ mod tests {
             features: vector(&[1, 2, 3]),
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::new(67),
+            aspect: InkAspect::UNKNOWN,
         }
     }
 
@@ -696,6 +754,7 @@ mod tests {
                 &vector(&[1, 2, 3]),
                 LineMetrics::UNKNOWN,
                 MarkSlope::new(-64),
+                InkAspect::UNKNOWN,
                 &accented()
             ),
             0,
@@ -716,7 +775,13 @@ mod tests {
 
         let cost = 131 * t.mark_weight() / 100;
         assert_eq!(
-            t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::new(-64), &reference),
+            t.distance(
+                &shape,
+                LineMetrics::UNKNOWN,
+                MarkSlope::new(-64),
+                InkAspect::UNKNOWN,
+                &reference
+            ),
             cost
         );
         assert!(cost > t.ambiguity_margin(), "a wrong accent has to be visible");
@@ -724,7 +789,86 @@ mod tests {
 
         // A glyph whose mark never reached its body is compared on shape alone rather than charged
         // for a direction that was never delivered.
-        assert_eq!(t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::NONE, &reference), 0);
+        assert_eq!(
+            t.distance(
+                &shape,
+                LineMetrics::UNKNOWN,
+                MarkSlope::NONE,
+                InkAspect::UNKNOWN,
+                &reference
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn the_width_term_separates_an_l_from_an_i_that_the_shape_vector_cannot() {
+        // #109 and #110, as a test. The two are the same 256 bits, the same height and the same
+        // descent, and carry no mark — every other term in this function returns zero for them by
+        // construction — so whatever the aspect ratio charges is the whole of the decision.
+        let t = MatchThresholds::default();
+        let shape = vector(&[1, 2, 3]);
+        let metrics = LineMetrics::new(100, 0);
+        let entry = |character, permille| ReferenceEntry {
+            character,
+            style: Style::Regular,
+            features: shape,
+            metrics,
+            mark: MarkSlope::NONE,
+            aspect: InkAspect::new(permille),
+        };
+        // Arial's outlines, read at the size where the ratio has converged.
+        let (narrow, wide) = (entry('l', 123), entry('I', 131));
+        // A glyph the disc drew five pixels wide on a forty-two pixel line.
+        let observed = InkAspect::new(119);
+
+        let to_l = t.distance(&shape, metrics, MarkSlope::NONE, observed, &narrow);
+        let to_i = t.distance(&shape, metrics, MarkSlope::NONE, observed, &wide);
+        assert!(to_l < to_i, "an `l` has to read as an `l`: {to_l} against {to_i}");
+        assert_eq!(
+            t.distance(&shape, metrics, MarkSlope::NONE, InkAspect::UNKNOWN, &narrow),
+            t.distance(&shape, metrics, MarkSlope::NONE, InkAspect::UNKNOWN, &wide),
+            "and with no ratio measured the two are indistinguishable again, as they were"
+        );
+    }
+
+    #[test]
+    fn the_shipped_width_weight_is_the_middle_of_the_window_a_disc_measured() {
+        // Pinned so the setting is a decision rather than a number, and the arithmetic here is the
+        // floor `xtask width-sweep` found by measurement: below about 340 the term cannot separate
+        // this pair at all, because the difference it has to price rounds to zero cells. Above 540
+        // it starts overruling shape for characters the disc draws a few points from what the font
+        // predicts. 440 is the middle. See `docs/error-census.md`.
+        let shipped = MatchThresholds::default();
+        assert_eq!(shipped.width_weight_permille, 440);
+
+        let shape = vector(&[]);
+        let entry = |character, permille| ReferenceEntry {
+            character,
+            style: Style::Regular,
+            features: shape,
+            metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
+            aspect: InkAspect::new(permille),
+        };
+        let (l, i) = (entry('l', 123), entry('I', 131));
+        // What the disc draws: five pixels on a forty-two pixel line.
+        let observed = InkAspect::new(119);
+        let gap = |t: MatchThresholds| {
+            let to = |e| t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::NONE, observed, e);
+            (to(&i), to(&l))
+        };
+
+        let (wrong, right) = gap(MatchThresholds { width_weight_permille: 300, ..shipped });
+        assert_eq!(
+            wrong, right,
+            "under the floor both differences round to zero and the pair is a tie again"
+        );
+        let (wrong, right) = gap(shipped);
+        assert!(
+            wrong > right,
+            "at the shipped weight the wrong answer costs more: {wrong} against {right}"
+        );
     }
 
     #[test]
@@ -737,7 +881,13 @@ mod tests {
         let acute = MarkSlope::new(-66);
         let reference = ReferenceEntry { mark: MarkSlope::new(-64), ..accented() };
         assert_eq!(
-            t.distance(&vector(&[1, 2, 3]), LineMetrics::UNKNOWN, acute, &reference),
+            t.distance(
+                &vector(&[1, 2, 3]),
+                LineMetrics::UNKNOWN,
+                acute,
+                InkAspect::UNKNOWN,
+                &reference
+            ),
             2 * t.mark_weight() / 100,
             "two acutes differ only by rasterisation noise, whatever letters they sit on"
         );

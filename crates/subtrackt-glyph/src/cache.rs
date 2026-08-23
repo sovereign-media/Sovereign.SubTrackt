@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use subtrackt_core::{FeatureVector, GlyphMatch, LineMetrics, MarkSlope};
+use subtrackt_core::{FeatureVector, GlyphMatch, InkAspect, LineMetrics, MarkSlope};
 
 /// What identifies a glyph for caching: its shape, where it sits in its line, and which way its
 /// mark leans.
@@ -20,7 +20,12 @@ use subtrackt_core::{FeatureVector, GlyphMatch, LineMetrics, MarkSlope};
 /// case of exactly that: an `à` and an `á` normalise to nearly the same vector *and* stand at the
 /// same height, so the mark has to be in the key or the term that separates them never gets asked.
 #[must_use]
-pub fn cache_key(features: &FeatureVector, metrics: LineMetrics, mark: MarkSlope) -> u64 {
+pub fn cache_key(
+    features: &FeatureVector,
+    metrics: LineMetrics,
+    mark: MarkSlope,
+    aspect: InkAspect,
+) -> u64 {
     let mut key = features.cache_key();
     // Mix each measured field in with the same FNV step the vector key uses. An unmeasured field
     // contributes nothing, so a glyph that has no mark keys the same way it did before there was
@@ -37,6 +42,13 @@ pub fn cache_key(features: &FeatureVector, metrics: LineMetrics, mark: MarkSlope
     }
     if mark.known {
         mix(i32::to_le_bytes(mark.percent));
+    }
+    // #109 adds the third case, and it is the sharpest of them: an `l` and an `I` on one line share
+    // a vector, a height and a descent, and carry no mark. Every field of the key before this one is
+    // identical for the two, so without this the first of them scanned would answer for both and the
+    // width term would never be reached.
+    if aspect.known {
+        mix(u32::to_le_bytes(aspect.permille));
     }
     key
 }
@@ -62,8 +74,12 @@ impl SessionCache {
         features: &FeatureVector,
         metrics: LineMetrics,
         mark: MarkSlope,
+        aspect: InkAspect,
     ) -> Option<GlyphMatch> {
-        if let Some(hit) = self.entries.get(&cache_key(features, metrics, mark)) {
+        if let Some(hit) = self
+            .entries
+            .get(&cache_key(features, metrics, mark, aspect))
+        {
             self.hits += 1;
             Some(hit.clone())
         } else {
@@ -82,10 +98,11 @@ impl SessionCache {
         features: &FeatureVector,
         metrics: LineMetrics,
         mark: MarkSlope,
+        aspect: InkAspect,
         result: GlyphMatch,
     ) {
         self.entries
-            .insert(cache_key(features, metrics, mark), result);
+            .insert(cache_key(features, metrics, mark, aspect), result);
     }
 
     /// Cache hits so far.
@@ -154,20 +171,26 @@ mod tests {
 
         assert!(
             cache
-                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
                 .is_none()
         );
-        cache.insert(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, matched('e'));
+        cache.insert(
+            &v,
+            LineMetrics::UNKNOWN,
+            MarkSlope::NONE,
+            InkAspect::UNKNOWN,
+            matched('e'),
+        );
         assert_eq!(
             cache
-                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
                 .unwrap()
                 .character,
             Some('e')
         );
         assert_eq!(
             cache
-                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
                 .unwrap()
                 .character,
             Some('e')
@@ -179,14 +202,44 @@ mod tests {
     }
 
     #[test]
+    fn one_shape_at_two_widths_is_two_keys_because_it_is_two_characters() {
+        // #110. An `l` and an `I` on one line agree in vector, in height, in descent and in mark:
+        // every field of this key but the last is identical for the two. Without the ratio the
+        // first of them scanned would answer for both, and the term that separates them would never
+        // be reached.
+        let v = vector(5);
+        assert_ne!(
+            cache_key(&v, LineMetrics::new(100, 0), MarkSlope::NONE, InkAspect::new(119)),
+            cache_key(&v, LineMetrics::new(100, 0), MarkSlope::NONE, InkAspect::new(143)),
+        );
+        // And a glyph with no ratio keys the same way it did before there was one to have.
+        assert_eq!(
+            cache_key(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN),
+            cache_key(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN),
+        );
+    }
+
+    #[test]
     fn distinct_vectors_do_not_collide() {
         let mut cache = SessionCache::new();
-        cache.insert(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('a'));
-        cache.insert(&vector(2), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('b'));
+        cache.insert(
+            &vector(1),
+            LineMetrics::UNKNOWN,
+            MarkSlope::NONE,
+            InkAspect::UNKNOWN,
+            matched('a'),
+        );
+        cache.insert(
+            &vector(2),
+            LineMetrics::UNKNOWN,
+            MarkSlope::NONE,
+            InkAspect::UNKNOWN,
+            matched('b'),
+        );
         assert_eq!(cache.len(), 2);
         assert_eq!(
             cache
-                .get(&vector(2), LineMetrics::UNKNOWN, MarkSlope::NONE)
+                .get(&vector(2), LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
                 .unwrap()
                 .character,
             Some('b')
@@ -197,9 +250,15 @@ mod tests {
     fn unmatched_glyphs_are_cached_so_they_are_not_rescanned_every_occurrence() {
         let mut cache = SessionCache::new();
         let v = vector(9);
-        cache.insert(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, GlyphMatch::unmatched(140));
+        cache.insert(
+            &v,
+            LineMetrics::UNKNOWN,
+            MarkSlope::NONE,
+            InkAspect::UNKNOWN,
+            GlyphMatch::unmatched(140),
+        );
         let hit = cache
-            .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE)
+            .get(&v, LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN)
             .unwrap();
         assert!(hit.character.is_none());
         assert_eq!(hit.distance, 140);
@@ -208,8 +267,14 @@ mod tests {
     #[test]
     fn clearing_resets_counters_as_well_as_entries() {
         let mut cache = SessionCache::new();
-        cache.insert(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, matched('a'));
-        cache.get(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE);
+        cache.insert(
+            &vector(1),
+            LineMetrics::UNKNOWN,
+            MarkSlope::NONE,
+            InkAspect::UNKNOWN,
+            matched('a'),
+        );
+        cache.get(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN);
         cache.clear();
         assert!(cache.is_empty());
         assert_eq!(cache.hits(), 0);

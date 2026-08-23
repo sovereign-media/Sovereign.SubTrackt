@@ -214,6 +214,80 @@ impl MarkSlope {
     }
 }
 
+/// How wide a glyph's ink stands, relative to its own height.
+///
+/// The third thing the shape vector cannot express, and the one that took longest to find because
+/// it looks as though the vector already has it. Letterboxing preserves exactly this ratio — that is
+/// the whole reason normalisation letterboxes rather than stretching — but it preserves it *onto
+/// sixteen cells*. An `I` is 7% wider than an `l` in Arial's outlines, which at a cap height of 42
+/// pixels is four tenths of one pixel and a fifth of one grid cell. The information is in the ink
+/// and the quantisation is what loses it, so carrying the ratio as its own number is not a new
+/// feature so much as the same one at a resolution that keeps it. `docs/error-census.md` has the
+/// measurement: on a real disc it separates `l` from `I` at two glyphs in 867.
+///
+/// **Against the glyph's own height, not against the line's cap height**, and that is a measured
+/// decision rather than an obvious one. Cap-relative width was tried first and is strictly more
+/// informative — it says how big the character is as well as how wide — but it inherits every error
+/// in the line metrics, and a line whose cap height is found at the x-height instead measures every
+/// glyph on it a third too wide. `docs/glyph-stability.md` records what that cost: 32 `o` read as
+/// `C` and 20 `s` as `S`, on the lines where the cap height was already wrong. This ratio is a
+/// property of one component's own bounding box, so it is right on a line nothing else could
+/// measure — and #37's height term supplies the size the two of them together would have carried
+/// anyway.
+///
+/// **Tenths of a percent, not percent.** The gap between an `l` and an `I` is eight tenths of one
+/// percent; in whole percent it is a difference of zero or one, and one point priced at #37's
+/// weight rounds to nothing at all. The unit is the finding as much as the number is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct InkAspect {
+    /// Ink width as tenths of a percent of ink height.
+    ///
+    /// About 123 for Arial's `l` and 131 for its `I`; about 960 for an `o`, which is very nearly
+    /// round; over 2000 for a `w`, which is twice as wide as it is tall.
+    pub permille: u32,
+    /// Whether it could be measured at all.
+    ///
+    /// False only for a glyph with no height, which a component filter should never let through,
+    /// and for a character its face draws no outline for. Unlike [`LineMetrics`] this does not
+    /// depend on the line being measurable, which is the point of it.
+    pub known: bool,
+}
+
+impl InkAspect {
+    /// An aspect ratio that could not be measured.
+    pub const UNKNOWN: Self = Self { permille: 0, known: false };
+
+    /// A measured ratio, in tenths of a percent.
+    #[must_use]
+    pub const fn new(permille: u32) -> Self {
+        Self { permille, known: true }
+    }
+
+    /// Measure a box of ink.
+    ///
+    /// Returns [`Self::UNKNOWN`] for a box with no height rather than dividing by zero.
+    #[must_use]
+    pub const fn measure(width: u32, height: u32) -> Self {
+        if height == 0 {
+            return Self::UNKNOWN;
+        }
+        Self::new(width * 1000 / height)
+    }
+
+    /// How far apart two ratios are, in tenths of a percent.
+    ///
+    /// `None` unless both sides carry a measurement, the contract [`LineMetrics::difference`] and
+    /// [`MarkSlope::difference`] both keep: a reference set generated before this field existed
+    /// contributes nothing rather than being scored against a ratio it never carried.
+    #[must_use]
+    pub const fn difference(self, other: Self) -> Option<u32> {
+        if !self.known || !other.known {
+            return None;
+        }
+        Some(self.permille.abs_diff(other.permille))
+    }
+}
+
 /// One connected component (or diacritic group) lifted out of a subtitle image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -227,6 +301,9 @@ pub struct Glyph {
     pub metrics: LineMetrics,
     /// Which way its diacritic leans, which the feature vector cannot say either.
     pub mark: MarkSlope,
+    /// How wide its ink stands against its own height, which the vector says only to within a
+    /// grid cell.
+    pub aspect: InkAspect,
 }
 
 /// The result of matching one [`Glyph`] against the reference set.
@@ -276,6 +353,49 @@ impl GlyphMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_aspect_ratio_is_measured_against_the_glyph_own_height() {
+        // #109, and the property the whole feature turns on: nothing about the *line* enters it.
+        // A line whose cap height was found at the x-height measures every glyph on it a third too
+        // tall, and this ratio is right anyway.
+        assert_eq!(InkAspect::measure(5, 42).permille, 119);
+        assert_eq!(InkAspect::measure(6, 42).permille, 142);
+        assert_eq!(InkAspect::measure(28, 31).permille, 903, "an `o` is very nearly round");
+    }
+
+    #[test]
+    fn the_l_and_i_gap_is_eight_tenths_of_a_percent_and_the_unit_has_to_hold_it() {
+        // The unit is the finding as much as the number is. Arial draws `l` at 12.3% of its own
+        // height and `I` at 13.1%, and in whole percent that is a difference of *one point* —
+        // which, priced at the weight #37 measured, buys zero cells. Eight tenths buys one, and
+        // one cell is all this pair needs: its shapes are identical and its heights are equal, so
+        // whatever the width term charges is the whole of the decision.
+        let l = InkAspect::new(123);
+        let i = InkAspect::new(131);
+        assert_eq!(l.difference(i), Some(8));
+        assert_eq!(
+            i.permille / 10 - l.permille / 10,
+            1,
+            "in whole percent the pair is one point apart, and one point rounds away"
+        );
+    }
+
+    #[test]
+    fn a_glyph_with_no_height_has_no_aspect_rather_than_a_division_by_zero() {
+        assert_eq!(InkAspect::measure(5, 0), InkAspect::UNKNOWN);
+    }
+
+    #[test]
+    fn an_unmeasured_aspect_contributes_no_distance_rather_than_a_penalty() {
+        // The contract `LineMetrics` and `MarkSlope` both keep, and here it is what lets a
+        // reference set generated before this field existed keep working: its entries carry no
+        // ratio, so the term is not applied to them at all.
+        let known = InkAspect::new(123);
+        assert_eq!(known.difference(InkAspect::UNKNOWN), None);
+        assert_eq!(InkAspect::UNKNOWN.difference(known), None);
+        assert_eq!(known.difference(known), Some(0));
+    }
 
     #[test]
     fn a_vector_is_four_words_wide() {

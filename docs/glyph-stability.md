@@ -1011,9 +1011,16 @@ clear of the 7-cell margin. What it does not rescue is where the *heights* also 
 ```
 
 Every dotted letter's body is a bare stem, and a bare stem is `l`, `I` and `|` — the pair #10
-measured at distance **zero** and the class `docs/error-census.md` measures as **24.4% of a real
+measured at distance **zero** and the class `docs/error-census.md` measured as **24.4% of a real
 disc's remaining errors**, the largest one left. The proposal trades an accent confusion for a
 worse instance of the confusion the project already has most of.
+
+Since this was written, #110 has separated `l` from `I` — by an **ink aspect ratio** carried beside
+the metrics, because Arial draws `I` 7% wider and the 16-cell grid rounds that away. It does not
+rescue the proposal above. The pair it separates differ in width; the pairs this table lists —
+`i`/`l`, `l`/`ì`, `i`/`í` — are *the same bare stem*, identical in width as well as in height, and
+no ratio distinguishes a shape from itself. The body-only vector still trades one confusion for
+sixty ties.
 
 ### Why the mark term cannot put it back
 

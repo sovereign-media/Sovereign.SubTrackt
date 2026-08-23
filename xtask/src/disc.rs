@@ -42,6 +42,7 @@ use anyhow::Context as _;
 pub(crate) const TOLERANCE_MS: i64 = 2_000;
 
 /// One subtitle cue: when it starts, what it says, and whether the release marked it italic.
+#[derive(Clone)]
 pub(crate) struct Cue {
     pub(crate) start_ms: i64,
     pub(crate) text: String,
@@ -175,10 +176,10 @@ fn pair<'a>(got: &'a [Cue], want: &'a [Cue]) -> (Vec<Pair<'a>>, usize) {
 
 /// Errors and characters under one grouping.
 #[derive(Default, Clone, Copy)]
-struct Tally {
-    cues: usize,
+pub(crate) struct Tally {
+    pub(crate) cues: usize,
     flat_errors: usize,
-    flat_chars: usize,
+    pub(crate) flat_chars: usize,
     raw_errors: usize,
     raw_chars: usize,
 }
@@ -201,7 +202,7 @@ impl Tally {
     }
 
     #[allow(clippy::cast_precision_loss)]
-    fn cer(self) -> f64 {
+    pub(crate) fn cer(self) -> f64 {
         if self.flat_chars == 0 {
             return 0.0;
         }
@@ -217,6 +218,87 @@ impl Tally {
     }
 }
 
+/// One extraction scored against a release, split the way the printed table splits it.
+pub(crate) struct Scored {
+    pub(crate) upright: Tally,
+    pub(crate) italic: Tally,
+    pub(crate) all: Tally,
+    /// Extracted cues with no release cue inside the tolerance.
+    pub(crate) unpaired: usize,
+}
+
+/// Score without printing, so a sweep can put a dozen of these in one table.
+pub(crate) fn scored(got: &[Cue], want: &[Cue]) -> Scored {
+    let (pairs, unpaired) = pair(got, want);
+    let (mut upright, mut italic) = (Tally::default(), Tally::default());
+    for p in &pairs {
+        let tally = if p.want.italic {
+            &mut italic
+        } else {
+            &mut upright
+        };
+        tally.add(&p.got.text, &p.want.text);
+    }
+    let mut all = upright;
+    all.merge(italic);
+    Scored { upright, italic, all, unpaired }
+}
+
+/// How many times the release's `from` was read as `to`.
+///
+/// The census prints this for every pair at once; a sweep wants one pair as a number, because the
+/// whole question a weight answers is what happens to that one.
+pub(crate) fn confusions(got: &[Cue], want: &[Cue], from: char, to: char) -> usize {
+    let (pairs, _) = pair(got, want);
+    pairs
+        .iter()
+        .flat_map(|p| align(&flatten(&p.want.text), &flatten(&p.got.text)))
+        .filter(|op| *op == Op::Substitute(from, to))
+        .count()
+}
+
+/// One cue read differently by two extractions of the same track.
+pub(crate) struct Change<'a> {
+    /// When the release cue starts, which is how a reader finds it.
+    pub(crate) at: i64,
+    /// Errors before, and after.
+    pub(crate) was: usize,
+    pub(crate) now: usize,
+    pub(crate) before: &'a str,
+    pub(crate) after: &'a str,
+    pub(crate) want: &'a str,
+}
+
+/// Every cue two extractions of one track disagree about, scored against the release.
+///
+/// Shared by `--compare` and by the sweeps rather than written twice, because the number that
+/// decides whether a change ships is the *worse* column — `docs/post-correction.md`'s rule — and two
+/// implementations of it could disagree about the one figure everything turns on.
+pub(crate) fn changes<'a>(before: &'a [Cue], after: &'a [Cue], want: &'a [Cue]) -> Vec<Change<'a>> {
+    let (before_pairs, _) = pair(before, want);
+    let (after_pairs, _) = pair(after, want);
+
+    let mut out = Vec::new();
+    for a in &before_pairs {
+        let Some(b) = after_pairs
+            .iter()
+            .find(|b| b.want.start_ms == a.want.start_ms)
+        else {
+            continue;
+        };
+        let reference = flatten(&a.want.text);
+        out.push(Change {
+            at: a.want.start_ms,
+            was: edit(&flatten(&a.got.text), &reference),
+            now: edit(&flatten(&b.got.text), &reference),
+            before: &a.got.text,
+            after: &b.got.text,
+            want: &a.want.text,
+        });
+    }
+    out
+}
+
 pub(crate) fn read(path: &str) -> anyhow::Result<Vec<Cue>> {
     let bytes = std::fs::read(Path::new(path)).with_context(|| format!("reading {path}"))?;
     // Release subtitles are not always valid UTF-8 and not always what their BOM claims. A lossy
@@ -230,21 +312,13 @@ pub(crate) fn read(path: &str) -> anyhow::Result<Vec<Cue>> {
 fn score(got_path: &str, want_path: &str) -> anyhow::Result<()> {
     let got = read(got_path)?;
     let want = read(want_path)?;
-    let (pairs, unpaired) = pair(&got, &want);
+    let (pairs, _) = pair(&got, &want);
 
-    let (mut upright, mut italic) = (Tally::default(), Tally::default());
+    let Scored { upright, italic, all, unpaired } = scored(&got, &want);
     let mut census = Census::new();
     for p in &pairs {
-        let tally = if p.want.italic {
-            &mut italic
-        } else {
-            &mut upright
-        };
-        tally.add(&p.got.text, &p.want.text);
         census.add(&p.got.text, &p.want.text, p.want.italic);
     }
-    let mut all = upright;
-    all.merge(italic);
 
     println!(
         "  cues: {} extracted, {} in the release, {unpaired} with no partner",
@@ -327,34 +401,25 @@ fn compare(before_path: &str, after_path: &str, want_path: &str) -> anyhow::Resu
     let after = read(after_path)?;
     let want = read(want_path)?;
 
-    let (before_pairs, _) = pair(&before, &want);
-    let (after_pairs, _) = pair(&after, &want);
-
     let (mut better, mut worse, mut same) = (0usize, 0usize, 0usize);
     let (mut before_tally, mut after_tally) = (Tally::default(), Tally::default());
 
-    for a in &before_pairs {
-        let Some(b) = after_pairs
-            .iter()
-            .find(|b| b.want.start_ms == a.want.start_ms)
-        else {
-            continue;
-        };
-        let reference = flatten(&a.want.text);
-        let was = edit(&flatten(&a.got.text), &reference);
-        let now = edit(&flatten(&b.got.text), &reference);
-        before_tally.add(&a.got.text, &a.want.text);
-        after_tally.add(&b.got.text, &a.want.text);
+    for change in changes(&before, &after, &want) {
+        before_tally.add(change.before, change.want);
+        after_tally.add(change.after, change.want);
 
-        match now.cmp(&was) {
+        match change.now.cmp(&change.was) {
             Ordering::Less => better += 1,
             Ordering::Equal => same += 1,
             Ordering::Greater => {
                 worse += 1;
-                println!("\n  WORSE at {} ms ({was} -> {now} errors)", a.want.start_ms);
-                println!("    before {}", flatten(&a.got.text));
-                println!("    after  {}", flatten(&b.got.text));
-                println!("    want   {reference}");
+                println!(
+                    "\n  WORSE at {} ms ({} -> {} errors)",
+                    change.at, change.was, change.now
+                );
+                println!("    before {}", flatten(change.before));
+                println!("    after  {}", flatten(change.after));
+                println!("    want   {}", flatten(change.want));
             }
         }
     }

@@ -112,14 +112,19 @@ pub fn score_set(
     // an `à` and an `á`, so keying on shape alone would collapse glyphs the matcher separates.
     let mut counts: HashMap<u64, (usize, u64)> = HashMap::new();
     for (index, glyph) in survey.glyphs.iter().enumerate() {
-        let key = subtrackt_glyph::cache::cache_key(&glyph.features, glyph.metrics, glyph.mark);
+        let key = subtrackt_glyph::cache::cache_key(
+            &glyph.features,
+            glyph.metrics,
+            glyph.mark,
+            glyph.aspect,
+        );
         counts.entry(key).or_insert((index, 0)).1 += 1;
     }
 
     let (mut read, mut unread, mut distance_sum) = (0u64, 0u64, 0u64);
     for (index, occurrences) in counts.values() {
         let glyph = &survey.glyphs[*index];
-        let result = matcher.scan_with(&glyph.features, glyph.metrics, glyph.mark);
+        let result = matcher.scan_with(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect);
         if result.character.is_some() {
             read += occurrences;
             distance_sum += u64::from(result.distance) * occurrences;
@@ -198,7 +203,7 @@ pub fn rank_watched(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subtrackt_core::{FeatureVector, LineMetrics, MarkSlope, Rect};
+    use subtrackt_core::{FeatureVector, InkAspect, LineMetrics, MarkSlope, Rect};
     use subtrackt_glyph::reference::{ReferenceEntry, Style};
 
     use crate::survey::GlyphRecord;
@@ -219,6 +224,7 @@ mod tests {
             features: vector(bits),
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
             mask: None,
         }
     }
@@ -251,6 +257,7 @@ mod tests {
                     features: vector(bits),
                     metrics: LineMetrics::UNKNOWN,
                     mark: MarkSlope::NONE,
+                    aspect: InkAspect::UNKNOWN,
                 })
                 .collect(),
         )

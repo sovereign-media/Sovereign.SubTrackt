@@ -32,6 +32,7 @@ use fontdue::{Font, FontSettings};
 use subtrackt::{Config, Pipeline, UnmatchedPolicy};
 use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::matcher::{HammingMatcher, MatchThresholds};
+use subtrackt_glyph::reference::Style;
 
 use crate::disc;
 
@@ -120,7 +121,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         survey.cues
     );
 
-    let matcher = HammingMatcher::new(reference, MatchThresholds::default())
+    let matcher = HammingMatcher::new(reference.clone(), MatchThresholds::default())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let want_cues = disc::read(release)?;
 
@@ -139,7 +140,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     }
     if let Some(at) = args.iter().position(|a| a == "--font") {
         let path = args.get(at + 1).context("--font needs a path")?;
-        calibrate(&labelled, path)?;
+        calibrate(&labelled, path, &reference)?;
     }
     Ok(())
 }
@@ -162,7 +163,7 @@ fn face(path: &str) -> anyhow::Result<Font> {
 /// which box a glyph is: `font::metrics_for` scales the rasteriser's box, which includes every
 /// pixel with any coverage at all, while a component is the ink that survived thresholding. #99
 /// found that difference carried a whole error class on its own.
-fn calibrate(labelled: &[Labelled], path: &str) -> anyhow::Result<()> {
+fn calibrate(labelled: &[Labelled], path: &str, reference: &ReferenceSet) -> anyhow::Result<()> {
     let font = face(path)?;
 
     let px = subtrackt_glyph::font::RENDER_PX;
@@ -179,8 +180,8 @@ fn calibrate(labelled: &[Labelled], path: &str) -> anyhow::Result<()> {
   width against cap height: what the font says, and what the disc drew"
     );
     println!(
-        "  {:>4} {:>7} {:>10} {:>10} {:>10} {:>8}",
-        "char", "n", "font ink", "font box", "disc", "disc sd"
+        "  {:>4} {:>7} {:>10} {:>10} {:>10} {:>10} {:>8} {:>7}",
+        "char", "n", "at 96px", "at 512px", "set", "disc", "disc sd", "off by"
     );
     let mut characters: Vec<char> = labelled.iter().map(|g| g.want).collect();
     characters.sort_unstable();
@@ -189,7 +190,7 @@ fn calibrate(labelled: &[Labelled], path: &str) -> anyhow::Result<()> {
         let sample = Sample::new(values(
             &labelled.iter().filter(|g| !g.italic).collect::<Vec<_>>(),
             ch,
-            |g| Some(f64::from(g.width) * 100.0 / g.cap),
+            |g| (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height)),
         ));
         if sample.values.len() < MIN_SAMPLE {
             continue;
@@ -198,14 +199,25 @@ fn calibrate(labelled: &[Labelled], path: &str) -> anyhow::Result<()> {
             ink_box(&font, ch, px).map_or(0.0, |(width, _)| f64::from(width) * 100.0 / cap_ink);
         let raster =
             f64::from(u32::try_from(font.metrics(ch, px).width).unwrap_or(0)) * 100.0 / cap_raster;
+        // What the *set* carries is the number the matcher actually charges against, and the
+        // column beside it is the one that decides whether a width term can be weighted at all: a
+        // character the disc draws far from its own entry pays that gap on every glyph.
+        let carried = reference
+            .entries()
+            .iter()
+            .find(|e| e.character == ch && e.style == Style::Regular)
+            .filter(|e| e.aspect.known)
+            .map(|e| f64::from(e.aspect.permille) / 10.0);
         println!(
-            "  {:>4} {:>7} {:>10.2} {:>10.2} {:>10.2} {:>8.2}",
+            "  {:>4} {:>7} {:>10.2} {:>10.2} {:>10} {:>10.2} {:>8.2} {:>7}",
             ch,
             sample.values.len(),
             ink,
             raster,
+            carried.map_or_else(|| "-".to_owned(), |w| format!("{w:.2}")),
             sample.mean(),
-            sample.sd()
+            sample.sd(),
+            carried.map_or_else(|| "-".to_owned(), |w| format!("{:+.1}", sample.mean() - w))
         );
     }
     Ok(())
@@ -316,7 +328,15 @@ fn predicted(
 /// happens when the two sides letterbox different boxes.
 type FontSide = fn(&Font, char, f64) -> Option<f64>;
 type DiscSide = fn(&Labelled) -> Option<f64>;
-const FEATURES: [(&str, FontSide, DiscSide); 2] = [
+const FEATURES: [(&str, FontSide, DiscSide); 3] = [
+    (
+        "aspect ratio",
+        |font, ch, _| {
+            let (width, height) = ink_box(font, ch, HIFI_PX)?;
+            (height > 0).then(|| f64::from(width) * 100.0 / f64::from(height))
+        },
+        |g| (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height)),
+    ),
     (
         "box width",
         |font, ch, cap| ink_box(font, ch, HIFI_PX).map(|(w, _)| f64::from(w) * 100.0 / cap),
@@ -408,7 +428,7 @@ fn label(
             .map(|&index| {
                 let glyph = &survey.glyphs[index];
                 matcher
-                    .scan_with(&glyph.features, glyph.metrics, glyph.mark)
+                    .scan_with(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect)
                     .character
                     .unwrap_or('\u{fffd}')
             })
@@ -656,8 +676,11 @@ fn measures(upright: &[&Labelled], first: char, second: char) {
 ///
 /// Every ratio is against the line's own cap height rather than in pixels, which `CLAUDE.md`
 /// requires and which is also what makes the italic act comparable at all: it is set smaller.
-const MEASURES: [(&str, DiscSide); 5] = [
+const MEASURES: [(&str, DiscSide); 6] = [
     ("ink width, pixels", |g| Some(f64::from(g.width))),
+    ("aspect ratio, % of the glyph's own height", |g| {
+        (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height))
+    }),
     ("ink width, % of cap height", |g| {
         Some(f64::from(g.width) * 100.0 / g.cap)
     }),

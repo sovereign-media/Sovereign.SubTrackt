@@ -37,7 +37,7 @@ fn style_of(style: Style) -> &'static str {
 
 /// Distance between two entries under the shipped matcher.
 fn distance(a: &ReferenceEntry, b: &ReferenceEntry, thresholds: MatchThresholds) -> u32 {
-    thresholds.distance(&a.features, a.metrics, a.mark, b)
+    thresholds.distance(&a.features, a.metrics, a.mark, a.aspect, b)
 }
 
 /// Report the pairs a set would call ambiguous.
@@ -117,7 +117,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subtrackt_core::{FeatureVector, LineMetrics, MarkSlope};
+    use subtrackt_core::{FeatureVector, InkAspect, LineMetrics, MarkSlope};
 
     fn entry(character: char, style: Style, bits: &[usize]) -> ReferenceEntry {
         let mut features = FeatureVector::EMPTY;
@@ -130,6 +130,7 @@ mod tests {
             features,
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
         }
     }
 

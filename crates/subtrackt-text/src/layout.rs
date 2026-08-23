@@ -418,10 +418,11 @@ mod tests {
             bounds: Rect::new(x, 0, width, 10),
             line,
             features: FeatureVector::EMPTY,
-            // Layout works from geometry, not from where a glyph stands in its line or which way
-            // its accent leans.
+            // Layout works from geometry, not from where a glyph stands in its line, which way its
+            // accent leans, or how wide it stands against its cap height.
             metrics: subtrackt_core::LineMetrics::UNKNOWN,
             mark: subtrackt_core::MarkSlope::NONE,
+            aspect: subtrackt_core::InkAspect::UNKNOWN,
         }
     }
 

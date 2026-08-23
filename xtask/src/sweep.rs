@@ -335,7 +335,7 @@ fn report_closest_pairs(reference: &ReferenceSet, radii: &[u32]) {
         for b in &entries[index + 1..] {
             pairs.push((
                 a.features.distance(&b.features),
-                thresholds.distance(&a.features, a.metrics, a.mark, b),
+                thresholds.distance(&a.features, a.metrics, a.mark, a.aspect, b),
                 a.character,
                 b.character,
             ));
