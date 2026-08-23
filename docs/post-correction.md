@@ -224,6 +224,36 @@ Prefix matching against the track's own clear tokens gets most of it with no dep
 knowledge of any language. It over-matches, and over-matching is harmless here: the substitution
 decides one character within a confusion set, not which word the line holds.
 
+### The row is now worth nothing, and that is the finding
+
+#127 found that the CLI had been overriding this default: `--vocab-prefix` was declared as a bare
+`bool`, so a plain `bool`'s zero value reached `VocabularyRules` on every run that did not pass the
+flag. Every extraction through the binary had prefix matching **off** from #78 to #128, against the
+`true` the table above chose.
+
+Re-running the three discs both ways to price what that cost found the answer is **nothing**:
+
+| | upright | italic | all | corrections | output |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| 10 Cloverfield Lane | 0.5% | 2.0% | **0.6%** | 3, all context | byte-identical |
+| Gone Girl | 2.0% | — | **2.0%** | — | byte-identical |
+| A Fish Called Wanda | 3.8% | 13.4% | **4.2%** | — | byte-identical |
+
+Not "within noise" — the two SRTs compare equal on all three titles, and the vocabulary arm makes
+zero substitutions on any of them at either setting.
+
+**#110 is why.** The sweep above ran when this stage made 363 corrections on Cloverfield; the ink
+aspect ratio took that to 3, and all three are the context arm. The vocabulary arm exists to reach
+word-*edge* ambiguity that context cannot, and there is no longer any word-edge ambiguity on these
+discs for prefix matching to make a difference to. Nine against seven was a real measurement of a
+population that has since been removed.
+
+So the fix is correct and its blast radius is zero, which are two separate facts and both worth
+recording. The setting should follow the measurement whatever the measurement is worth — a default
+the CLI silently inverts is a bug even in the year it changes nothing, because the thing that made
+it harmless is a *different* change that could be revisited. What this does retire is the idea that
+the vocabulary arm is a lever: on current material it is a backstop that never fires.
+
 ## Why the default is still off
 
 The measurement is positive and the guards are structural. What is missing is not confidence in the

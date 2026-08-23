@@ -130,7 +130,8 @@ trusting a track to a set. [`docs/fit-confidence.md`](docs/fit-confidence.md) is
 ### 3. Extract reads the track and writes a subtitle file
 
 ```console
-$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt --report
+$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt \
+      --post-correct --report
 ```
 
 The track is demuxed, decoded into bitmaps, binarized, split into connected components, grouped into
@@ -141,8 +142,8 @@ tagged `<i>`.
 What comes out alongside the text is the point of the design. `--report` prints a tally to stderr:
 
 ```
-822 cues from 822 images (1644 packets); glyphs 20598 matched / 16 unmatched
-  / 3896 ambiguous (99.9% read); fit 10.2; cache 100%; defused 87; corrections 3 (context)
+822 cues from 822 images (1644 packets); glyphs 20597 matched / 17 unmatched
+  / 2237 ambiguous (99.9% read); fit 10.7; cache 100%; defused 87; corrections 3 (context)
 ```
 
 Those are counts, not confidence scores. A glyph the reference set does not contain comes back as
@@ -243,9 +244,10 @@ good.** That is not an oversight; see [Shortcomings](#shortcomings).
 ### `subtrackt extract` — read the track
 
 ```console
-$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt --report
-822 cues from 822 images (1644 packets); glyphs 20598 matched / 16 unmatched
-  / 3896 ambiguous (99.9% read); fit 10.2; cache 100%; defused 87; corrections 3 (context)
+$ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en.srt \
+      --post-correct --report
+822 cues from 822 images (1644 packets); glyphs 20597 matched / 17 unmatched
+  / 2237 ambiguous (99.9% read); fit 10.7; cache 100%; defused 87; corrections 3 (context)
 ```
 
 | Flag | Default | Meaning |
@@ -487,8 +489,9 @@ all on the ceiling fixture. That is the right direction — a correction is evid
 that shape alone could not decide — but it means the stage is no longer a lever. It stays opt-in
 because the only comparison available for a real track is another release's subtitle, which is
 evidence rather than ground truth. `--track-vocabulary` adds a second arm for word-edge ambiguity,
-which the context rule cannot reach because it needs a clear character on *both* sides; it is worth
-another nine characters in twenty-four thousand.
+which the context rule cannot reach because it needs a clear character on *both* sides. It was worth
+another nine characters in twenty-four thousand when #60 measured it; on the three discs today it
+fires **not once**, because the glyphs it fed on are no longer ambiguous.
 
 **Format coverage.** Matroska, raw `.sup` and VOBSUB `.idx`/`.sub` only. MPEG-TS (`.m2ts`) returns
 `Unsupported` naming [#86](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/86) rather
