@@ -523,6 +523,21 @@ impl ContextCorrector {
         })
     }
 
+    /// Whether the matcher named a character at `at` and was sure of it.
+    ///
+    /// Three states share one `Option<Class>` of `None` and only one of them is a word boundary:
+    /// an **ambiguous** glyph is a neighbour still waiting to be decided, an **unmatched** one is a
+    /// hole where the matcher named nothing, and a **confidently read** comma or hyphen is the end
+    /// of a word. [`Self::look`] steps over the first two and stops at the third; #139 is what it
+    /// cost to conflate them.
+    fn is_confident(&self, origins: &[Option<GlyphMatch>], at: usize) -> bool {
+        origins.get(at).is_some_and(|origin| {
+            origin
+                .as_ref()
+                .is_some_and(|m| m.character.is_some() && m.is_unambiguous(self.ambiguity_margin))
+        })
+    }
+
     /// What class character `at` argues for, if it argues for anything.
     ///
     /// Both halves matter. An ambiguous neighbour is not evidence — it is another glyph waiting to
@@ -536,9 +551,19 @@ impl ContextCorrector {
 
     /// Scan outward from `at` for the nearest evidence, stopping at the word boundary.
     ///
-    /// `step` is `-1` to look left and `1` to look right. Characters carrying no evidence are
-    /// stepped over rather than stopped at, which is what lets the second `1` of `He11o` take its
-    /// answer from the `o` beyond it.
+    /// `step` is `-1` to look left and `1` to look right. An **ambiguous** neighbour is stepped
+    /// over rather than stopped at, which is what lets the second `1` of `He11o` take its answer
+    /// from the `o` beyond it.
+    ///
+    /// A neighbour the matcher read *confidently* that carries no class is a different thing
+    /// entirely, and #139 is what it cost to treat the two alike. Punctuation ends a word, and the
+    /// whole justification for this rule -- that a word carries one case -- says nothing across
+    /// that boundary. `All-State` is two words joined by a hyphen; stepping over the join let the
+    /// `ll` see `A` on one side and reach `State`'s `S` on the other, agree on upper, and rewrite a
+    /// correct word to `AII-State` on a disc that had read it right for a year.
+    ///
+    /// So the two cases separate here rather than in [`Self::evidence`], which cannot tell them
+    /// apart because both are legitimately `None`: one means *unknown*, the other means *stop*.
     fn look(
         &self,
         chars: &[char],
@@ -556,6 +581,13 @@ impl ContextCorrector {
             }
             if let Some(class) = self.evidence(chars, origins, position) {
                 return Some(class);
+            }
+            // No class, and the matcher was sure of what it read: a word boundary rather than a
+            // gap. `is_confident` rather than `!is_ambiguous`, because a glyph that matched
+            // *nothing* is neither -- and the placeholder standing in for it is unknown text, not
+            // a boundary, so the scan must still step over it to reach the evidence beyond.
+            if self.is_confident(origins, position) {
+                return None;
             }
         }
     }
@@ -774,6 +806,40 @@ mod tests {
         let mut log = Vec::new();
         ContextCorrector::default().correct(&mut c, &[origins(line, ambiguous)], 0, &mut log);
         (c.lines[0].clone(), log)
+    }
+
+    #[test]
+    fn a_hyphen_ends_a_word_and_evidence_does_not_reach_across_it() {
+        // #139. `All-State` is two words joined by a hyphen, and the rule's justification -- that a
+        // word carries one case -- says nothing across the join. Today the scan steps over `-`
+        // exactly as it steps over an ambiguous glyph, so the `ll` sees `A` on the left and reaches
+        // `State`'s `S` on the right, both agree on upper, and a correct word becomes `AII-State`.
+        //
+        // Found on a real disc by the bench of #133, on a cue that had been right for a year.
+        let (line, log) = correct("All-State", &[1, 2]);
+        assert_eq!(line, "All-State", "evidence crossed the hyphen");
+        assert!(log.is_empty(), "{log:?}");
+
+        // The same word without the join is one word, and the rule is entitled to speak there.
+        let (joined, _) = correct("AllState", &[1, 2]);
+        assert_eq!(
+            joined, "AIIState",
+            "a single word still takes its case from its neighbours"
+        );
+    }
+
+    #[test]
+    fn stepping_over_an_unread_glyph_is_not_the_same_as_stepping_over_punctuation() {
+        // The distinction #139 turns on. Both carry no class, and only one of them is a boundary:
+        // an ambiguous glyph is *unknown* and the scan should keep looking past it, which is what
+        // lets the second `1` of `He11o` take its answer from the `o`.
+        let (stepped, _) = correct("He11o", &[2, 3]);
+        assert_eq!(stepped, "Hello", "an ambiguous neighbour must still be stepped over");
+
+        // A confidently-read full stop is a boundary, so `1` keeps its reading rather than
+        // borrowing a class from the sentence after it.
+        let (halted, log) = correct("l. Some", &[0]);
+        assert_eq!(halted, "l. Some", "{log:?}");
     }
 
     /// A corrector with a vocabulary learned from `evidence`, every character of it read clearly.

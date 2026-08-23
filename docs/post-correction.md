@@ -11,6 +11,29 @@ The number moves when the fixture does, and it has four times: #48 added three c
 text, #58 a line carrying `î`, #57 a line of accented capitals, and #60 a cue supplying case-folded
 evidence. What has not changed across any of them is that no line was made worse.
 
+**"No line was made worse" expired once, and is true again.** The claim below was measured before
+#110 changed which glyphs reach this stage at all. When the bench of #133 re-ran it, the context arm
+was turning a correct `All-State` into `AII-State` on 10 Cloverfield Lane: `look` stopped its
+outward scan only at whitespace, so it stepped over the hyphen exactly as it steps over an ambiguous
+glyph, saw `A` on one side and reached `State`'s `S` on the other, and agreed. **#139** separated the
+two: an ambiguous neighbour is *unknown* and is stepped over; a confidently-read hyphen is a *word
+boundary* and stops the scan. A word carries one case, and `All-State` is two words.
+
+Re-measured on all seven tracks after that fix — **8 cues better, 0 worse**, and the only movement
+is A Fish Called Wanda at 4.2% to 4.1%:
+
+| track | CER | better | worse |
+| :--- | :--- | ---: | ---: |
+| 10 Cloverfield Lane | 0.6% → 0.6% | 0 | **0** |
+| Gone Girl | 1.9% → 1.9% | 0 | **0** |
+| A Fish Called Wanda | 4.2% → **4.1%** | 8 | **0** |
+| King Kong | 21.5% → 21.5% | 3 | **0** |
+| Airplane! | 41.8% → 41.8% | 0 | **0** |
+
+The lesson is not that the rule was wrong. It is that **a result measured against one stage survives
+only as long as that stage does**, and nothing re-ran this one for the two issues between #110 and
+#133 that changed what reaches it.
+
 **Read the whole of this document as history from #110 onward.** Giving the matcher an ink aspect
 ratio took the substitutions this stage makes on a real Blu-ray from 363 to **3**, and on the
 ceiling fixture to **none at all** — the corrector no longer moves either instrument, because the
