@@ -379,6 +379,61 @@ impl UprightSpan {
     }
 }
 
+/// How far the text line a glyph stands on leans, in tenths of a percent of a slope.
+///
+/// The fifth thing a glyph carries that its own shape cannot say, and the only one that is a
+/// property of the *line* rather than of the character. `x' = x - k·y` with `k = Cxy / Cyy` over
+/// the line's ink: the shear that makes the covariance cross term vanish, which is what "the stems
+/// now stand vertical" means as an equation.
+///
+/// A slope is already dimensionless, so unlike [`LineMetrics`] this needs no cap height to divide
+/// by and unlike [`InkAspect`] it is not a ratio of two measurements of one glyph. It survives a
+/// resolution change because it never had a unit to lose.
+///
+/// **Its sign follows the plane's.** y grows downward, so an italic leaning right at the top has a
+/// *negative* shear. Two real Blu-rays read -155 and -160 against Arial Italic's own -173.
+///
+/// **`known` means "shown to lean", not "measured".** A line carrying too little ink to estimate a
+/// shear and a line whose estimate sits inside what the estimator shows on upright material are the
+/// same answer to the only question anything asks — *has this line been shown to lean?* — and both
+/// report `false`. That collapse is deliberate: `docs/italic-slant.md` measured the two populations
+/// as not coming close to touching, so a value inside the band is not a small lean but an absence
+/// of evidence, and reporting it as a lean would be inventing a measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Slant {
+    /// The shear, in tenths of a percent. About -160 for Arial Italic on a real disc.
+    pub permille: i32,
+    /// Whether the line was shown to lean at all.
+    pub known: bool,
+}
+
+impl Slant {
+    /// A line that was not shown to lean.
+    pub const UPRIGHT: Self = Self { permille: 0, known: false };
+
+    /// A measured lean, in tenths of a percent.
+    #[must_use]
+    pub const fn new(permille: i32) -> Self {
+        Self { permille, known: true }
+    }
+
+    /// Whether this line leans **the way an italic leans** — which is what an `<i>` is written from.
+    ///
+    /// Directional, and that is not the same question the shear floor answers. Deskewing is
+    /// geometry and a line that leans either way is worth standing upright; an italic is
+    /// *typography*, and no Latin emphasis face leans left. A back-slanted estimate is therefore a
+    /// line whose letters happen to carry diagonal ink — `A`, `V`, `w`, `y` — rather than a face
+    /// choice, and tagging it would be reporting the alphabet.
+    ///
+    /// Measured: on A Fish Called Wanda, treating both signs as italic tagged 104 upright cues of
+    /// 1,279; requiring the italic direction takes that to a fraction of it. `docs/italic-slant.md`
+    /// has the figure.
+    #[must_use]
+    pub const fn leans(self) -> bool {
+        self.known && self.permille < 0
+    }
+}
+
 /// One connected component (or diacritic group) lifted out of a subtitle image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -397,6 +452,8 @@ pub struct Glyph {
     pub aspect: InkAspect,
     /// Where its ink stands once its line's slant is divided out, which its box gets wrong.
     pub upright: UprightSpan,
+    /// How far the line it stands on leans, which is the only thing here that is not about it.
+    pub slant: Slant,
 }
 
 /// The result of matching one [`Glyph`] against the reference set.
@@ -447,6 +504,29 @@ impl GlyphMatch {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_line_that_was_not_shown_to_lean_does_not_lean() {
+        assert!(!Slant::UPRIGHT.leans());
+        assert!(!Slant::default().leans());
+    }
+
+    #[test]
+    fn only_a_line_leaning_the_way_an_italic_leans_is_italic() {
+        // Directional on purpose, and it is worth 14 false tags on one disc and 74 on another.
+        // The plane's y grows downward, so an italic reads negative; a positive estimate is a line
+        // whose letters carry diagonal ink -- `A`, `V`, `w`, `y` -- and no Latin emphasis face
+        // leans that way.
+        assert!(Slant::new(-160).leans());
+        assert!(!Slant::new(160).leans());
+    }
+
+    #[test]
+    fn a_measured_lean_keeps_the_number_that_was_measured() {
+        // The flag is what the output reads; the figure is what a bench does. Collapsing the two
+        // would leave nothing to score a threshold against later.
+        assert_eq!(Slant::new(-173).permille, -173);
+        assert!(Slant::new(-173).known);
+    }
     #[test]
     fn an_aspect_ratio_is_measured_against_the_glyph_own_height() {
         // #109, and the property the whole feature turns on: nothing about the *line* enters it.

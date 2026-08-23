@@ -212,6 +212,7 @@ mod tests {
         let cue = |text: &str| Cue {
             span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(1_000)),
             lines: vec![text.to_owned()],
+            italic: Vec::new(),
             confidence: Confidence::default(),
             forced: false,
         };
@@ -227,6 +228,7 @@ mod tests {
             vec![Cue {
                 span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(500)),
                 lines: vec!["one".into(), "two".into()],
+                italic: Vec::new(),
                 confidence: Confidence::default(),
                 forced: false,
             }],

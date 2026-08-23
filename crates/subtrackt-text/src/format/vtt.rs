@@ -61,8 +61,12 @@ impl TrackWriter for VttWriter {
             }
             writeln!(out).map_err(io)?;
 
-            for line in &cue.lines {
-                writeln!(out, "{}", escape(line)).map_err(io)?;
+            // Escaped first and tagged second, so the tag survives and anything the text itself
+            // held that looks like markup does not become any.
+            for (index, line) in cue.lines.iter().enumerate() {
+                let escaped = escape(line);
+                writeln!(out, "{}", super::tagged(&escaped, cue.line_is_italic(index)))
+                    .map_err(io)?;
             }
             writeln!(out).map_err(io)?;
         }
@@ -79,6 +83,7 @@ mod tests {
         Cue {
             span: TimeSpan::new(Timestamp::from_millis(start_ms), Timestamp::from_millis(end_ms)),
             lines: lines.iter().map(|l| (*l).to_owned()).collect(),
+            italic: Vec::new(),
             confidence: Confidence::default(),
             forced: false,
         }
@@ -127,5 +132,22 @@ mod tests {
     #[test]
     fn an_empty_track_still_writes_a_valid_header() {
         assert_eq!(VttWriter.to_string(&TextTrack::default()).unwrap(), "WEBVTT\n\n");
+    }
+
+    #[test]
+    fn a_leaning_line_is_tagged_after_it_is_escaped() {
+        // Order is the whole test. Escaping second would turn the tag into `&lt;i&gt;`; escaping
+        // first leaves the tag intact and anything the text itself held that looks like markup
+        // stays text.
+        let mut c = cue(0, 1_000, &["a < b"]);
+        c.italic = vec![true];
+        let out = VttWriter.to_string(&TextTrack::new(vec![c], None)).unwrap();
+        assert!(out.contains("<i>a &lt; b</i>"), "{out}");
+    }
+
+    #[test]
+    fn a_cue_with_no_flags_carries_no_markup() {
+        let track = TextTrack::new(vec![cue(0, 1_000, &["Plain text."])], None);
+        assert!(!VttWriter.to_string(&track).unwrap().contains("<i>"));
     }
 }

@@ -74,6 +74,21 @@ pub struct Cue {
     pub span: TimeSpan,
     /// The cue's text, one entry per rendered line.
     pub lines: Vec<String>,
+    /// Which of those lines were set in a leaning face, one entry per entry of [`Self::lines`].
+    ///
+    /// **A flag rather than markup inside the string**, and the reason is arithmetic: post
+    /// correction, [`Self::text`], [`Self::is_empty`] and `xtask srt-score` all read those strings,
+    /// and every one of them would have to learn to strip an `<i>` it did not put there. That is
+    /// four places that can silently disagree against one field that cannot. Only the writers turn
+    /// this into markup, which is where a format's own spelling belongs.
+    ///
+    /// A line that could not be measured is `false` and is written untagged — the same answer as a
+    /// line measured upright, because they are the same answer to the only question the output
+    /// asks. [`Slant`](crate::Slant) has the rest of that argument.
+    ///
+    /// Shorter than [`Self::lines`] only in a cue nothing measured, which
+    /// [`Self::line_is_italic`] treats as upright rather than as a panic.
+    pub italic: Vec<bool>,
     /// How completely the cue was read.
     pub confidence: Confidence,
     /// Carried through from [`SubtitleImage::forced`].
@@ -91,6 +106,29 @@ impl Cue {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.lines.iter().all(|line| line.trim().is_empty())
+    }
+
+    /// Whether line `index` was set in a leaning face.
+    ///
+    /// `false` for a line nothing measured, which is the same thing the output does with it. Reading
+    /// past the end is that case rather than a panic: a `Cue` built before this field existed, or by
+    /// a test, carries no flags and is upright text as far as any writer is concerned.
+    #[must_use]
+    pub fn line_is_italic(&self, index: usize) -> bool {
+        self.italic.get(index).copied().unwrap_or(false)
+    }
+
+    /// Whether every line the cue renders leans.
+    ///
+    /// The granularity a release subtitle marks, and what a per-cue comparison is scored against.
+    #[must_use]
+    pub fn is_italic(&self) -> bool {
+        !self.lines.is_empty()
+            && self
+                .lines
+                .iter()
+                .enumerate()
+                .all(|(index, line)| line.trim().is_empty() || self.line_is_italic(index))
     }
 }
 
@@ -148,10 +186,55 @@ mod tests {
     use super::*;
     use crate::time::Timestamp;
 
+    fn spoken(lines: &[&str], italic: &[bool]) -> Cue {
+        Cue {
+            span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(1_000)),
+            lines: lines.iter().map(|l| (*l).to_owned()).collect(),
+            italic: italic.to_vec(),
+            confidence: Confidence::default(),
+            forced: false,
+        }
+    }
+
+    #[test]
+    fn a_cue_carrying_no_flags_is_upright_rather_than_a_panic() {
+        // A `Cue` built before this field existed, or by a test, is ordinary upright text. Reading
+        // past the end has to be that answer and not an index panic, because a writer walks every
+        // line of every cue.
+        let cue = spoken(&["Hello there."], &[]);
+        assert!(!cue.line_is_italic(0));
+        assert!(!cue.line_is_italic(9));
+        assert!(!cue.is_italic());
+    }
+
+    #[test]
+    fn a_flag_belongs_to_the_line_at_its_own_index() {
+        let cue = spoken(&["upright", "leaning"], &[false, true]);
+        assert!(!cue.line_is_italic(0));
+        assert!(cue.line_is_italic(1));
+    }
+
+    #[test]
+    fn a_cue_is_italic_only_when_every_line_it_renders_leans() {
+        // The granularity a release subtitle marks, so it is what a per-cue comparison is scored
+        // against -- and a cue with one leaning line and one upright one is neither, which is a
+        // distinction the per-line flags keep and this answer deliberately loses.
+        assert!(spoken(&["a", "b"], &[true, true]).is_italic());
+        assert!(!spoken(&["a", "b"], &[true, false]).is_italic());
+        assert!(!spoken(&[], &[]).is_italic(), "an empty cue leans no way at all");
+    }
+
+    #[test]
+    fn a_blank_line_does_not_decide_whether_a_cue_leans() {
+        // Otherwise a stray empty line would make an italic cue upright, and nothing about a line
+        // with no ink is evidence about the face the rest of it was set in.
+        assert!(spoken(&["leaning", "  "], &[true, false]).is_italic());
+    }
     fn cue(matched: u32, unmatched: u32) -> Cue {
         Cue {
             span: TimeSpan::new(Timestamp::ZERO, Timestamp::from_millis(1_000)),
             lines: vec!["hello".into()],
+            italic: Vec::new(),
             confidence: Confidence { matched, unmatched, ambiguous: 0 },
             forced: false,
         }

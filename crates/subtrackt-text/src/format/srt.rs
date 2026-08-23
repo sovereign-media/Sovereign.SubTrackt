@@ -32,8 +32,8 @@ impl TrackWriter for SrtWriter {
                 format_timestamp(cue.span.end)
             )
             .map_err(io)?;
-            for line in &cue.lines {
-                writeln!(out, "{line}").map_err(io)?;
+            for (index, line) in cue.lines.iter().enumerate() {
+                writeln!(out, "{}", super::tagged(line, cue.line_is_italic(index))).map_err(io)?;
             }
             writeln!(out).map_err(io)?;
         }
@@ -50,6 +50,7 @@ mod tests {
         Cue {
             span: TimeSpan::new(Timestamp::from_millis(start_ms), Timestamp::from_millis(end_ms)),
             lines: lines.iter().map(|l| (*l).to_owned()).collect(),
+            italic: Vec::new(),
             confidence: Confidence::default(),
             forced: false,
         }
@@ -96,5 +97,22 @@ mod tests {
     #[test]
     fn an_empty_track_writes_nothing_at_all() {
         assert_eq!(SrtWriter.to_string(&TextTrack::default()).unwrap(), "");
+    }
+
+    #[test]
+    fn a_leaning_line_is_written_as_an_italic_tag_and_an_upright_one_is_untouched() {
+        let mut c = cue(0, 1_000, &["He is late.", "So am I."]);
+        c.italic = vec![false, true];
+        let out = SrtWriter.to_string(&TextTrack::new(vec![c], None)).unwrap();
+        assert!(out.contains("\nHe is late.\n"), "{out}");
+        assert!(out.contains("\n<i>So am I.</i>\n"), "{out}");
+    }
+
+    #[test]
+    fn a_cue_with_no_flags_is_written_exactly_as_it_was_before_the_tag_existed() {
+        // The compatibility claim, asserted rather than assumed: a track nothing measured must come
+        // out byte for byte as it did.
+        let track = TextTrack::new(vec![cue(0, 1_000, &["Plain text."])], None);
+        assert!(!SrtWriter.to_string(&track).unwrap().contains("<i>"));
     }
 }

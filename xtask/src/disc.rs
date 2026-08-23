@@ -578,6 +578,7 @@ fn score(got_path: &str, want_path: &str, align: bool) -> anyhow::Result<()> {
             tally.wer()
         );
     }
+    tag_agreement(&pairs);
     let w = whole(&got, &want);
     println!(
         "  {:<9} {:>5}  {:>7}  {:>7.1}%  {:>10}  {:>7}  {:>7.1}%",
@@ -721,6 +722,73 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         return score_json(got, want, align);
     }
     score(got, want, align)
+}
+
+/// How often the extraction's own `<i>` agrees with the release's.
+///
+/// #123's whole score, and it needs no new instrument: this module already parses `<i>` out of both
+/// files and already pairs their cues by time. What it could not do until the extractor wrote a tag
+/// was compare the two.
+///
+/// The caveat this module opens with applies with full force. A release marks what *that* release
+/// thought was italic, and `docs/italic-slant.md` found cues where the disc sets a title card
+/// upright and the sidecar marks it italic. Those are transcript disagreements and they land in the
+/// "read upright" column here, so the figure below is a floor rather than an accuracy.
+// A cue count divides one count of cues by another, and a feature film holds a few thousand — far
+// inside the 2^53 an f64 counts exactly, the same reasoning every other ratio in this module
+// records.
+#[allow(clippy::cast_precision_loss)]
+fn tag_agreement(pairs: &[Pair<'_>]) {
+    let measurable: Vec<&Pair<'_>> = pairs.iter().filter(|p| !p.want.text.is_empty()).collect();
+    let italic = measurable.iter().filter(|p| p.want.italic).count();
+    if italic == 0 {
+        println!(
+            "\n  italic tag (#123): the release marks no cue italic, so there is nothing to score"
+        );
+        let tagged = measurable.iter().filter(|p| p.got.italic).count();
+        if tagged > 0 {
+            println!(
+                "  the extraction tagged {tagged} of {} cues anyway; the ink says they lean",
+                measurable.len()
+            );
+        }
+        return;
+    }
+
+    let right = measurable
+        .iter()
+        .filter(|p| p.got.italic == p.want.italic)
+        .count();
+    let missed = measurable
+        .iter()
+        .filter(|p| p.want.italic && !p.got.italic)
+        .count();
+    let invented = measurable
+        .iter()
+        .filter(|p| !p.want.italic && p.got.italic)
+        .count();
+    println!(
+        "\n  italic tag (#123): {right} of {} paired cues agree — {:.1}%",
+        measurable.len(),
+        right as f64 * 100.0 / measurable.len() as f64
+    );
+    println!(
+        "  {italic} cues italic in the release; {missed} of them read upright, {invented} upright \
+         cues read italic"
+    );
+
+    // Named, not just counted, which is `xtask unread`'s rule and for the same reason: a cue the
+    // release marks italic and the disc set upright is the two transcripts disagreeing, and only
+    // reading the text tells that apart from a detector that missed.
+    for (label, wanted) in [("read upright", true), ("read italic", false)] {
+        for pair in measurable
+            .iter()
+            .filter(|p| p.want.italic == wanted && p.got.italic != wanted)
+            .take(3)
+        {
+            println!("    {label} at {} ms: {}", pair.want.start_ms, flatten(&pair.want.text));
+        }
+    }
 }
 
 /// Read both sides, and put them on one timeline if asked.

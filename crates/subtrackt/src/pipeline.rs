@@ -549,6 +549,9 @@ fn part_glyph(
         // `group` had attached as a mark travelled with the whole component. Saying `NONE` is the
         // honest answer and costs nothing, since the term is off.
         mark: MarkSlope::NONE,
+        // The slant, on the other hand, is a property of the *line* and a part stands on the same
+        // line its parent did, so it inherits it outright.
+        slant: parent.slant,
         // The aspect ratio, on the other hand, is exactly what a part has and its parent did not:
         // the cut is what gave it a box of its own, and unlike the metrics above it needs nothing
         // recovered to measure.
@@ -563,6 +566,18 @@ fn part_glyph(
         // word break is measured against — are the parent's own, which the box has right.
         upright: subtrackt_core::UprightSpan::of_box(bounds),
     })
+}
+
+/// A shear as tenths of a percent, saturating rather than wrapping.
+///
+/// A shear outside a few tenths is not a subtitle line, so the clamp never fires on real material;
+/// it is written because a wrapped sign would turn an italic line into a violently upright one and
+/// nothing downstream would say so.
+#[allow(clippy::cast_possible_truncation)]
+fn permille(shear: f64) -> i32 {
+    (shear * 1000.0)
+        .round()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
 }
 
 /// Whether a reference set holds an entry for a *slanted* rendering of anything.
@@ -799,6 +814,15 @@ impl ImageSegmenter {
                     // upright. Measuring one side sheared and the other not is what #99, #110 and
                     // #113 each cost a release to find.
                     aspect,
+                    // #123. Read off the ink and not off the matcher's answer, so it works on a
+                    // set that carries no italic entries — which is the set the deskew above exists
+                    // for. Every glyph on a line carries its line's figure; the assembler needs one
+                    // per line and only glyphs reach it.
+                    slant: shears
+                        .get(&glyph.line)
+                        .map_or(subtrackt_core::Slant::UPRIGHT, |(shear, _)| {
+                            subtrackt_core::Slant::new(permille(*shear))
+                        }),
                 })
             })
             .collect()

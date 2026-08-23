@@ -443,6 +443,7 @@ mod tests {
             mark: MarkSlope::NONE,
             aspect: InkAspect::UNKNOWN,
             upright: subtrackt_core::UprightSpan::UNKNOWN,
+            slant: subtrackt_core::Slant::UPRIGHT,
         }
     }
 

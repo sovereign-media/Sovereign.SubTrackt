@@ -235,6 +235,7 @@ impl SpatialAssembler {
 
         let line_count = glyphs.iter().map(|g| g.line).max().map_or(0, |m| m + 1);
         let mut lines = Vec::with_capacity(line_count);
+        let mut italic = Vec::with_capacity(line_count);
         let mut origins = Vec::with_capacity(line_count);
 
         for line_index in 0..line_count {
@@ -254,11 +255,21 @@ impl SpatialAssembler {
             let (rendered, rendered_origins) = self.render_line(&members);
             if !rendered.trim().is_empty() {
                 lines.push(rendered);
+                // Every glyph on a line carries its line's slant, so any of them answers — and
+                // pushed here rather than collected separately so the flag cannot come adrift of
+                // the line it describes. An empty line is dropped above and takes its flag with it.
+                italic.push(members.iter().any(|(g, _)| g.slant.leans()));
                 origins.push(rendered_origins);
             }
         }
 
-        let cue = Cue { span: image.span, lines, confidence, forced: image.forced };
+        let cue = Cue {
+            span: image.span,
+            lines,
+            italic,
+            confidence,
+            forced: image.forced,
+        };
         Ok(AssembledCue { cue, origins })
     }
 }
@@ -480,7 +491,53 @@ mod tests {
             mark: subtrackt_core::MarkSlope::NONE,
             aspect: subtrackt_core::InkAspect::UNKNOWN,
             upright: subtrackt_core::UprightSpan::of_box(Rect::new(x, 0, width, 10)),
+            slant: subtrackt_core::Slant::UPRIGHT,
         }
+    }
+
+    /// Mark every glyph as standing on a leaning line.
+    fn leaning_glyphs(glyphs: &mut [Glyph]) {
+        for glyph in glyphs {
+            glyph.slant = subtrackt_core::Slant::new(-160);
+        }
+    }
+
+    #[test]
+    fn a_leaning_line_comes_back_flagged_and_an_upright_one_does_not() {
+        let (mut glyphs, matches) = lay_out("hi", 1);
+        leaning_glyphs(&mut glyphs);
+        let (mut upright, upright_matches) = lay_out("no", 1);
+        for glyph in &mut upright {
+            glyph.line = 1;
+        }
+        glyphs.extend(upright);
+        let matches: Vec<GlyphMatch> = matches.into_iter().chain(upright_matches).collect();
+
+        let cue = SpatialAssembler::default()
+            .assemble(&image(), &glyphs, &matches)
+            .expect("assembles");
+        assert_eq!(cue.italic, vec![true, false]);
+        assert_eq!(cue.italic.len(), cue.lines.len());
+    }
+
+    #[test]
+    fn a_flag_is_dropped_with_the_empty_line_it_described() {
+        // `lines` and `italic` are parallel and the assembler drops a line that rendered to
+        // nothing. A flag left behind would shift every flag after it onto the wrong line.
+        let (mut glyphs, mut matches) = lay_out("hi", 1);
+        leaning_glyphs(&mut glyphs);
+        let (mut blank, blank_matches) = lay_out(" ", 1);
+        for glyph in &mut blank {
+            glyph.line = 1;
+        }
+        glyphs.extend(blank);
+        matches.extend(blank_matches);
+
+        let cue = SpatialAssembler::default()
+            .assemble(&image(), &glyphs, &matches)
+            .expect("assembles");
+        assert_eq!(cue.lines.len(), cue.italic.len());
+        assert_eq!(cue.italic, vec![true]);
     }
 
     fn matched(c: char) -> GlyphMatch {

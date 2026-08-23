@@ -28,7 +28,9 @@ Both are confirmed, at very different sizes:
 - **Detection is nearly free.** One number per line separates the two acts at **99.4%** and
   **98.9%** per cue on the two discs whose release marks its italics, and the cues it gets wrong do
   not lean at all — the transcript and the disc disagree there, so this is close to the ceiling
-  rather than a threshold in want of tuning.
+  rather than a threshold in want of tuning. [#123][issue-123] shipped that as an `<i>` on the
+  output, at 98.8% and 97.6% against a threshold nothing fitted, and **without moving CER by a
+  character**.
 
 [issue-14]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/14
 [issue-40]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40
@@ -462,6 +464,74 @@ between the cut and the deskew per title. The shipped rule takes the cut where o
 two discs of three prefer it and because a user who supplied an italic face asked for it to be used.
 
 [issue-122]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/122
+
+## The tag on the output
+
+[#123][issue-123] writes the estimate back out. A line shown to lean is written `<i>`, by both
+writers, from a **per-line flag on the cue** rather than markup inside the string — post-correction,
+`Cue::text`, `Cue::is_empty` and `xtask srt-score` all read those strings, and every one of them
+would otherwise have to learn to strip a tag it did not put there.
+
+| | paired cues | agree | italic in the release | read upright | read italic |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| 10 Cloverfield Lane | 818 | **98.8%** | 43 | 1 | 9 |
+| A Fish Called Wanda | 1,336 | **97.6%** | 57 | 2 | 30 |
+| Gone Girl | 2,442 | — | **0** | — | 442 tagged |
+
+**CER does not move by a character on any of the three discs** — zero cues better, zero worse. The
+scorer strips tags from both sides, so the tag is additive by construction and the table above is
+the same extraction the two sections before it produced.
+
+### It has to know which way an italic leans
+
+The first version tagged any line the estimator would deskew, and scored 97.1% and **92.1%**. The
+estimator is two-sided because *deskewing* is geometry — a line leaning either way is worth standing
+upright — but an italic is **typography**, and no Latin emphasis face leans left. A positive estimate
+is a line whose letters happen to carry diagonal ink, which is the sensitivity #115 named before any
+of this was built: `A`, `V`, `w` and `y` are not slant.
+
+| | tag on any lean | tag on an italic lean |
+| :--- | ---: | ---: |
+| 10 Cloverfield Lane | 97.1% | **98.8%** |
+| A Fish Called Wanda | 92.1% | **97.6%** |
+| upright cues tagged, Wanda | 104 | **30** |
+
+One threshold, two questions, and only one of them has a direction.
+
+### Where it is still wrong, named
+
+The misses are the transcript disagreeing. What is left of the false tags is **short lines**:
+Cloverfield's are three cues that each say `Please.` — six glyphs, where a moment over one line's ink
+is at its noisiest and the composition of the alphabet is at its loudest. `MIN_GLYPHS` is four and
+raising it would cost real short italic lines.
+
+The figure is also a floor rather than an accuracy, for the reason `disc.rs` opens with: a release
+marks what *that* release thought was italic, and this project has already measured a disc where the
+answer is "none of it".
+
+### Gone Girl again
+
+**442 of its 2,442 cues are tagged italic and its release marks none.** That is the same 18% the gap
+histogram found and the same act #121 gave 618 word spaces back to — three measurements, three
+mechanisms, one population that no transcript of that film records.
+
+### Predictions, scored
+
+- **1. Per-cue agreement between 98% and 99.5% on the two discs with labels.** *Right on one, just
+  under on the other* — 98.8% and 97.6%. The gap is per-line estimation where #120's figure pooled
+  a cue's lines, and the residual is short lines rather than threshold placement.
+- **2. Gone Girl gains tagged lines its release never had, and nothing can score them.** *Right.*
+  442 cues, and the honest report is the count.
+- **3. CER does not move.** *Right, exactly.* Zero cues changed on three discs.
+- **4. The style byte and the estimator agree on more than 95% of cues.** *Not run, and the reason
+  is the finding.* The byte reports which reference *entry* won, so it works only on a set carrying
+  an italic cut — and #122 measured that such a set does not need the deskew at all. The second
+  opinion would be unavailable in exactly the configuration the tag is most valuable in, which is
+  argument enough not to build it.
+- **5. The unknown rate stays under 2% of lines.** *Right*, unchanged from #120's 0.8% and 1.2%,
+  because it is the same estimator.
+
+[issue-123]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/123
 
 ## What this does not settle
 
