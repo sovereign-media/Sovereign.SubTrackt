@@ -78,6 +78,63 @@ pub struct Component {
     pub bounds: Rect,
     /// Foreground pixels in the component.
     pub pixels: u64,
+    /// Which label this component's pixels carry in a [`LabelMap`].
+    ///
+    /// A bounding box is not a component, and for slanted text the difference is the whole story:
+    /// an italic letter's box overhangs its neighbour's, so **reading the mask inside one box picks
+    /// up the next letter's ink**. Every consumer that only wants a shape has been able to ignore
+    /// that; #121 wants where the ink begins and ends, and a neighbour's foot inside the box would
+    /// close exactly the gap the measurement exists to open.
+    ///
+    /// [`NO_LABEL`] for a component nothing labelled — a union of two others synthesised while
+    /// grouping. Its ink is its members' and is found through them.
+    pub label: u32,
+}
+
+/// The label of a component no pass ever assigned one to.
+///
+/// Zero is safe as the sentinel because the union-find reserves index 0 for its own unlabelled marker,
+/// so no real component can carry it.
+pub const NO_LABEL: u32 = 0;
+
+/// Which component each pixel of a mask belongs to.
+///
+/// Kept beside the components rather than folded into them because it is a whole plane and most
+/// callers want neither it nor the cost of it — the same split [`label`] and [`label_with_map`]
+/// make, and the same one `ImageSegmenter::segment` and `segment_with_mask` make one crate up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelMap {
+    width: u32,
+    height: u32,
+    labels: Vec<u32>,
+}
+
+impl LabelMap {
+    /// The label at `(x, y)`, or [`NO_LABEL`] outside the mask or on background.
+    #[must_use]
+    pub fn at(&self, x: u32, y: u32) -> u32 {
+        if x >= self.width || y >= self.height {
+            return NO_LABEL;
+        }
+        self.labels[y as usize * self.width as usize + x as usize]
+    }
+
+    /// Call `visit` for every pixel of one component, in row-major order.
+    ///
+    /// Scoped to `bounds` so the walk costs the component's box rather than the plane; a
+    /// component's own box always contains all of it, by construction.
+    pub fn for_each(&self, label: u32, bounds: Rect, mut visit: impl FnMut(u32, u32)) {
+        if label == NO_LABEL {
+            return;
+        }
+        for y in bounds.y..bounds.bottom() {
+            for x in bounds.x..bounds.right() {
+                if self.at(x, y) == label {
+                    visit(x, y);
+                }
+            }
+        }
+    }
 }
 
 /// Union-find over provisional labels.
@@ -138,6 +195,20 @@ impl Labels {
 /// Returns [`Error::Config`] if the mask is large enough to exhaust the 32-bit label space, which
 /// takes a mask far larger than any subtitle plane.
 pub fn label(mask: &BinaryMask, filter: ComponentFilter) -> Result<Vec<Component>> {
+    label_with_map(mask, filter).map(|(components, _)| components)
+}
+
+/// Label components and say which of them owns each pixel.
+///
+/// The map is the same labelling, kept rather than dropped. It exists because a component's
+/// bounding box is not the component — see [`Component::label`] — and #121 needs the ink itself.
+///
+/// # Errors
+/// Same as [`label`].
+pub fn label_with_map(
+    mask: &BinaryMask,
+    filter: ComponentFilter,
+) -> Result<(Vec<Component>, LabelMap)> {
     let width = mask.width();
     let height = mask.height();
     let stride = width as usize;
@@ -188,10 +259,11 @@ pub fn label(mask: &BinaryMask, filter: ComponentFilter) -> Result<Vec<Component
             if provisional_label == UNLABELLED {
                 continue;
             }
-            let root = labels.find(provisional_label) as usize;
-            match &mut boxes[root] {
+            let root = labels.find(provisional_label);
+            provisional[y as usize * stride + x as usize] = root;
+            match &mut boxes[root as usize] {
                 Some(accumulator) => accumulator.add(x, y),
-                slot @ None => *slot = Some(Accumulator::new(x, y)),
+                slot @ None => *slot = Some(Accumulator::new(x, y, root)),
             }
         }
     }
@@ -205,7 +277,15 @@ pub fn label(mask: &BinaryMask, filter: ComponentFilter) -> Result<Vec<Component
         .collect();
 
     components.sort_unstable_by_key(|c| (c.bounds.y, c.bounds.x));
-    Ok(components)
+    // A pixel whose component the filter rejected is background as far as the map is concerned.
+    // Leaving it labelled would let a caller walk ink that no `Component` in the list accounts for.
+    let kept: std::collections::HashSet<u32> = components.iter().map(|c| c.label).collect();
+    for slot in &mut provisional {
+        if !kept.contains(slot) {
+            *slot = NO_LABEL;
+        }
+    }
+    Ok((components, LabelMap { width, height, labels: provisional }))
 }
 
 /// The already-visited neighbours of `(x, y)` in row-major order: W, NW, N, NE.
@@ -230,11 +310,12 @@ struct Accumulator {
     max_x: u32,
     max_y: u32,
     pixels: u64,
+    label: u32,
 }
 
 impl Accumulator {
-    const fn new(x: u32, y: u32) -> Self {
-        Self { min_x: x, min_y: y, max_x: x, max_y: y, pixels: 1 }
+    const fn new(x: u32, y: u32, label: u32) -> Self {
+        Self { min_x: x, min_y: y, max_x: x, max_y: y, pixels: 1, label }
     }
 
     fn add(&mut self, x: u32, y: u32) {
@@ -254,6 +335,7 @@ impl Accumulator {
                 self.max_y - self.min_y + 1,
             ),
             pixels: self.pixels,
+            label: self.label,
         }
     }
 }

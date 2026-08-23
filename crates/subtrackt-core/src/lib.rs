@@ -19,7 +19,7 @@ pub use bitmap::{IndexedBitmap, Palette, PaletteEntry, Rect, Rgba8};
 pub use error::{Error, Result};
 pub use glyph::{
     FEATURE_BITS, FEATURE_GRID, FEATURE_WORDS, FeatureVector, Glyph, GlyphMatch, InkAspect,
-    LineMetrics, MarkSlope,
+    LineMetrics, MarkSlope, SPAN_TENTHS, UprightSpan,
 };
 pub use progress::{Phase, Progress, Silent};
 pub use stage::{BitmapDecoder, GlyphMatcher, Segmenter, TextAssembler, TrackWriter};

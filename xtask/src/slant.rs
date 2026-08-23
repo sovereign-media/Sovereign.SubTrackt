@@ -31,6 +31,16 @@
 //! independent transcript, so its `<i>` is what *that* release thought was italic. It is evidence
 //! about a distribution over hundreds of cues and would not be evidence about any single one.
 //!
+//! **One thing this reads that the shipped path does not.** A [`GlyphRecord`](subtrackt::GlyphRecord)
+//! carries its ink as the mask *cropped to its bounding box*, and on a slanted line that box holds
+//! part of the next letter as well — which is precisely the overhang this whole issue is about.
+//! `subtrackt-glyph::slant` walks a component through the label map instead and sees only its own
+//! ink; #121 found that the difference is not cosmetic, because a neighbour's foot inside the box
+//! closes the very gap the shear opens. So the deskewed columns below are a **lower bound** on what
+//! the shipped change achieves, and the disc scores in `docs/italic-slant.md` are the upper one.
+//! The two agree in direction and the shipped figure is the larger, which is the way round a
+//! contaminated estimate should err.
+//!
 //! [`layout.rs`]: subtrackt_text::layout
 
 // Every ratio here divides one count of pixels, gaps or cues by another, and a feature film holds

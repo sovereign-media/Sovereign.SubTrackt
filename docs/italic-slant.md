@@ -15,6 +15,8 @@ Both are confirmed, at very different sizes:
   rule clamped, against 0.7% of an upright line's — a factor of forty, replicated on three discs.
   The shipped rule then declines to place any space at all on **16%** of italic lines against 7.5%
   of upright ones, and measuring the gap between *deskewed* extents takes that to **4.8%**.
+  [#121][issue-121] shipped that measurement: **Gone Girl went from 2.8% to 2.0% CER** and 618 of
+  its 783 missed word spaces came back. See "What it was worth".
 - **The matching half is worth 21 cells of the 47, and no shear buys more.** A sheared sampling
   takes the slant axis from 47 cells to 26, which is below the median distance to an entirely
   different character. It does not reach the 8-to-11 of the cheap axes, and a sweep proves the
@@ -266,19 +268,134 @@ and a line measured as upright are different facts, and only one of them may be 
   and +1.0 on upright material, so it is reading slant and not something else. The end-to-end form of
   this prediction still needs the build and a CER on all three discs.
 
+## What it was worth
+
+[#121][issue-121] built the cheaper half of the remedy: nothing shears a bitmap, and every glyph
+carries where its ink *would* begin and end once its line stood upright. `subtrackt-text` measures
+the space between those instead of between bounding boxes.
+
+| | before | after | |
+| :--- | ---: | ---: | :--- |
+| **10 Cloverfield Lane**, upright | 0.5% | **0.5%** | 11 cues better, 2 worse |
+| 10 Cloverfield Lane, italic | 4.1% | **2.0%** | WER 24.7% → 8.4% |
+| 10 Cloverfield Lane, all | 0.7% | **0.6%** | |
+| **Gone Girl**, all | 2.8% | **2.0%** | **163 cues better, 4 worse** |
+| **A Fish Called Wanda**, upright | 3.8% | **3.8%** | 6 cues better, 5 worse |
+| A Fish Called Wanda, italic | 15.0% | **13.8%** | WER 44.7% → 39.9% |
+
+**Gone Girl is the result, and it is the disc whose release cannot see it.** 18% of its lines lean
+and neither English sidecar marks a single one, so every figure it has ever contributed has had that
+act pooled into the upright column. Nought point eight of a point is the largest single accuracy
+change since [#110][issue-110] halved the disc's error rate, and it came from a track nobody had
+identified as having an italic problem.
+
+### The word spaces, which is what this was for
+
+`space` in the confusion census's **deletions** — a word break the release has that the extraction
+never produced:
+
+| missed word spaces | before | after | |
+| :--- | ---: | ---: | :--- |
+| 10 Cloverfield Lane, italic | 38 | **7** | 31 of 38 recovered |
+| 10 Cloverfield Lane, upright | 28 | 29 | |
+| A Fish Called Wanda, italic | 26 | **12** | |
+| A Fish Called Wanda, upright | 50 | 53 | |
+| **Gone Girl** | 783 | **165** | 618 recovered |
+
+And the other direction — `space` in the **insertions**, a break put where the release has none,
+which costs two word errors rather than one:
+
+| invented word spaces | before | after |
+| :--- | ---: | ---: |
+| 10 Cloverfield Lane | 8 | **8** |
+| Gone Girl | 20 | **13** |
+
+Nothing was invented to buy this. On Gone Girl seven fewer spaces are invented as well.
+
+### Two things had to be decided, and both were measured
+
+**The estimate has to be gated.** Every non-zero shear *widens* an upright glyph's span, because
+deskewing ink that was never skewed leans it — by about `|k|` times the glyph's height, which at a
+shear of 0.03 over a 40-pixel capital is more than a pixel. That pixel comes off every gap on the
+line, and a word gap clears the decisiveness test by two or three. Ungated, the estimator's ordinary
+spread on upright material was enough to do real damage:
+
+| | gated at 0.06 | ungated |
+| :--- | ---: | ---: |
+| Cloverfield, upright CER | **0.5%** | 0.7% |
+| Cloverfield, upright WER | **2.2%** | 3.1% |
+| Cloverfield, cues worse | **2** | 9 |
+| Gone Girl, cues worse | **4** | 14 |
+| Wanda, cues worse | **5** | 11 |
+| italic CER, both discs | 2.0% / 13.8% | 2.0% / 13.8% |
+
+**The gate is free.** The italic column is identical either way, because a real italic line reads
+0.16 and is nowhere near the cut. What the gate buys is entirely on upright material, which is
+prediction 5 arriving as a design constraint rather than as a result.
+
+**The yardstick has to move with the gaps.** #40's first decisiveness test asks whether a cut
+reaches half the line's median glyph *width*, and a slanted letter's box is mostly slant — 47 pixels
+where its ink stands 40 wide, on the first italic line of a real disc. Measuring the gap one way and
+the width the other is exactly the mismatch #99, #110 and #113 each made once. Taking both from the
+deskewed span is worth 4 cues and 0.2 points of WER on Gone Girl and changes nothing anywhere else.
+
+**Per line, not per cue.** Pooling a cue's lines into one estimate doubles the ink and was tried:
+it is a wash on Gone Girl and *worse* on Wanda, whose italic CER goes 13.8% to 14.0% and whose WER
+goes 39.9% to 40.6%. A cue can hold one italic line and one upright one, and the line is the unit
+that leans.
+
+### What it cost, and where it is still wrong
+
+Eleven cues across three discs got worse. They share a shape: a descender — `j`, `y`, `g` — next to
+a word break. A descender sits lowest on the line, so a shear moves it furthest, and where the
+estimate is a little off that error is largest exactly where it is least affordable. `Burn itjust
+the right amount` is the whole class in one line.
+
+Two approximations are knowingly in the shipped path:
+
+- **A recovered fusion reports its box.** #108 cuts a fused component in two, and a part is half of
+  a labelled component — there is no label that names it, and under a shear the vertical cut maps to
+  a slanted line, so "left of the column" and "left of the deskewed column" are not the same
+  pixels. What makes the box tolerable is what put the part on that path: the two characters were
+  *touching*, so the gap between them is near zero either way, and the outer edges a word break is
+  measured against are the parent's own.
+- **The gap is still saturated at zero.** An `UprightSpan` can express a negative gap and the
+  spacing rules do not read one. That is deliberate: every rule ranks gaps, and a negative gap ranks
+  below a zero one in exactly the way a clamped one does. What #121 changes is how *many* gaps are
+  down there, not what happens to the ones that are.
+
+### Predictions, scored
+
+- **1. The 38 italic word spaces mostly come back — expect 25 to 38, not all.** *Right.* **31 of
+  38**, and 618 of Gone Girl's 783.
+- **2. Nothing is invented in their place.** *Right.* Cloverfield's invented-space count is
+  unchanged at 8 and Gone Girl's falls from 20 to 13.
+- **3. Upright material does not move.** *Right, and it took the gate to make it so.* 0.5% and 3.8%
+  before and after, and the ceiling fixture and `xtask spacing-margin` are unchanged to the
+  character — 1.2% CER, 44 of 48 breaks found, 46 of 50 single-word lines left alone.
+- **4. Gone Girl gains the most and its sidecar cannot show it.** *Right on both halves.* 0.8 points,
+  the largest of the three, and its italic column is still empty because the release has no `<i>` to
+  put in it.
+- **5. Wanda gains least.** *Right.* 6 cues better against 5 worse, and 1.2 points of italic CER on
+  the 4% of its characters that lean.
+
+[issue-110]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/110
+[issue-121]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/121
+
 ## What this does not settle
 
-`xtask slant` prices the gap measurement. It does not build it, and two things stay open that only a
-build can answer:
+The spaces are answered above. What is left:
 
 - **The fusions.** #115's insertion point 1 is a shear applied before connected-component labelling,
   which would fix segmentation as well as spacing — a slanted ascender touching its neighbour is
   #106's class, in the act where slant makes it likeliest. Measuring the gap between deskewed
-  extents does not touch a component that was already fused into one.
-- **Whether the spaces come back.** A rule that finds a cut is not a rule that finds the *right*
-  cut. The 38 spaces are a count in the confusion census and the honest test is to re-run it.
-  [#49][issue-49]'s decisiveness margin might also reach some of them without any of this, which is
-  the smaller change and is still worth trying first.
+  extents does not touch a component that was already fused into one, and #121 did not try to.
+- **The matching half.** Slant is still 26 cells after a deskew and 47 without one, and nothing in
+  #121 changes what the matcher sees: a glyph's feature vector is still built from its bounding box.
+  That is #122.
+- **Whether [#49][issue-49]'s decisiveness margin would have reached some of these anyway.** It is
+  a smaller change than #121 and it is now measurable against a much smaller residual: 36 missed
+  spaces on Cloverfield rather than 66, and 29 of the 36 are on upright lines this cannot help.
 
 ## Reproducing
 

@@ -442,6 +442,7 @@ mod tests {
             metrics: LineMetrics::UNKNOWN,
             mark: MarkSlope::NONE,
             aspect: InkAspect::UNKNOWN,
+            upright: subtrackt_core::UprightSpan::UNKNOWN,
         }
     }
 
