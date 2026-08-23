@@ -811,6 +811,11 @@ and the census now says so with a number.
 Two of the three are segmentation rather than matching — a word space that was never split and a
 quotation mark that arrived as two components — and neither is a character the matcher got wrong.
 
+**38 of the 66 word spaces are in the italic act**, which is 6.1% of the track's characters and 34%
+of what is left on it. [`italic-slant.md`](italic-slant.md) names the mechanism: a slanted box
+overhangs the box after it, so a quarter of an italic line's gaps reach the spacing rule already
+saturated at zero and the rule has no band left to cut in.
+
 ### Predictions, scored
 
 - **1. A works and B is not needed.** *Right, and for the stated reason.* The bias is quantisation

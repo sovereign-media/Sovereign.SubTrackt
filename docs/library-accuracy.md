@@ -69,6 +69,12 @@ Pooled over every scored character in 47 titles: 2.18 million characters and 403
 The nine points between the first two rows are cue-boundary disagreement between releases, not
 misreading. Italic remains the weaker style, and by more in words than in characters.
 
+**The last two rows understate the gap, and by an unknown amount.** The style split is taken from
+the release's `<i>` tags, and [`italic-slant.md`](italic-slant.md) found a title where **18% of the
+lines lean and neither English sidecar marks a single one** — measured from the ink, without opening
+a subtitle file. A release that loses the distinction puts its whole italic act in the *upright*
+row. The direction of that error is certain even though its size is not.
+
 Per title, the distribution matters more than the mean — the sample is strongly bimodal:
 
 | | p5 | p10 | p25 | **p50** | p75 | p90 | p95 |

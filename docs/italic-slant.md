@@ -1,0 +1,297 @@
+# The slant, and what it costs two stages apart
+
+Answers the research half of [#115][issue-115]: the italic act is a third of the errors left on a
+real Blu-ray, on 6% of its characters, and the issue proposes taking the slant out of a line before
+the line is segmented.
+
+Two things are measured here, and they are two stages apart. The **segmentation** half — a slanted
+box overhangs the box after it, so the gap between them arrives at the spacing rule clamped to zero.
+The **matching** half — [#14][issue-14] priced slant at 47 cells, the most expensive axis in
+[`glyph-stability.md`](glyph-stability.md).
+
+Both are confirmed, at very different sizes:
+
+- **The gap mechanism is real and it is large.** 27% of an italic line's gaps arrive at the spacing
+  rule clamped, against 0.7% of an upright line's — a factor of forty, replicated on three discs.
+  The shipped rule then declines to place any space at all on **16%** of italic lines against 7.5%
+  of upright ones, and measuring the gap between *deskewed* extents takes that to **4.8%**.
+- **The matching half is worth 21 cells of the 47, and no shear buys more.** A sheared sampling
+  takes the slant axis from 47 cells to 26, which is below the median distance to an entirely
+  different character. It does not reach the 8-to-11 of the cheap axes, and a sweep proves the
+  residual is not a bad angle: it is the characters a true italic **redraws** rather than leans.
+- **Detection is nearly free.** One number per line separates the two acts at **99.4%** and
+  **98.9%** per cue on the two discs whose release marks its italics, and the cues it gets wrong do
+  not lean at all — the transcript and the disc disagree there, so this is close to the ceiling
+  rather than a threshold in want of tuning.
+
+[issue-14]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/14
+[issue-40]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40
+[issue-48]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/48
+[issue-49]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/49
+[issue-66]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/66
+[issue-97]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/97
+[issue-113]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/113
+[issue-115]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/115
+
+## What the split actually is, re-measured
+
+#115 was raised on arithmetic rather than a measurement: the post-[#113][issue-113] upright/italic
+split was not printed anywhere, and the issue said so and asked for it. It is:
+
+| 10 Cloverfield Lane, post-#113 | cues | characters | CER | words | WER |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| upright | 775 | 23,017 | **0.5%** | 4,565 | 2.1% |
+| italic | 43 | 1,505 | **4.1%** | 263 | 24.7% |
+| all | 818 | 24,522 | 0.7% | 4,828 | 3.4% |
+
+**61 of the disc's 177 remaining errors are in the italic act — 34% of what is left, on 6.1% of the
+characters.** 38 of them are a word space the assembler never placed, which is the largest single
+error class on the disc. The issue's estimate was 62 errors and it was right to within one.
+
+## The instrument
+
+`xtask slant <media> <reference.subtref> <release.srt>` makes one pass over a disc and answers both
+halves. It joins three things that already existed and were never joined: the extraction, which
+knows when each cue is on screen; the glyph survey, which knows every component's box and ink; and
+the release subtitle, which marks its italic cues. The join is the same one `xtask glyph-geometry`
+makes, and it is asserted rather than assumed.
+
+The slant estimate is #115's **candidate C** and it is here first for the reason the issue gives: a
+Radon sweep hand-rolled in std is not free, and if a one-pass moment answers the question then the
+sweep is bought for nothing. It does.
+
+**The shear that stands a line upright is `k = Cxy / Cyy`**, pooled over the line's glyphs — the
+shear that makes the ink's covariance cross term vanish, which is what "the stems now stand
+vertical" means as an equation. Each glyph contributes its covariance about **its own** centroid.
+Pooling the raw pixels instead would measure the line's *layout*: a row of letters is far wider than
+it is tall, so its cross term is dominated by where the words sit and by a baseline that any
+descender pulls off level. [#48][issue-48] read a diacritic's direction from the same second moment,
+so this is a second reading of machinery that was already measured rather than new machinery.
+
+It is a slope, so it is dimensionless and survives a resolution change without a cap height to
+divide by — which is what `CLAUDE.md` requires of every threshold here. Its sign follows the plane's:
+y grows downward, so an italic leaning right at the top reports a **negative** shear.
+
+## The gap is clamped, and by a factor of forty
+
+`layout.rs` measures the space between two glyphs as `next.x.saturating_sub(this.right())` — a gap
+between **bounding boxes**. A slanted ascender's box is mostly slant, so it overhangs the box of the
+letter after it and the subtraction saturates. [#40][issue-40]'s rule cuts at the widest jump between
+consecutive sorted gaps, which needs the line's gaps to be bimodal; a run of clamped zeros collapses
+the letter-gap mode onto the floor and takes the band with it.
+
+| | lines | gaps | negative | zero | **clamped** | p50 | p90 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cloverfield, upright | 992 | 18,170 | 0.2% | 0.6% | **0.7%** | 6 | 20 |
+| Cloverfield, italic | 63 | 1,213 | 15.3% | 12.0% | **27.4%** | 3 | 18 |
+| Wanda, upright | 1,940 | 33,782 | 0.1% | 0.4% | **0.6%** | 6 | 21 |
+| Wanda, italic | 85 | 1,372 | 11.4% | 11.7% | **23.1%** | 3 | 19 |
+
+The **negative** column is the point and it is the column the runtime cannot see. Fifteen percent of
+Cloverfield's italic gaps are not merely zero — the boxes genuinely overlap, and `saturating_sub` has
+nowhere lower to go. As a fraction of the line's own median glyph width, an italic line's gaps run
+from **-4%** at p10 to 0% at p25; an upright line's start at +8%.
+
+### What it costs the rule
+
+`split_threshold` returning `None` is the rule declining to place *any* space on the line — right
+on a line holding one word, and on a line of dialogue it means the whole line arrives as one word.
+
+| | lines | no cut | **deskewed** |
+| :--- | ---: | ---: | ---: |
+| Cloverfield, upright | 992 | 7.5% | 6.7% |
+| Cloverfield, italic | 63 | **15.9%** | **4.8%** |
+| Wanda, upright | 1,940 | 6.3% | 5.1% |
+| Wanda, italic | 85 | **11.8%** | **4.7%** |
+
+The **deskewed** column costs nothing to produce and is the remedy priced rather than built. Nothing
+is shifted, sheared or resegmented: the line's own shear is applied to each glyph's ink to ask where
+its leftmost and rightmost columns *would* stand once upright, and the gap is measured between those.
+The result is then rounded and saturated exactly as the runtime's integer subtraction would be, so
+the two columns differ in the gap that was measured and in nothing else.
+
+**On both discs an italic line ends up better served than an upright one.** That is the shape of a
+fix rather than a tuning: the rule was never broken, it was being handed a measurement that had been
+destroyed before it arrived.
+
+### Where the release lost the distinction, and the estimator did not
+
+Both of Gone Girl's English sidecars contain **no `<i>` anywhere**. The release-labelled tables above
+therefore have one column on that disc and can say nothing about the other — but the estimator never
+opens a subtitle file, so the same split can be taken from the ink:
+
+| split by the estimator | lines | clamped | no cut | **deskewed** |
+| :--- | ---: | ---: | ---: | ---: |
+| Cloverfield, upright | 981 | 0.7% | 6.2% | 6.1% |
+| Cloverfield, leaning | 66 | 27.9% | 22.7% | 13.6% |
+| **Gone Girl, upright** | 2,685 | 0.8% | 6.4% | 6.6% |
+| **Gone Girl, leaning** | **592** | **28.3%** | **24.3%** | **4.4%** |
+| Wanda, upright | 1,906 | 0.6% | 5.1% | 5.0% |
+| Wanda, leaning | 95 | 22.1% | 11.6% | 6.3% |
+
+**Gone Girl is 18% italic and its transcript says it is 0% italic.** The disc reads at 2.8% CER and
+nothing in this repository could have told you which part of that was the italic act, because the
+only instrument that splits by style is the one that reads the release's tags. The clamped rate on
+those 592 lines — 28.3%, against 0.8% on the same disc's upright lines — is the estimator and the
+gap measurement agreeing about a population neither of them was told existed.
+
+This also corrects something. [`library-accuracy.md`](library-accuracy.md) reports a cue-level italic CER of 25.04% against
+22.41% upright over 47 titles, and that split is taken from the release's tags. A release that marks
+none of its italics puts the whole italic act in the upright column, so the true gap between the two
+styles is **wider than that table shows**, by an unknown amount.
+
+## The matching half: 21 cells of 47, and the rest is letterform
+
+`xtask measure-stability --deskew` adds a deskewed reading of the italic faces. The shear is
+estimated by the same moment, pooled over the whole charset at each rendering condition, and applied
+to the **sampling** rather than to the pixels: each grid cell's preimage becomes a parallelogram, so
+the glyph is never resampled and no interpolation or rounding stands between the ink and the grid.
+
+That form was chosen before it was benched, for the reason #115 gives. The last three accuracy
+findings in this repository — #99, #110 and #113 — were each one side of the pipeline quantising a
+measurement the other side did not. A deskew that resampled a 33-pixel glyph and then normalised it
+again would be the same mistake a fourth time, and the deskewed side is asked to match against the
+*upright* reference vector, so the asymmetry would be exactly the one that has been costly before.
+
+| movement from canonical, median cells | p5 | p25 | **p50** | p75 | p95 |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| anti-aliasing threshold | 1 | 3 | **8** | 18 | 35 |
+| rendering size | 1 | 5 | **11** | 22 | 38 |
+| outline / edge (1px) | 5 | 17 | **30** | 46 | 73 |
+| weight (bold) | 11 | 27 | **38** | 54 | 81 |
+| **slant (italic)** | 23 | 35 | **47** | 60 | 82 |
+| **slant (italic), deskewed** | 4 | 15 | **26** | 40 | 65 |
+| weight + slant | 28 | 43 | **55** | 69 | 93 |
+| weight + slant, deskewed | 12 | 27 | **38** | 54 | 78 |
+
+Slant stops being the most expensive axis and becomes the third, below bold's 38 and level with the
+one-pixel edge shift's 30. The number worth holding onto is the comparison the same report makes on
+the line above: **inter-character distance is 27 cells at p25.** A deskewed italic glyph sits, at the
+median, closer to its own upright entry than a character sits to the nearest *different* character.
+At 47 it did not.
+
+### The residual is not a bad angle
+
+"It moved the row" and "it moved the row as far as any shear could" are different claims, and only
+the second lets a residual be read as a letterform. Sweeping a multiple of the estimate over the
+same population:
+
+| face | estimated shear | 0.00 | 0.50 | 0.75 | **1.00** | 1.15 | 1.25 | 1.50 | 2.00 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Arial Italic | -0.173 | 47 | 35 | 29 | **26** | 26 | 27 | 31 | 45 |
+| Arial Bold Italic | -0.177 | 54 | 44 | 40 | **38** | 38 | 39 | 42 | 53 |
+
+The minimum is at the estimate. Arial Italic is drawn at 12 degrees and `tan 12°` is 0.213 — a
+multiple of 1.23 — and shearing by the *design angle* is measurably worse than shearing by the
+measured moment. A moment estimator is not obliged to agree with a design angle, and here it should
+not: the estimator zeroes a cross term over the ink that is actually there, and a face whose round
+letters were redrawn has ink no single shear stands upright.
+
+The disc agrees with the font, which is the check that matters. Arial Italic's own renderings
+estimate **-0.173**; the italic lines of two real Blu-rays estimate **-0.155** and **-0.160** at the
+median. Same face, same number, one side rasterised here and the other thresholded by a studio a
+decade ago.
+
+### Which characters, which is #115's third prediction
+
+Median distance from the upright vector, before and after:
+
+| the shear helps least | | | the shear helps most | | |
+| :--- | ---: | ---: | :--- | ---: | ---: |
+| `a` | 49 → **43** | -6 | `r` | 32 → **18** | -14 |
+| `e` | 49 → **41** | -8 | `f` | 29 → **14** | -15 |
+| `m` | 65 → **40** | -25 | `t` | 33 → **14** | -19 |
+| `s` | 49 → **40** | -9 | `J` | 35 → **11** | -24 |
+| `R` | 71 → **39** | -32 | `L` | 44 → **11** | -33 |
+| `W` | 88 → **38** | -50 | `j` | 22 → **10** | -12 |
+| `n` | 60 → **37** | -23 | `1` | 37 → **9** | -28 |
+| `M` | 71 → **35** | -36 | `i` | 21 → **7** | -14 |
+| `Q` | 44 → **35** | -9 | `I` | 27 → **5** | -22 |
+| `D` | 60 → **34** | -26 | `l` | 26 → **5** | -21 |
+
+The right-hand column is a straight stem and nothing else, and a shear recovers it almost exactly:
+`l` and `I` land 5 cells from their upright entries, which is inside the noise of the ink threshold.
+The left-hand column is what Arial Italic **redraws** — the single-storey `a`, the different `e`, the
+`m` and `n` with their arches re-cut — and 34 to 43 cells is above the 27-cell inter-character
+distance, so those still need an italic entry to be read. [#66][issue-66]'s italic cut gets much
+cheaper to justify and does not become removable, which is what the issue predicted.
+
+## The bonus: telling the acts apart
+
+Per cue, which is the granularity an `<i>` is written at, and pooling a cue's lines is free rather
+than an assumption: #14 found slant constant within a stream.
+
+| | measurable cues | italic | best cut | right | missed | false italic |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cloverfield | 810 | 43 | -7.9 | **99.4%** | 5 | 0 |
+| Wanda | 1,323 | 59 | -6.9 | **98.9%** | 9 | 6 |
+
+The distributions barely touch. An upright line reaches -2.7 at p10 on Cloverfield and -2.6 on
+Wanda; an italic line reaches -12.3 and -10.6 at p75. The cut is chosen on the disc's own two
+populations here and is therefore **not a shippable constant** — what it reports is the separability
+the two populations have, which is the question a detector must clear before a threshold is worth
+choosing at all. `reference-set.md` records the same distinction for a different measurement.
+
+**Where it fails, it fails for a reason no threshold fixes.** The italic cues read upright sit
+between -6.1 and -1.5 on Cloverfield and between -6.4 and +0.7 on Wanda: they do not lean. A release
+marking a song lyric or a title card italic where the disc set it upright is the transcript and the
+disc disagreeing, and moving the cut only trades those five for false italics elsewhere. 99.4% is
+close to what this material allows rather than a number in want of tuning.
+
+Lines that cannot be measured report **unknown** rather than upright — 0.8% of Cloverfield's upright
+lines and none of its italic ones. That is the boundary `CLAUDE.md` requires: an unmeasurable line
+and a line measured as upright are different facts, and only one of them may be written untagged.
+
+## Predictions, scored
+
+#115 recorded five before any of this ran.
+
+- **1. The segmentation half is the larger win, and it is the half nothing else can reach.**
+  *The mechanism is confirmed and the size is bounded, not yet cashed.* 27% of italic gaps arrive
+  clamped against 0.7% upright, the rule refuses 16% of italic lines against 7.5%, and deskewed
+  extents take that to 4.8%. Whether the 38 spaces come back needs the build. The half of the claim
+  that is settled is that this is a failure **two stages before the matcher**, so no reference set
+  and no #66-style italic cut could ever have reached it.
+- **2. Deskewing collapses the slant axis toward the cheap axes.** *Half right.* 47 to 26, which is
+  below the inter-character distance and below bold — but not to the 8-to-11 the prediction hoped
+  for. The prediction's own escape clause said that if it did not fall, "the shear is wrong"; the
+  sweep says the shear is not wrong, so the floor is the letterform.
+- **3. The italic cut gets cheaper to justify but does not become removable.** *Right, and the list
+  is now printed.* Ten characters fall to 5–18 cells and ten stay at 34–43.
+- **4. Detection is far easier than correction, and should score above 95% per cue.** *Right.* 99.4%
+  and 98.9%, and the misses are transcript disagreement rather than threshold placement.
+- **5. Upright material does not move at all.** *Right, on the measurement that could be taken
+  without building anything.* Deskewing every line on all three discs moves the upright refusal rate
+  by 6.2 → 6.1, 6.4 → 6.6 and 5.1 → 5.0 points. The estimator reports a median shear of +0.6, -0.2
+  and +1.0 on upright material, so it is reading slant and not something else. The end-to-end form of
+  this prediction still needs the build and a CER on all three discs.
+
+## What this does not settle
+
+`xtask slant` prices the gap measurement. It does not build it, and two things stay open that only a
+build can answer:
+
+- **The fusions.** #115's insertion point 1 is a shear applied before connected-component labelling,
+  which would fix segmentation as well as spacing — a slanted ascender touching its neighbour is
+  #106's class, in the act where slant makes it likeliest. Measuring the gap between deskewed
+  extents does not touch a component that was already fused into one.
+- **Whether the spaces come back.** A rule that finds a cut is not a rule that finds the *right*
+  cut. The 38 spaces are a count in the confusion census and the honest test is to re-run it.
+  [#49][issue-49]'s decisiveness margin might also reach some of them without any of this, which is
+  the smaller change and is still worth trying first.
+
+## Reproducing
+
+```console
+$ cargo build --release -p subtrackt-cli -p xtask --features subtrackt-glyph/font
+$ subtrackt gen-reference /path/to/arial.ttf arial-ri.subtref \
+      --name arial-ri --italic /path/to/ariali.ttf
+
+$ cargo run --release -p xtask -- measure-stability \
+      arial.ttf arialbd.ttf ariali.ttf arialbi.ttf --deskew
+
+$ cargo run --release -p xtask -- slant movie.mkv arial-ri.subtref release.srt
+```
+
+`measure-stability` needs no disc and no media, and it is the cheapest kill in the whole proposal:
+if the slant row does not fall, nothing after it is worth running.
