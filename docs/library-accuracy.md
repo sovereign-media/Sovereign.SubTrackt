@@ -338,8 +338,13 @@ so no figure published before it moved:
 ## What this changes
 
 1. **The colon is the single largest addressable defect on real material** and it is a component
-   assembly bug, not a matching one. It is invisible to `xtask accuracy`, whose fixture has no
-   speaker labels.
+   assembly bug, not a matching one. **Fixed in #130**, which found the cause was a single
+   threshold: stacked punctuation was allowed a gap of 200% of a mark's height and a colon's dots
+   sit 225–450% apart, so the rule written to hold a colon together had never once fired on one.
+   Three SDH discs recover 309 colons with no other line changed. This paragraph's claim that it is
+   invisible to `xtask accuracy` was wrong — the fixture *does* carry two colons, and closing them
+   took it from 1.2% CER to 0.0%. What it is invisible to is the three-disc bench, whose tracks are
+   all non-SDH.
 2. **A fixed Arial set is good enough for most of the library** — 34 of 47 titles at 4.13% median
    CER — and mean match distance identifies the ones it is not good enough for, before any ground
    truth is consulted.
