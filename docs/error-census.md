@@ -713,3 +713,111 @@ decisiveness margin, of which 38 of 66 are in the italic act, on 6% of the track
 second is the documented `"`-reads-as-two-quotes case in
 [`group.rs`](../crates/subtrackt-glyph/src/group.rs), which costs twice per occurrence: a
 substitution and an insertion.
+
+## Reading the reference at the size the material is drawn at
+
+[#113](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/113), the residual #110 left.
+**The disc reads at 0.7%**, and the 20 `s` read as `S` are gone — but the finding worth keeping is
+not the tenth of a point. It is that #110 shipped a reference measurement taken at the wrong
+resolution *for the second time in a row*, and that a second and third disc were needed to see it.
+
+### Three discs, not one
+
+Everything from #98 onward was measured on 10 Cloverfield Lane. Two more titles now fit Arial well
+enough to score — `subtrackt fit` ranks it first on both, at 11.1 and 12.3 against 22.8 for the
+runner-up — and they are what this issue turns on.
+
+| | term off | #110, ratio read at 512px | now, read at 56px |
+| :--- | ---: | ---: | ---: |
+| 10 Cloverfield Lane | 2.1% | 0.8%, **12** cues worse | **0.7%**, **0** worse |
+| Gone Girl | 4.0% | 2.8%, **62** cues worse | **2.8%**, **0** worse |
+| A Fish Called Wanda | 4.8% | 4.3%, 232 cues worse | **4.2%**, 202 worse |
+
+Against the pre-#110 baseline the shipped setting is now **196 cues better and 0 worse** on
+Cloverfield and **551 better and 0 worse** on Gone Girl. Wanda is the exception and has its own
+section below.
+
+### Why 512px was the wrong target
+
+#110 read the aspect ratio at 512px because that is where it converges on the outline's true value.
+That is the wrong thing to converge on. A component is *thresholded ink at subtitle size*, and
+thresholding at that size drops the partial columns at a glyph's edges — so a real disc draws its
+letters narrower than the outline says, and narrower by a bigger *fraction* the shorter the glyph
+is:
+
+| | `o` | `m` | `n` | `u` | `s` | `a` | `H` | `B` | `l` |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| outline minus disc, points | +5.0 | +4.3 | +4.3 | +4.3 | +3.7 | +3.2 | +2.2 | +1.6 | +0.4 |
+| at 56px, points | +2.2 | +1.9 | +1.7 | +1.7 | +1.7 | +2.2 | +3.8 | +1.2 | +0.6 |
+
+Rasterising the reference at 56px **reproduces** the material's quantisation instead of correcting
+for it. `xtask glyph-geometry` prints the whole sweep:
+
+```
+        px   mean gap    pairs   glyphs   which way the wrong ones point
+       512       2.66     8/15     1909   C->c O->o s->S u->U v->V
+       128       3.04     8/15     1909   C->c O->o s->S u->U v->V
+        96       3.03     8/15     1909   C->c O->o s->S u->U v->V
+        72       2.34     9/15     1889   C->c O->o s->S u->U v->V
+        56       1.59    11/15      134   C->c O->o W->w x->X
+        44       3.37     9/15     3287   C->c o->O s->S u->U W->w
+```
+
+**pairs** counts the confusable pairs — a letter against its own capital, and `l` against `I` —
+where the disc's measured ratio sits nearer its own entry than nearer its partner's. At 512 the
+disc's `s` is nearer `S`; at 56 it is not, and `s` → `S` disappears from the census.
+
+The half that makes it free: reading at 56 **widens** the gap the term exists for rather than
+narrowing it. `l` and `I` are 0.8 points apart in the outlines and **2.5 points** apart at 56px,
+because at that size the rasteriser lands their stems on different whole pixels — which is exactly
+what the material does. The weight window moves with it, from 340–540 down to **180–200**, and 190
+is the middle of what all three discs agree on.
+
+96px and 44px are in the table because they are where the term *stops working altogether*: at both,
+`l` and `I` rasterise to the same width and `l` → `I` stays at 308, 679 and 921 across the three
+discs. The size that reads this ratio is not free to be anything.
+
+### Where the pair is not there to be read
+
+A Fish Called Wanda is the same typeface at the same glyph height as Cloverfield — and it draws
+`l` and `I` **both five pixels wide**:
+
+| | `l` | `I` |
+| :--- | ---: | ---: |
+| Cloverfield | 5.00px, sd 0.00 | 6.00px, sd 0.00 |
+| Wanda | 5.01px | 5.00px (its outliers are fusions) |
+
+No reference set can separate them there, because the distinction is not in the ink. What the term
+does on that disc is move a coin toss: before it, every bare stem read `I` and 679 `l` were wrong;
+after it, every bare stem reads `l` and 420 `I` are wrong. CER improves by 0.6 points and 202 cues
+get worse, which is what a coin landing the other way looks like.
+
+It lands better because `l` outnumbers `I` in English by about five to one, and post-correction's
+context arm then recovers the capitals it can. But it is a **guess either way**, and the honest
+reading of Wanda is not that the term helped — it is that this pair is undecidable on that material
+and the census now says so with a number.
+
+### What is left on Cloverfield
+
+179 errors, against 508 before #110 and 24,522 characters scored:
+
+| release → read | errors | share |
+| :--- | ---: | ---: |
+| word spaces never read | 66 | **37%** |
+| `"` read as two `'` | 40 | 22% |
+| `I`, `!`, `i`, `l` read as `Í` | 16 | 9% |
+| everything else | 57 | 32% |
+
+Two of the three are segmentation rather than matching — a word space that was never split and a
+quotation mark that arrived as two components — and neither is a character the matcher got wrong.
+
+### Predictions, scored
+
+- **1. A works and B is not needed.** *Right, and for the stated reason.* The bias is quantisation
+  and quantisation is reproducible: rendering the reference near the material's size reproduces it
+  rather than modelling it. What was not predicted is that **one** sample at the right size would do
+  it — the issue expected to have to carry several and let the nearer win.
+- **2. A costs some ambiguity.** *Wrong — it costs none.* There is no extra entry: the same field is
+  read at a different size, so set size, scan count and extraction time are all unchanged.
+- **3. Neither reaches zero.** *Right.* `l` → `I` stays at 2 on Cloverfield, and on Wanda the pair
+  cannot be read at all.

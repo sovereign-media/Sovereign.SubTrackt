@@ -165,62 +165,164 @@ fn face(path: &str) -> anyhow::Result<Font> {
 /// found that difference carried a whole error class on its own.
 fn calibrate(labelled: &[Labelled], path: &str, reference: &ReferenceSet) -> anyhow::Result<()> {
     let font = face(path)?;
+    let upright: Vec<&Labelled> = labelled.iter().filter(|g| !g.italic).collect();
+    let drawn = drawn_by_the_disc(&upright, &font);
 
-    let px = subtrackt_glyph::font::RENDER_PX;
-
-    let cap_raster = f64::from(u32::try_from(font.metrics('H', px).height).unwrap_or(0));
-    let cap_ink = f64::from(ink_box(&font, 'H', px).map_or(0, |(_, height)| height));
-    anyhow::ensure!(
-        cap_raster > 0.0 && cap_ink > 0.0,
-        "{path} rasterises no capital H, so it has no cap height to scale against"
-    );
+    size_sweep(&drawn, &font);
 
     println!(
         "
-  width against cap height: what the font says, and what the disc drew"
+  aspect ratio per character: what the disc drew, and what each size predicts"
     );
-    println!(
-        "  {:>4} {:>7} {:>10} {:>10} {:>10} {:>10} {:>8} {:>7}",
-        "char", "n", "at 96px", "at 512px", "set", "disc", "disc sd", "off by"
-    );
-    let mut characters: Vec<char> = labelled.iter().map(|g| g.want).collect();
-    characters.sort_unstable();
-    characters.dedup();
-    for ch in characters {
-        let sample = Sample::new(values(
-            &labelled.iter().filter(|g| !g.italic).collect::<Vec<_>>(),
-            ch,
-            |g| (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height)),
-        ));
-        if sample.values.len() < MIN_SAMPLE {
-            continue;
-        }
-        let ink =
-            ink_box(&font, ch, px).map_or(0.0, |(width, _)| f64::from(width) * 100.0 / cap_ink);
-        let raster =
-            f64::from(u32::try_from(font.metrics(ch, px).width).unwrap_or(0)) * 100.0 / cap_raster;
-        // What the *set* carries is the number the matcher actually charges against, and the
-        // column beside it is the one that decides whether a width term can be weighted at all: a
-        // character the disc draws far from its own entry pays that gap on every glyph.
+    print!("  {:>4} {:>7} {:>8} {:>8}", "char", "n", "disc", "set");
+    for px in SHOWN {
+        print!(" {:>8}", format!("{px:.0}px"));
+    }
+    println!();
+    for (ch, sample) in &drawn {
         let carried = reference
             .entries()
             .iter()
-            .find(|e| e.character == ch && e.style == Style::Regular)
+            .find(|e| e.character == *ch && e.style == Style::Regular)
             .filter(|e| e.aspect.known)
             .map(|e| f64::from(e.aspect.permille) / 10.0);
-        println!(
-            "  {:>4} {:>7} {:>10.2} {:>10.2} {:>10} {:>10.2} {:>8.2} {:>7}",
+        print!(
+            "  {:>4} {:>7} {:>8.2} {:>8}",
             ch,
             sample.values.len(),
-            ink,
-            raster,
-            carried.map_or_else(|| "-".to_owned(), |w| format!("{w:.2}")),
             sample.mean(),
-            sample.sd(),
-            carried.map_or_else(|| "-".to_owned(), |w| format!("{:+.1}", sample.mean() - w))
+            carried.map_or_else(|| "-".to_owned(), |w| format!("{w:.2}"))
+        );
+        for px in SHOWN {
+            print!(
+                " {:>8}",
+                aspect_at(&font, *ch, px)
+                    .map_or_else(|| "-".to_owned(), |a| format!("{:+.1}", a - sample.mean()))
+            );
+        }
+        println!();
+    }
+    println!("  the size columns are the font's prediction minus what the disc drew");
+    Ok(())
+}
+
+/// Every character the disc drew often enough to have a mean worth comparing against.
+fn drawn_by_the_disc(upright: &[&Labelled], font: &Font) -> Vec<(char, Sample)> {
+    let mut characters: Vec<char> = upright.iter().map(|g| g.want).collect();
+    characters.sort_unstable();
+    characters.dedup();
+    characters
+        .into_iter()
+        .map(|ch| {
+            let sample = Sample::new(values(upright, ch, |g| {
+                (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height))
+            }));
+            (ch, sample)
+        })
+        .filter(|(_, sample)| sample.values.len() >= MIN_SAMPLE)
+        // A character the font draws no outline for is not a calibration failure, it is a space —
+        // and the smallest size in the sweep has to draw every one of the rest, or the rows below
+        // would be comparing different alphabets to each other.
+        .filter(|(ch, _)| {
+            !ch.is_whitespace() && SIZES.iter().all(|px| aspect_at(font, *ch, *px).is_some())
+        })
+        .collect()
+}
+
+/// The aspect ratio of one character's ink at one render size, as a percentage.
+fn aspect_at(font: &Font, ch: char, px: f32) -> Option<f64> {
+    let (width, height) = ink_box(font, ch, px)?;
+    (height > 0).then(|| f64::from(width) * 100.0 / f64::from(height))
+}
+
+/// Sizes the per-character table prints, chosen from what the sweep above finds.
+const SHOWN: [f32; 4] = [512.0, 96.0, 56.0, 44.0];
+
+/// Sizes the reference side is asked to predict the disc from.
+///
+/// #110 reads the ratio at 512px, where it has converged on the outline's true value. #113 asks
+/// whether that is the right thing to converge on: the runtime measures a ratio between two
+/// *integer* pixel counts, and a 33-pixel `s` that loses one column to rounding is 4% narrower than
+/// its outline. If the disagreement is quantisation then a font rasterised near the material's own
+/// size reproduces it, and one of these rows will be much better than the others.
+const SIZES: [f32; 12] = [
+    512.0, 256.0, 128.0, 96.0, 72.0, 56.0, 48.0, 44.0, 40.0, 36.0, 33.0, 30.0,
+];
+
+/// The pairs an aspect ratio is asked to decide, and the only ones it is asked to decide alone.
+///
+/// A letterboxed vector cannot separate a letter from its own capital — that is what #37's line
+/// metrics are for — and it cannot separate `l` from `I` at all. These are the pairs where the two
+/// members share a shape and the term is therefore load-bearing. Punctuation is deliberately absent:
+/// `!`, `'`, `,` and `"` have ratios as crowded as any case pair and shapes that separate them
+/// outright, so counting them would measure a rule nothing proposes.
+const CONFUSABLE: [(char, char); 9] = [
+    ('l', 'I'),
+    ('c', 'C'),
+    ('o', 'O'),
+    ('s', 'S'),
+    ('u', 'U'),
+    ('v', 'V'),
+    ('w', 'W'),
+    ('x', 'X'),
+    ('y', 'Y'),
+];
+
+/// How well the font predicts the disc, size by size.
+///
+/// Two statistics, because they answer different halves. The **mean gap** says how close the two
+/// sides are on average, weighted by how often the disc draws each character, and is what a distance
+/// term pays on every glyph. The **pairs** column is what decides #113: for each member of a
+/// confusable pair the disc drew, whether its measured ratio sits nearer its own font value than
+/// nearer its partner's. `s` → `S` is exactly one of those going the wrong way.
+fn size_sweep(drawn: &[(char, Sample)], font: &Font) {
+    println!("\n  how well the font predicts the disc, by the size it is rasterised at (#113)");
+    println!(
+        "  {:>8} {:>10} {:>8} {:>8}   which way the wrong ones point",
+        "px", "mean gap", "pairs", "glyphs"
+    );
+
+    for px in SIZES {
+        let (mut total, mut glyphs) = (0.0f64, 0usize);
+        for (ch, sample) in drawn {
+            let Some(own) = aspect_at(font, *ch, px) else {
+                continue;
+            };
+            total += (sample.mean() - own).abs() * sample.values.len() as f64;
+            glyphs += sample.values.len();
+        }
+
+        let (mut right, mut counted, mut wrong_glyphs) = (0usize, 0usize, 0usize);
+        let mut wrong: Vec<String> = Vec::new();
+        for (a, b) in CONFUSABLE {
+            for (member, partner) in [(a, b), (b, a)] {
+                let Some((_, sample)) = drawn.iter().find(|(c, _)| *c == member) else {
+                    continue;
+                };
+                let (Some(own), Some(other)) =
+                    (aspect_at(font, member, px), aspect_at(font, partner, px))
+                else {
+                    continue;
+                };
+                counted += 1;
+                if (sample.mean() - own).abs() <= (sample.mean() - other).abs() {
+                    right += 1;
+                } else {
+                    wrong_glyphs += sample.values.len();
+                    if wrong.len() < 5 {
+                        wrong.push(format!("{member}->{partner}"));
+                    }
+                }
+            }
+        }
+        println!(
+            "  {px:>8.0} {:>10.2} {:>8} {:>8}   {}",
+            total / glyphs.max(1) as f64,
+            format!("{right}/{counted}"),
+            wrong_glyphs,
+            wrong.join(" ")
         );
     }
-    Ok(())
 }
 
 /// Glyphs a character needs before its disc-side width is worth printing beside the font's.

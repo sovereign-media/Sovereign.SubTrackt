@@ -231,15 +231,28 @@ fn ink_bounds(mask: &BinaryMask) -> Option<Rect> {
 
 /// The size a character's aspect ratio is read at.
 ///
-/// Not [`RENDER_PX`], and #109 is the whole reason. `I` is 7% wider than `l` in Arial's outlines,
-/// which at 96 pixels is **six tenths of one pixel**: the rasteriser rounds both stems to nine and
-/// the difference is gone. It reappears at 128px and is stable from 256 up, so the ratio is read at
-/// a size where it has converged and the ratio — not the pixel count — is what is stored.
+/// Not [`RENDER_PX`], and not the size that reads the ratio most *accurately* either. Both of those
+/// were tried and measured, and the reason this is 56 is the whole of #113.
+///
+/// #109 established the problem: `I` is 7% wider than `l` in Arial's outlines, which at 96 pixels is
+/// six tenths of one pixel, so the rasteriser rounds both stems to nine and the difference is gone.
+/// #110 answered it by reading the ratio at **512px**, where it converges on the outline's true
+/// value — and that was the wrong target. A component is *thresholded ink at subtitle size*, and
+/// thresholding at that size drops the partial columns at a glyph's edges: a real disc draws its
+/// x-height letters 3 to 5 points narrower than the outline says, `o` by 5.0 and `s` by 3.6, while
+/// its capitals lose only 1 to 3 because they are taller. Reading the reference at 512 and the
+/// material at 40 compares two different measurements of the same quantity, which is #99's mistake
+/// in another form.
+///
+/// Rasterising at 56 reproduces the material's own quantisation instead of correcting for it, and
+/// across three discs it halves the disagreement — a mean gap of 1.59 points against 2.66 — while
+/// *widening* the gap it exists to read: `l` and `I` are 2.5 points apart here and 0.8 apart in the
+/// outlines. `docs/error-census.md` has the sweep and the per-character table.
 ///
 /// It costs one extra rasterisation per character at generation time and nothing at all at runtime.
-/// The shape vectors stay at [`RENDER_PX`]: a bigger render does not help *them*, because the grid
-/// they letterbox onto is sixteen cells wide either way. `docs/error-census.md` has the table.
-const ASPECT_PX: f32 = 512.0;
+/// The shape vectors stay at [`RENDER_PX`]: a smaller render does not help *them*, because the grid
+/// they letterbox onto is sixteen cells wide either way.
+const ASPECT_PX: f32 = 56.0;
 
 /// The aspect ratio of a character's ink.
 ///
