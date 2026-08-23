@@ -195,7 +195,7 @@ impl Labels {
 /// Returns [`Error::Config`] if the mask is large enough to exhaust the 32-bit label space, which
 /// takes a mask far larger than any subtitle plane.
 pub fn label(mask: &BinaryMask, filter: ComponentFilter) -> Result<Vec<Component>> {
-    label_with_map(mask, filter).map(|(components, _)| components)
+    run(mask, filter, false).map(|(components, _)| components)
 }
 
 /// Label components and say which of them owns each pixel.
@@ -205,10 +205,29 @@ pub fn label(mask: &BinaryMask, filter: ComponentFilter) -> Result<Vec<Component
 ///
 /// # Errors
 /// Same as [`label`].
+///
+/// # Panics
+/// Does not. The map is only absent when it was not asked for, and it is asked for here.
 pub fn label_with_map(
     mask: &BinaryMask,
     filter: ComponentFilter,
 ) -> Result<(Vec<Component>, LabelMap)> {
+    let (components, map) = run(mask, filter, true)?;
+    Ok((components, map.expect("asked for the map, so `run` produced one")))
+}
+
+/// The one labelling both entry points run.
+///
+/// `want_map` is not a micro-optimisation. Resolving every pixel to its component's label and then
+/// clearing the ones the filter rejected is a second and third pass over the whole plane, and the
+/// callers that want only boxes — `font`, `xtask body-box` — outnumber the one that wants ink.
+/// `a_full_width_subtitle_line_labels_correctly_and_quickly` is the reason it is a parameter rather
+/// than a comment: it caught exactly this.
+fn run(
+    mask: &BinaryMask,
+    filter: ComponentFilter,
+    want_map: bool,
+) -> Result<(Vec<Component>, Option<LabelMap>)> {
     let width = mask.width();
     let height = mask.height();
     let stride = width as usize;
@@ -260,7 +279,9 @@ pub fn label_with_map(
                 continue;
             }
             let root = labels.find(provisional_label);
-            provisional[y as usize * stride + x as usize] = root;
+            if want_map {
+                provisional[y as usize * stride + x as usize] = root;
+            }
             match &mut boxes[root as usize] {
                 Some(accumulator) => accumulator.add(x, y),
                 slot @ None => *slot = Some(Accumulator::new(x, y, root)),
@@ -277,15 +298,25 @@ pub fn label_with_map(
         .collect();
 
     components.sort_unstable_by_key(|c| (c.bounds.y, c.bounds.x));
+    if !want_map {
+        return Ok((components, None));
+    }
+
     // A pixel whose component the filter rejected is background as far as the map is concerned.
     // Leaving it labelled would let a caller walk ink that no `Component` in the list accounts for.
-    let kept: std::collections::HashSet<u32> = components.iter().map(|c| c.label).collect();
+    // Indexed rather than hashed: labels are dense and small, and this runs once per pixel.
+    let mut kept = vec![false; labels.count()];
+    for component in &components {
+        if let Some(slot) = kept.get_mut(component.label as usize) {
+            *slot = true;
+        }
+    }
     for slot in &mut provisional {
-        if !kept.contains(slot) {
+        if !kept.get(*slot as usize).copied().unwrap_or(false) {
             *slot = NO_LABEL;
         }
     }
-    Ok((components, LabelMap { width, height, labels: provisional }))
+    Ok((components, Some(LabelMap { width, height, labels: provisional })))
 }
 
 /// The already-visited neighbours of `(x, y)` in row-major order: W, NW, N, NE.
@@ -536,6 +567,62 @@ mod tests {
             elapsed.as_millis() < 100,
             "labelling took {elapsed:?}, expected well under 1ms"
         );
+    }
+
+    #[test]
+    fn a_full_width_subtitle_line_yields_its_label_map_quickly_too() {
+        // The map costs two more passes over the plane than the boxes do, and #121 put it on the
+        // extraction path. Guarded separately from the boxes because the two entry points do
+        // different amounts of work on purpose.
+        let (width, height) = (1920u32, 200u32);
+        let mut bits = vec![false; (width * height) as usize];
+        for block in 0..60u32 {
+            for y in 80..120u32 {
+                for x in block * 32..block * 32 + 20 {
+                    bits[(y * width + x) as usize] = true;
+                }
+            }
+        }
+
+        let mask = BinaryMask::from_bits(width, height, bits).unwrap();
+        let start = std::time::Instant::now();
+        let (components, map) = label_with_map(&mask, ComponentFilter::default()).unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(components.len(), 60);
+        assert_eq!(map.at(0, 80), components[0].label);
+        assert_eq!(map.at(0, 0), NO_LABEL, "background carries no label");
+        assert!(
+            elapsed.as_millis() < 100,
+            "labelling took {elapsed:?}, expected well under 1ms"
+        );
+    }
+
+    #[test]
+    fn a_component_the_filter_rejected_leaves_no_label_behind() {
+        // Otherwise a caller walking the map would find ink that no `Component` in the list
+        // accounts for, which is the same class of silent wrongness as a fabricated measurement.
+        let rows = ["#.....", "......", "..####", "..####", "..####", "..####"];
+        let (kept, map) = label_with_map(&mask(&rows), ComponentFilter::default()).unwrap();
+        assert_eq!(kept.len(), 1, "the single-pixel speck should have been dropped");
+        assert_eq!(map.at(0, 0), NO_LABEL);
+        assert_eq!(map.at(2, 2), kept[0].label);
+    }
+
+    #[test]
+    fn the_map_walks_a_component_and_not_its_neighbour_inside_the_same_box() {
+        // The property #121 turns on. The two shapes interleave, so each one's bounding box holds
+        // some of the other's ink, and only the label separates them.
+        let rows = ["...#..#.", "..#..#..", ".#..#...", "#..#...."];
+        let (components, map) =
+            label_with_map(&mask(&rows), ComponentFilter::permissive()).unwrap();
+        assert_eq!(components.len(), 2);
+        let left = components.iter().min_by_key(|c| c.bounds.x).unwrap();
+        assert!(left.bounds.right() > 3, "the boxes were meant to overlap");
+
+        let mut seen = 0u64;
+        map.for_each(left.label, left.bounds, |_, _| seen += 1);
+        assert_eq!(seen, left.pixels, "the walk found exactly its own ink");
     }
 
     #[test]
