@@ -96,11 +96,11 @@ pub struct MatchThresholds {
     /// `I` is eight tenths of a percent of cap height, so in whole percent it would be a difference
     /// of one point, and one point at the metric weight rounds to zero cells.
     ///
-    /// The setting is what `xtask width-sweep` measured against a real disc, and the sweep is in
-    /// `docs/glyph-stability.md`. It is deliberately at the low end of the window that works: for
-    /// the pair it exists to separate the shape distance is *zero*, so any positive weight decides
-    /// them, and everything above that is only risk to characters the disc draws a few points off
-    /// what the font predicts.
+    /// The setting is what `xtask width-sweep` measured, running the whole pipeline at each
+    /// candidate against **three** discs and scoring each result — 180 to 200 is the window all
+    /// three agree on, and 190 is its middle. Below it the term cannot move a cell; above it, it
+    /// starts overruling shape for characters a disc draws a point or two from what the reference
+    /// carries. `docs/error-census.md` has the sweep.
     pub width_weight_permille: u32,
 }
 
@@ -111,7 +111,7 @@ impl Default for MatchThresholds {
             ambiguity_margin_percent: 3,
             metric_weight_permille: 196,
             mark_weight_permille: 0,
-            width_weight_permille: 440,
+            width_weight_permille: 190,
         }
     }
 }
@@ -817,9 +817,10 @@ mod tests {
             mark: MarkSlope::NONE,
             aspect: InkAspect::new(permille),
         };
-        // Arial's outlines, read at the size where the ratio has converged.
-        let (narrow, wide) = (entry('l', 123), entry('I', 131));
-        // A glyph the disc drew five pixels wide on a forty-two pixel line.
+        // What a set carries for Arial: rasterised at the size subtitles are drawn at, where the
+        // stems land on different whole pixels the way the material's do.
+        let (narrow, wide) = (entry('l', 125), entry('I', 150));
+        // A glyph a real disc drew five pixels wide on a forty-two pixel line.
         let observed = InkAspect::new(119);
 
         let to_l = t.distance(&shape, metrics, MarkSlope::NONE, observed, &narrow);
@@ -833,15 +834,19 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_width_weight_is_the_middle_of_the_window_a_disc_measured() {
-        // Pinned so the setting is a decision rather than a number, and the arithmetic here is the
-        // floor `xtask width-sweep` found by measurement: below about 340 the term cannot separate
-        // this pair at all, because the difference it has to price rounds to zero cells. Above 540
-        // it starts overruling shape for characters the disc draws a few points from what the font
-        // predicts. 440 is the middle. See `docs/error-census.md`.
+    fn the_shipped_width_weight_is_the_window_three_discs_agree_on() {
+        // Pinned so the setting is a decision rather than a number. `xtask width-sweep` runs the
+        // whole pipeline at each candidate against three Blu-rays and scores every result: 180 to
+        // 200 is where all three are at their best, and 190 is the middle of it. See
+        // `docs/error-census.md`.
         let shipped = MatchThresholds::default();
-        assert_eq!(shipped.width_weight_permille, 440);
+        assert_eq!(shipped.width_weight_permille, 190);
 
+        // What the window's *ceiling* is for. `s` and `S` share a shape and differ in height, so
+        // #37's term is what should decide them and this one must not overrule it — and at 512px it
+        // did, because the outline's ratios sat on the wrong side of what the disc draws and the
+        // weight was high enough to charge for it. At the shipped pair of settings the two
+        // candidates cost the same, so the term declines to decide a pair it cannot see.
         let shape = vector(&[]);
         let entry = |character, permille| ReferenceEntry {
             character,
@@ -851,23 +856,30 @@ mod tests {
             mark: MarkSlope::NONE,
             aspect: InkAspect::new(permille),
         };
-        let (l, i) = (entry('l', 123), entry('I', 131));
-        // What the disc draws: five pixels on a forty-two pixel line.
-        let observed = InkAspect::new(119);
-        let gap = |t: MatchThresholds| {
-            let to = |e| t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::NONE, observed, e);
-            (to(&i), to(&l))
+        let to = |t: MatchThresholds, observed, e: &ReferenceEntry| {
+            t.distance(&shape, LineMetrics::UNKNOWN, MarkSlope::NONE, observed, e)
         };
-
-        let (wrong, right) = gap(MatchThresholds { width_weight_permille: 300, ..shipped });
+        let (capital, lower) = (entry('S', 738), entry('s', 774));
+        let observed = InkAspect::new(758);
         assert_eq!(
-            wrong, right,
-            "under the floor both differences round to zero and the pair is a tie again"
+            to(shipped, observed, &lower),
+            to(shipped, observed, &capital),
+            "an `s` between the two entries must be left to the term that can tell them apart"
         );
-        let (wrong, right) = gap(shipped);
+
+        // And the floor. `l` against `I` is 25 points, which the shipped weight turns into a cell
+        // and a weight of 60 does not — that is the bound the sweep found by measurement.
+        let (narrow, wide) = (entry('l', 125), entry('I', 150));
+        let stem = InkAspect::new(119);
         assert!(
-            wrong > right,
-            "at the shipped weight the wrong answer costs more: {wrong} against {right}"
+            to(shipped, stem, &narrow) < to(shipped, stem, &wide),
+            "the pair the term exists for has to be decided"
+        );
+        let below = MatchThresholds { width_weight_permille: 60, ..shipped };
+        assert_eq!(
+            to(below, stem, &narrow),
+            to(below, stem, &wide),
+            "under the floor the difference rounds to zero and the pair is a tie again"
         );
     }
 

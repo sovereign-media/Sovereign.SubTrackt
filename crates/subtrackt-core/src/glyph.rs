@@ -365,19 +365,19 @@ mod tests {
     }
 
     #[test]
-    fn the_l_and_i_gap_is_eight_tenths_of_a_percent_and_the_unit_has_to_hold_it() {
-        // The unit is the finding as much as the number is. Arial draws `l` at 12.3% of its own
-        // height and `I` at 13.1%, and in whole percent that is a difference of *one point* —
-        // which, priced at the weight #37 measured, buys zero cells. Eight tenths buys one, and
-        // one cell is all this pair needs: its shapes are identical and its heights are equal, so
-        // whatever the width term charges is the whole of the decision.
-        let l = InkAspect::new(123);
-        let i = InkAspect::new(131);
-        assert_eq!(l.difference(i), Some(8));
+    fn whole_percent_would_lose_the_decision_this_unit_exists_to_make() {
+        // The unit is the finding as much as the number is, and the case that needs it is not the
+        // pair the field was built for. A real disc draws `s` at 75.8% of its own height, and a set
+        // carries `s` at 77.4 and `S` at 73.8 — so the observation is 1.6 from one and 2.0 from the
+        // other, and the nearer one is right. Rounded to whole percent both distances are 2 and the
+        // decision is a coin toss.
+        let observed = InkAspect::new(758);
+        let (lower, upper) = (InkAspect::new(738), InkAspect::new(774));
+        assert!(observed.difference(upper) < observed.difference(lower));
         assert_eq!(
-            i.permille / 10 - l.permille / 10,
-            1,
-            "in whole percent the pair is one point apart, and one point rounds away"
+            (observed.permille / 10).abs_diff(upper.permille / 10),
+            (observed.permille / 10).abs_diff(lower.permille / 10),
+            "in whole percent the two are equidistant and nothing decides it"
         );
     }
 

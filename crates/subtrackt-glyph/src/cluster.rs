@@ -119,7 +119,7 @@ impl Default for ClusterRules {
             radius_percent: 0,
             metric_weight_permille: 196,
             mark_weight_permille: 0,
-            width_weight_permille: 440,
+            width_weight_permille: 190,
             refine_passes: 2,
         }
     }
@@ -493,7 +493,7 @@ mod tests {
             radius_percent: 8,
             metric_weight_permille: 196,
             mark_weight_permille: 0,
-            width_weight_permille: 440,
+            width_weight_permille: 190,
             refine_passes: 2,
         }
     }
