@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::config::DEFAULT_MIN_MATCHED;
 use subtrackt::config::Defusing;
-use subtrackt::{Config, UnmatchedPolicy, VocabularyRules};
+use subtrackt::{Config, ProvenancePolicy, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
 use crate::style::When;
@@ -194,6 +194,16 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "vocab_prefix")]
     pub no_vocab_prefix: bool,
 
+    /// Record what produced this file, and what it read, as a comment near the top.
+    ///
+    /// Forces one into `SubRip` too, which has no comment syntax -- see --no-provenance.
+    #[arg(long, overrides_with = "no_provenance")]
+    pub provenance: bool,
+
+    /// Write no such comment, in any format.
+    #[arg(long, overrides_with = "provenance")]
+    pub no_provenance: bool,
+
     /// Print the extraction summary to stderr.
     #[arg(long)]
     pub report: bool,
@@ -338,9 +348,9 @@ impl FitArgs {
 #[allow(clippy::doc_markdown)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Format {
-    /// SubRip.
+    /// `SubRip`.
     Srt,
-    /// WebVTT.
+    /// `WebVTT`.
     Vtt,
 }
 
@@ -430,6 +440,23 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether a provenance comment is written, and in which formats.
+    ///
+    /// Three-valued rather than a bool, because the default is not the same for both formats and
+    /// the reason is the formats themselves: `WebVTT` defines `NOTE` and `SubRip` defines no comment at
+    /// all. So the default writes one where there is somewhere legal to put it, `--provenance`
+    /// forces one into `SubRip` as leading text, and `--no-provenance` refuses both.
+    #[must_use]
+    pub fn provenance(&self) -> ProvenancePolicy {
+        if self.provenance {
+            ProvenancePolicy::Always
+        } else if self.no_provenance {
+            ProvenancePolicy::Never
+        } else {
+            Config::default().provenance
+        }
+    }
+
     /// Build the pipeline configuration these arguments describe.
     #[must_use]
     pub fn to_config(&self) -> Config {
@@ -439,6 +466,7 @@ impl ExtractArgs {
             defuse: self.defuse(),
             post_correct: self.post_correct(),
             track_vocabulary: self.track_vocabulary(),
+            provenance: self.provenance(),
             vocabulary: VocabularyRules {
                 min_occurrences: self.vocab_min_occurrences,
                 min_len: self.vocab_min_len,

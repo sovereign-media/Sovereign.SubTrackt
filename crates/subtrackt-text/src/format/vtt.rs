@@ -5,11 +5,18 @@
 
 use std::io::Write;
 
-use subtrackt_core::{Error, Result, TextTrack, Timestamp, TrackWriter};
+use subtrackt_core::{Error, Provenance, Result, TextTrack, Timestamp, TrackWriter};
 
 /// Writes a track as `WebVTT`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct VttWriter;
+///
+/// Unlike [`SrtWriter`](super::SrtWriter) this format has a comment syntax, so a provenance note
+/// costs nothing in validity. It is still `None` here rather than always-on, because the writer
+/// does not know what the caller wants recorded and an empty note would be worse than none.
+#[derive(Debug, Clone, Default)]
+pub struct VttWriter {
+    /// A note to write after the header, or `None` to write none.
+    pub provenance: Option<Provenance>,
+}
 
 /// Format a timestamp as `HH:MM:SS.mmm`.
 #[must_use]
@@ -45,6 +52,17 @@ impl TrackWriter for VttWriter {
             writeln!(out, "Language: {language}").map_err(io)?;
         }
         writeln!(out).map_err(io)?;
+
+        // `NOTE` is part of WebVTT, so this side needs no apology and no flag to be safe. The block
+        // runs from the keyword to the next blank line, which is why the note's own lines can carry
+        // no `-->` — `Provenance::new` takes that out.
+        if let Some(note) = self.provenance.as_ref().filter(|n| !n.is_empty()) {
+            writeln!(out, "NOTE").map_err(io)?;
+            for line in &note.lines {
+                writeln!(out, "{line}").map_err(io)?;
+            }
+            writeln!(out).map_err(io)?;
+        }
 
         for cue in track.cues.iter().filter(|c| !c.is_empty()) {
             write!(
@@ -92,7 +110,7 @@ mod tests {
     #[test]
     fn writes_a_header_and_a_cue() {
         let track = TextTrack::new(vec![cue(1_000, 3_500, &["Hello there."])], None);
-        let out = VttWriter.to_string(&track).unwrap();
+        let out = VttWriter::default().to_string(&track).unwrap();
         assert_eq!(out, "WEBVTT\n\n00:00:01.000 --> 00:00:03.500\nHello there.\n\n");
     }
 
@@ -100,7 +118,7 @@ mod tests {
     fn a_declared_language_lands_in_the_header() {
         let track = TextTrack::new(vec![cue(0, 1_000, &["Bonjour"])], Some("fr".into()));
         assert!(
-            VttWriter
+            VttWriter::default()
                 .to_string(&track)
                 .unwrap()
                 .contains("Language: fr\n")
@@ -110,7 +128,7 @@ mod tests {
     #[test]
     fn markup_characters_in_dialogue_are_escaped() {
         let track = TextTrack::new(vec![cue(0, 1_000, &[">> Fish & chips <ahem>"])], None);
-        let out = VttWriter.to_string(&track).unwrap();
+        let out = VttWriter::default().to_string(&track).unwrap();
         assert!(out.contains("&gt;&gt; Fish &amp; chips &lt;ahem&gt;"), "{out}");
     }
 
@@ -118,7 +136,7 @@ mod tests {
     fn forced_cues_are_marked_rather_than_flattened_in_with_the_rest() {
         let mut forced = cue(0, 1_000, &["[speaking Klingon]"]);
         forced.forced = true;
-        let out = VttWriter
+        let out = VttWriter::default()
             .to_string(&TextTrack::new(vec![forced], None))
             .unwrap();
         assert!(out.contains("--> 00:00:01.000 line:-1 align:center"), "{out}");
@@ -131,7 +149,12 @@ mod tests {
 
     #[test]
     fn an_empty_track_still_writes_a_valid_header() {
-        assert_eq!(VttWriter.to_string(&TextTrack::default()).unwrap(), "WEBVTT\n\n");
+        assert_eq!(
+            VttWriter::default()
+                .to_string(&TextTrack::default())
+                .unwrap(),
+            "WEBVTT\n\n"
+        );
     }
 
     #[test]
@@ -141,13 +164,20 @@ mod tests {
         // stays text.
         let mut c = cue(0, 1_000, &["a < b"]);
         c.italic = vec![true];
-        let out = VttWriter.to_string(&TextTrack::new(vec![c], None)).unwrap();
+        let out = VttWriter::default()
+            .to_string(&TextTrack::new(vec![c], None))
+            .unwrap();
         assert!(out.contains("<i>a &lt; b</i>"), "{out}");
     }
 
     #[test]
     fn a_cue_with_no_flags_carries_no_markup() {
         let track = TextTrack::new(vec![cue(0, 1_000, &["Plain text."])], None);
-        assert!(!VttWriter.to_string(&track).unwrap().contains("<i>"));
+        assert!(
+            !VttWriter::default()
+                .to_string(&track)
+                .unwrap()
+                .contains("<i>")
+        );
     }
 }

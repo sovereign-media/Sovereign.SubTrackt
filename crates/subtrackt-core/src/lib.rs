@@ -23,5 +23,5 @@ pub use glyph::{
 };
 pub use progress::{Phase, Progress, Silent};
 pub use stage::{BitmapDecoder, GlyphMatcher, Segmenter, TextAssembler, TrackWriter};
-pub use subtitle::{Confidence, Cue, SubtitleFormat, SubtitleImage, TextTrack};
+pub use subtitle::{Confidence, Cue, Provenance, SubtitleFormat, SubtitleImage, TextTrack};
 pub use time::{PTS_HZ, TimeSpan, Timestamp};

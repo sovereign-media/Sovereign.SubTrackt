@@ -21,8 +21,8 @@ use subtrackt_glyph::matcher::HammingMatcher;
 use subtrackt_glyph::reference;
 use subtrackt_glyph::split::{self, SplitRules};
 use subtrackt_text::correct::{ContextCorrector, CorrectionLog, NoopCorrector, PostCorrector};
+use subtrackt_text::format::writer_with_provenance;
 use subtrackt_text::layout::SpatialAssembler;
-use subtrackt_text::writer_for;
 
 use crate::config::{Config, UnmatchedPolicy};
 use crate::report::Report;
@@ -87,7 +87,24 @@ impl Outcome {
     /// # Errors
     /// Propagates writer failures.
     pub fn render(&self, config: &Config) -> Result<String> {
-        writer_for(config.format).to_string(&self.track)
+        self.render_dated(config, crate::provenance::today_utc())
+    }
+
+    /// Serialise the track, with the date the note should carry supplied rather than read.
+    ///
+    /// [`Self::render`] reads the clock, which makes it the one function in this crate whose output
+    /// is not a function of its inputs. That is unavoidable — #129 asks for the date — but it is
+    /// containable, and this is the containment: a caller that needs the same bytes twice, and
+    /// every test that compares output, goes through here.
+    ///
+    /// # Errors
+    /// Propagates writer failures.
+    pub fn render_dated(&self, config: &Config, today: (i64, u32, u32)) -> Result<String> {
+        let note = config
+            .provenance
+            .writes(config.format)
+            .then(|| crate::provenance::note(&self.report, today));
+        writer_with_provenance(config.format, note).to_string(&self.track)
     }
 }
 

@@ -132,6 +132,36 @@ pub enum Defusing {
     Off,
 }
 
+/// Whether an extracted file records what produced it.
+///
+/// Three-valued rather than a `bool` because the honest answer differs by format, and #129 did not
+/// want that difference buried in a caller. **`WebVTT` has `NOTE`; `SubRip` has no comment syntax at
+/// all** — a note there is text before the first cue, which our parser skips and most parsers skip
+/// and a strict one may refuse. So the default writes one where the format defines somewhere to
+/// put it, and asking for the other case is explicit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProvenancePolicy {
+    /// A note where the format has syntax for one: `WebVTT` yes, `SubRip` no.
+    #[default]
+    WhereLegal,
+    /// A note in every format, including `SubRip`'s non-standard leading text.
+    Always,
+    /// No note. The bytes are what the format defines and nothing else.
+    Never,
+}
+
+impl ProvenancePolicy {
+    /// Whether a note should be written for this format.
+    #[must_use]
+    pub const fn writes(self, format: SubtitleFormat) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Never => false,
+            Self::WhereLegal => matches!(format, SubtitleFormat::Vtt),
+        }
+    }
+}
+
 /// combinations that do not exist and hide the ones that do.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -161,6 +191,8 @@ pub struct Config {
     pub layout: LayoutRules,
     /// What happens to unread glyphs.
     pub unmatched: UnmatchedPolicy,
+    /// Whether the written file records what produced it, and what it read.
+    pub provenance: ProvenancePolicy,
     /// Whether ambiguous reads are resolved from the characters around them.
     ///
     /// Off, and `docs/post-correction.md` records the measurement that keeps it there rather than

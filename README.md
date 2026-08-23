@@ -259,6 +259,7 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
 | `--on-unmatched <POLICY>` | `threshold` | What to do about glyphs the matcher cannot identify. See below. |
 | `--min-matched <RATIO>` | `0.90` | With `threshold`, the fraction that must match. Rejected at parse time outside `0.0..=1.0`. |
 | `--report` | off | Print the extraction summary to stderr. |
+| `--provenance` / `--no-provenance` | see below | Record what produced the file, and what it read, as a comment near the top. |
 | `--defuse` / `--no-defuse` | on | Retry a component the matcher cannot read as two characters that touched. |
 | `--post-correct` / `--no-post-correct` | off | Resolve ambiguous reads from surrounding characters. |
 | `--track-vocabulary` / `--no-track-vocabulary` | off | Also resolve word-edge glyphs from words the same track read clearly. Needs `--post-correct`. |
@@ -266,6 +267,25 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
 | `--vocab-min-len <N>` | library default | Shortest word the vocabulary arm may correct. |
 | `--vocab-prefix` / `--no-vocab-prefix` | on | Let a candidate match the *start* of a clear word, so `look` is supported by a clear `looking`. |
 | `--include-outline` | off | Include the glyph outline in the foreground mask, not just the fill. |
+
+**Extracted files can say what made them.** A `WebVTT` file carries a `NOTE` block by default; a
+SubRip file carries nothing, because **`SubRip` has no comment syntax at all** and a note there is
+text before the first cue — which our own scorer skips, which most parsers skip, and which a strict
+one is entitled to reject. `--provenance` forces one into SubRip anyway, `--no-provenance` refuses
+both.
+
+```
+NOTE
+Extracted by subtrackt 0.0.2-alpha on 2026-08-23
+reference set: arial-ri
+glyphs: 66370 matched, 68 unmatched, 7046 ambiguous (99.9% read)
+mean match distance: 11.7
+```
+
+Every line is a count or a measurement. **There is no character error rate, and there cannot be** —
+CER needs a reference transcript and an extraction has none, so a file claiming its own accuracy
+would be the confident wrong answer this whole design exists to avoid. What it records instead is
+the reference set, which is the half of a bad read that is otherwise untraceable months later.
 
 **Italic lines are tagged.** A line the ink shows was set in a leaning face is written `<i>`, in both
 formats. The decision is a measurement of the line's own slant rather than a reference lookup, so it
