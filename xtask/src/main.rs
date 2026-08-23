@@ -13,9 +13,11 @@ mod accuracy;
 mod bigram;
 mod bodybox;
 mod disc;
+mod dump;
 mod fit;
 mod fixture;
 mod fontid;
+mod geometry;
 mod mark;
 mod pairs;
 mod refmatch;
@@ -159,6 +161,8 @@ fn main() -> anyhow::Result<()> {
         Some("set-pairs") => return pairs::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
+        Some("dump-sup") => return dump::run(&args[1..]),
+        Some("glyph-geometry") => return geometry::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
         Some("shape-votes") => return voting::run(&args[1..]),
         _ => {}
@@ -180,6 +184,8 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask mark-sweep [font.ttf]");
     eprintln!("  xtask body-box [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
+    eprintln!("  xtask dump-sup <media> <out.sup> [--stream N]");
+    eprintln!("  xtask glyph-geometry <media> <reference.subtref> <release.srt> [--pair lI]");
     eprintln!("  xtask unread <media> <reference.subtref>");
     eprintln!("  xtask shape-votes <media> <reference.subtref>");
     std::process::exit(2);

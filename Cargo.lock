@@ -514,6 +514,7 @@ dependencies = [
  "subtrackt",
  "subtrackt-core",
  "subtrackt-decode",
+ "subtrackt-demux",
  "subtrackt-glyph",
  "subtrackt-text",
 ]

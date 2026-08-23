@@ -442,3 +442,129 @@ metrics at all is **refused** rather than given fabricated ones, which is the ch
 256-bit vector, the same height, so neither the shape representation nor #37's line metrics carries
 a single bit that separates them. Post-correction's context arm already fires on it and nothing
 else, and 330 still come out wrong.
+
+## The evidence that separates `l` from `I`, and why nothing had seen it
+
+[#109](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/109). The section above calls
+`l` → `I` "the first accuracy issue this project has had where the problem is not evidence nothing
+consults but **evidence that does not exist**". That is wrong, and the correction is worth more than
+the finding: the evidence exists, it is in the font file, and the reason no instrument had ever
+reported it is that **the one number that carries it is measured at too low a fidelity to survive**.
+
+In Arial's outlines, `I` is **7% wider than `l`** — 13.11% of cap height against 12.30%. At
+[`RENDER_PX`](../crates/subtrackt-glyph/src/font.rs), the 96 pixels a reference set is generated at,
+that difference is **six tenths of one pixel**. The rasteriser rounds both stems to nine pixels wide
+and they become the same shape, at distance zero, exactly as #10 measured. It reappears at 128px and
+is stable from 256 up:
+
+```
+  thr 128     96px cap   69   i:  9px 13.04%   l:  9px 13.04%   I:  9px 13.04%
+  thr 128    128px cap   92   i: 11px 11.96%   l: 11px 11.96%   I: 12px 13.04%
+  thr 128    256px cap  183   i: 22px 12.02%   l: 23px 12.57%   I: 24px 13.11%
+  thr 128    512px cap  366   i: 45px 12.30%   l: 45px 12.30%   I: 48px 13.11%
+  thr 128   1024px cap  733   i: 90px 12.28%   l: 89px 12.14%   I: 96px 13.10%
+```
+
+Nothing is wrong with the typeface, the reference set or the matcher. One measurement is taken at a
+resolution below the thing it would have to show, and everything downstream inherits the answer.
+
+### The instrument
+
+`xtask glyph-geometry <media> <set> <release.srt> [--font F] [--italic F]`. It needs something no
+bench here had: a **label**. `xtask unread` describes glyphs the matcher would not call and
+`xtask srt-score` counts characters the release disagrees with, but neither can point at a glyph and
+say *the release says this one was an `l`*. This aligns the read text against the release cue by cue
+and carries the alignment back to the glyph behind each character, so every measurement below is a
+distribution over glyphs of known identity.
+
+The alignment is [`disc::trace`], the same traceback the confusion census runs, read for its
+*matches* rather than its errors — one pass, two readings, so a label and a census row can never
+disagree about what happened in a cue.
+
+[`disc::trace`]: ../xtask/src/disc.rs
+
+### What the disc drew
+
+818 paired cues, 20,328 labelled glyphs, upright act only:
+
+| measured on the disc | `l` (n=612) | `I` (n=255) | best cut errs on |
+| :--- | ---: | ---: | ---: |
+| **ink width, pixels** | 5.00, sd 0.00 | 6.00, sd 0.00 | **0.0%** |
+| ink width, % of cap height | 11.86, sd 0.22 | 14.29, sd 0.56 | 0.2% |
+| advance to the next character | 27.43, sd 3.45 | 29.49, sd 3.31 | 14.0% |
+| gap to the next character | 15.57, sd 3.42 | 15.08, sd 2.75 | 14.1% |
+
+**Every `l` on this disc is exactly five pixels wide and every `I` is exactly six**, with no spread
+at all in either class. The pair that sits at distance zero in the reference set is not ambiguous in
+the material for a moment.
+
+### The number that decides it is not the best cut
+
+A threshold chosen on the disc's own two populations is guaranteed to separate them and says nothing
+about whether anything could have *predicted* it — it is the absolute-pixel constant `CLAUDE.md`
+forbids, fitted. The figure that matters is the cut halfway between what the **font** draws, which
+is a number a reference set could carry and which nothing on the disc was consulted to choose:
+
+```
+  the font draws l at 12.30% of cap height, I at 13.11%
+  the threshold halfway between them: 12.70%
+    l: 2 of 612 on the wrong side (cue 144 line 1 at 15.6% of a 32px cap; cue 270 line 1, the same)
+    I: 0 of 255 on the wrong side
+  2 of 867 — 0.2%
+```
+
+**865 of 867 glyphs land on the side the typeface predicts.** Both misses are the same case and it
+is named rather than swept up: a line whose cap height measured 32 pixels instead of the disc's usual
+42, where a stem the renderer would not draw thinner than five pixels is 15.6% of a short cap rather
+than 11.9% of a full one. The ratio is scale-free; the *rasteriser* is not, and there is a floor
+under how thin a stem it will draw. That is a real hazard at small sizes and it costs two glyphs
+here.
+
+### Advance width — #109's candidate A — is the weak one, and it was the prediction
+
+#109 predicted that the advance separates and that the ink cannot, on the grounds that the ink is
+what the shape vector already sees. Both halves are wrong, and in the same way: the vector sees the
+ink **letterboxed onto a 16-cell grid**, where a fifth of a pixel of cap height is far below one
+cell. The ink was never the thing that could not carry it. The quantisation was.
+
+Advance errs on 14% of the pair for a reason worth keeping: it is measured to the *next glyph's* ink,
+so it carries that character's left side bearing as noise, and `l` is commonly followed by another
+`l`. It is a real signal — 27.4% against 29.5% — buried under a spread three times its size.
+
+### The italic act, where it does not work
+
+| italic, measured on the disc | `l` (n=51) | `I` (n=6) |
+| :--- | ---: | ---: |
+| ink width, % of cap height | 31.44, sd 5.79 | 20.50, sd 9.86 |
+| stem width (ink ÷ height) | 12.75, sd 0.33 | 13.66, sd 0.75 |
+
+A slanted stem's bounding box is mostly slant: Arial Italic draws `l` at 33.06% of cap height and
+`I` at 34.43%, so the *relative* difference collapses from 7% to 4% and falls under the pixel grid
+again. Dividing the ink by the height takes the slant back out and recovers a stem width close to the
+upright figure — but the two classes then sit 12.75 against 13.66 with the cut at 12.86, and 25 of 57
+land on the wrong side.
+
+This costs less than it sounds. The italic cut's own `l` and `I` are **3 cells apart** rather than
+zero — the slanted boxes have different aspect ratios, so the shape vector already separates them —
+and the census records 4 italic errors of this kind against 330 upright. The italic act is not the
+problem and a width term must not be allowed to make it one.
+
+### What it settles
+
+`l` → `I` is 65% of what is left on this disc and it is **not** a case of missing evidence. It is one
+measurement taken at 96 pixels that needs to be taken at 512, carried on the reference entry beside
+the line metrics #37 added, and priced by a swept weight the way every other term here is. That is
+[#110](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/110), with its prediction
+recorded there.
+
+### Reproducing
+
+`xtask dump-sup` is what makes this affordable. The disc is 5.5 GB on a network share and its
+subtitle track is 16 MB; the dump is a re-framing rather than a transcode, and extracting the rip and
+extracting the dump produce byte-identical subtitles.
+
+```console
+$ cargo run -p xtask -- dump-sup movie.mkv clover.sup
+$ cargo run -p xtask -- glyph-geometry clover.sup arial-ri.subtref release.eng.srt \
+      --font C:/Windows/Fonts/arial.ttf --italic C:/Windows/Fonts/ariali.ttf
+```
