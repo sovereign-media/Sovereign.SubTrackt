@@ -181,12 +181,19 @@ nothing erroring and no counter moving. So `xtask metric-sweep` was re-run on al
 `metric_weight_permille` stays at 196. It is still the argmin on every condition that has one, which
 is the answer this check was run to get rather than one it was assumed to give.
 
-## What is now the largest error class
+## What was the largest error class after this
 
 `l` read as `I` — 330 errors, **48% of what remains**, exactly where the full stop used to sit. It
 is untouched by any of this, and it is the pair #10 measured at distance *zero*. Post-correction's
 context arm already fires on it: all 363 corrections on this track are `I` → `l` and nothing else,
 and 330 of the pair still come out wrong afterwards.
+
+**#110 then closed it, by the same kind of change as this one.** A reference entry carries the
+character's ink aspect ratio — a measurement the 16-cell grid rounds away, exactly as the letterbox
+above was a measurement the rasteriser's box rounded away — and `l` → `I` fell from 330 to **2**,
+taking the disc to 0.8% and the ceiling fixture to 1.2%. The corrections fell with it, 363 to 3.
+[`error-census.md`](error-census.md) has that measurement, and the lesson the two share: the failure
+was never in the vector, it was in what the vector was not carrying.
 
 ## Reproducing
 

@@ -36,7 +36,6 @@ anstyle-query = "1"
 clap = { version = "4", features = ["derive"] }
 fontdue = "0.9"
 miniz_oxide = "0.8"
-thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

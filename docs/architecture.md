@@ -12,17 +12,18 @@ restate the design.
  demux ──► decode ──► binarize ──► segment ──► vectorize ──► match ──► assemble ──► write
    │         │           │           │            │           │           │           │
   (done)    (done)     (done)      (done)      (done)      (done)      (done)      (done)
+```
 
 Every stage is built, and the pipeline reads a Blu-ray rip end to end. What it cannot do is name
 characters *out of the box*, because nothing is embedded to match against — a decision rather than
 a gap, and the reason is in [reference-set.md](reference-set.md). Given a reference set built from
-the material's own typeface it reads text at 12.8% character error; given one built from a
-near-identical typeface, 26.8%. #43 closed that gap by fitting the set to the title instead of
-to the binary. #63 asked the part that survived — can anything tell a good fit from a bad one
-without ground truth — and the answer is no, across five statistics and two distinct mechanisms. So
-the choice is reported to the user rather than made by the tool, permanently rather than for now.
-See [fit-confidence.md](fit-confidence.md).
-```
+the material's own typeface it reads a real disc at 0.6% character error and a library of 47 titles
+at 13.56%; given one built from a near-identical typeface, it loses 11 points. #43 and #62 closed
+that gap by fitting the set to the title instead of to the binary. #63 asked the part that survived
+— can anything tell a good fit from a bad one without ground truth — and the answer is no, now
+across six statistics and three distinct mechanisms. So the choice is reported to the user rather
+than made by the tool, permanently rather than for now. See [fit-confidence.md](fit-confidence.md)
+and [library-accuracy.md](library-accuracy.md).
 
 Each stage is a trait in `subtrackt-core::stage`, implemented in a stage crate, and wired together
 by `subtrackt::Pipeline`. No stage crate depends on another stage crate — the dependency graph is a
@@ -34,27 +35,36 @@ fan with `subtrackt-core` at the hub. That is what lets an unimplemented stage b
 | Crate | Contains |
 | :--- | :--- |
 | `subtrackt-core` | Types every stage speaks: `Timestamp`, `IndexedBitmap`, `Palette`, `FeatureVector`, `Cue`, `Confidence`, `Error`, and the stage traits |
-| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, container reader (stub) |
+| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, native Matroska reader; MP4 and MPEG-TS are stubs |
 | `subtrackt-decode` | PGS and VOBSUB packet decoders |
 | `subtrackt-glyph` | Binarization, connected components, diacritic grouping, feature vectoring, the reference set, the matcher and the session cache |
 | `subtrackt-text` | Layout reconstruction, post-correction, SRT and WebVTT writers |
 | `subtrackt` | Pipeline orchestration, configuration, the accuracy gate, the report |
 | `subtrackt-cli` | The `subtrackt` binary |
 
-### Every library crate has zero dependencies
+### The library crates take one dependency, and it had to argue for itself
 
-`subtrackt-core` through `subtrackt` depend on nothing outside the standard library. `clap`,
-`anyhow` and `tracing` live in `subtrackt-cli` and nowhere else.
+`subtrackt-core` through `subtrackt` depend on nothing outside the standard library except
+`miniz_oxide`, which `subtrackt-demux` uses for zlib. `clap`, `anyhow`, `tracing` and the
+`anstyle`/`anstream`/`anstyle-query` colour stack live in `subtrackt-cli` and nowhere else.
 
-This is not asceticism. Issue #1 asks for a single static binary, and #16 leaves open whether the
-deliverable is a CLI at all or a `cdylib` behind P/Invoke from `Sovereign.Media`. A dependency-free
-library core means that decision costs a new crate rather than an audit of a transitive tree, and it
-keeps cross-compilation to `linux/arm64` uneventful. The one place it costs something is
-`Error`, whose `Display` and `Error` impls are written out by hand instead of derived with
-`thiserror`.
+This is not asceticism. Issue #1 asks for a single static binary, and #16 left open whether the
+deliverable was a CLI at all or a `cdylib` behind P/Invoke from `Sovereign.Media`. A near
+dependency-free library core meant that decision cost a new crate rather than an audit of a
+transitive tree, and it keeps cross-compilation to `linux/arm64` uneventful. The one place it costs
+something is `Error`, whose `Display` and `Error` impls are written out by hand instead of derived
+with `thiserror`.
 
-The rule to hold: a dependency in a library crate needs a reason that outweighs the above. So far
-none has.
+**The rule is "justify it", not "never".** Two have. `miniz_oxide` because 83% of the library's PGS
+tracks are zlib-compressed inside Matroska, so refusing it meant failing on most of the library and
+hand-rolling inflate — not this project's problem domain, and a subtle Huffman bug produces garbage
+bitmaps. `fontdue` in `subtrackt-glyph`, behind an **off-by-default `font` feature**, so a
+downloaded binary can render its own reference sets (#80) while a consumer who does not opt in keeps
+the tree above. Both are pure Rust with no build script.
+
+Feature unification makes that second property breakable from a manifest that never mentions
+`subtrackt-glyph`, so `scripts/check.sh` and CI both assert the `subtrackt` library tree is exactly
+`adler2 miniz_oxide`. `CLAUDE.md` has the full reasoning.
 
 ## What is implemented
 
@@ -91,12 +101,27 @@ Complete and tested:
 - The accuracy gate and the extraction report.
 - SRT and WebVTT writers.
 - The pipeline wiring, end to end.
-
 - **VOBSUB decoding, complete**: control sequences, out-of-band palette, nibble RLE.
 - **Glyph matching, complete**: linear scan by Hamming distance with a line-relative metric term,
   the runner-up margin that flags an ambiguous read, and the session cache.
-- **Post-correction**: ambiguous reads resolved from the characters either side of them, off by
-  default. [post-correction.md](post-correction.md) records the measurement behind that default.
+- **Post-correction**: ambiguous reads resolved from the characters either side of them, and from
+  the track's own vocabulary, off by default. [post-correction.md](post-correction.md) records the
+  measurement behind that default.
+- **Reference-set generation and fitting**: `gen-reference` renders a font — or a directory of them
+  — through the same normalisation the runtime applies, carrying separate entries for italic and
+  bold cuts; `fit` scores a directory of candidates against a title and proposes a winner.
+  [reference-set.md](reference-set.md) and [fit-confidence.md](fit-confidence.md).
+- **The ink aspect ratio on a reference entry**, read at the size subtitles are drawn at rather than
+  at the outline's converged value. It is what separates `l` from `I`, which are the same 256-bit
+  vector at the same height, and it halved a real disc's error rate. [error-census.md](error-census.md).
+- **De-fusing**: a component the matcher cannot read is retried as two characters that touched, and
+  the cut is kept only if every part reads. On by default; it recomputes a foreground mask only for
+  images that failed, so it costs about 2.4 s on a 1.7 GB rip.
+- **The line's own slant**, estimated per line from its ink and used twice: word gaps are measured
+  between deskewed extents rather than between bounding boxes, and a leaning line is tagged `<i>` on
+  the output. A regular-only set additionally *samples* along the slant, which switches itself off
+  the moment the set carries an italic cut. [italic-slant.md](italic-slant.md).
+- Colour, a spinner and a progress bar on stderr, all off when stderr is not a terminal.
 
 Stubbed, returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#86, and see
 below). Nothing else is a stub — the empty reference set is a decision, not a placeholder.
@@ -236,7 +261,7 @@ closed, which is what closed #1 — kept here so the answers are findable from t
 | :--- | :--- | :--- |
 | 16×16 versus 32×32 grid | `subtrackt_core::glyph::FEATURE_GRID` | #7 — no consistent gain; 16 stays. `docs/glyph-stability.md` |
 | Where a reference set comes from | `subtrackt_glyph::reference` | #9, then #43 — embed nothing, fit to the title. `docs/reference-set.md` |
-| Word spacing | `subtrackt_text::layout::is_space` | #40 — the median-gap threshold missed half of them |
+| Word spacing | `subtrackt_text::layout::is_space` | #40 — the median-gap threshold missed half of them; #121 — measure the gap between *deskewed* ink. `docs/italic-slant.md` |
 | CLI versus `cdylib`, and where it runs | `subtrackt-cli` | #16 — CLI. `docs/distribution.md` |
 | A cue with an unmatched glyph | `subtrackt::config::UnmatchedPolicy` | #13, below |
 | Session cache scope, and cluster-then-match | `subtrackt_glyph::cache` | #10 — clustering measured worse and ships off |
@@ -248,10 +273,11 @@ garbage rather than to nothing, which is worse than the status quo". Fitting the
 answered which set to use; it did not answer how to know the fit was right. A mismatched set reads
 ~73% correct and ~27% confidently wrong with no counter saying which is which — the one place in
 this pipeline where a failure is not a fact. That is **#63**, and it closed by measuring that
-nothing can make it one: five statistics, the last of which escaped the bias that killed the first
-four and broke on decode noise instead. The fitted set is a proposal the user accepts rather than a
-decision the tool makes (#62), and that is now the permanent answer rather than a placeholder.
-[fit-confidence.md](fit-confidence.md) has the five and the two mechanisms.
+nothing can make it one: six statistics now, of which the fifth escaped the bias that killed the
+first four and broke on decode noise instead, and the sixth — #101's language prior over the output
+text — escaped both and failed for a third form of the first. The fitted set is a proposal the user
+accepts rather than a decision the tool makes (#62), and that is now the permanent answer rather
+than a placeholder. [fit-confidence.md](fit-confidence.md) has the six and the three mechanisms.
 
 ### The accuracy gate
 
@@ -281,14 +307,22 @@ A floor against a track that could not be *read*, not a standard for one read *w
 measurements bound it from opposite sides and they do not leave much room.
 
 **From above: the pipeline's own ceiling.** A fixture read with a reference set built from the very
-font that rendered it matches **93.9%** of its glyphs — the rest is punctuation the segmenter still
-shatters, not typeface mismatch. Any floor above that refuses the best read this pipeline can
-currently produce, which is precisely how `FailTrack` failed, one order of magnitude less obviously.
-That constraint is not permanent and the floor should be revisited when it lifts.
+font that rendered it matched **93.9%** of its glyphs when this was chosen — the rest punctuation
+the segmenter shattered, not typeface mismatch. Any floor above that refuses the best read this
+pipeline can produce, which is precisely how `FailTrack` failed, one order of magnitude less
+obviously.
 
 **From below: the corpus.** 48 of 56 titles sit at or above 90%. That is the one value the survey
 reports a title count for rather than one interpolated between its rows, which is worth more here
 than a rounder-sounding number would be.
+
+**Both bounds have since moved, and the floor has not been re-cut.** #99 and #110 took the ceiling
+fixture to **99.7%** coverage — one unread glyph, half a colon — and a real disc to 99.5%, so the
+upper bound is no longer anywhere near 0.90. [library-accuracy.md](library-accuracy.md) then
+supplied the corpus re-survey #13 was waiting on: across 47 titles the median glyph read rate is
+99.7% where the reference set fits and 89.9% where it does not, which is the first evidence that
+0.90 sits at a real boundary rather than at a convenient one. Raising it is still not worth much,
+for the reason the next paragraph gives.
 
 Nine unread glyphs in a hundred is not good text, and 0.90 is not a claim that it is. It is the
 point below which the burn-in fallback is unarguably the better answer.
@@ -345,8 +379,8 @@ Measured on the scaffold (~4k lines, 7 crates): clean workspace build 5.7s, no-o
 rebuild after touching a leaf crate 1.4s, after touching `subtrackt-core` 1.8s.
 
 The shape of the problem here is unusual and worth knowing before reaching for the standard advice.
-The usual Rust CI caching guidance exists to avoid recompiling *dependencies* — but every library
-crate in this workspace has none, and all 49 third-party crates in the lockfile are pulled in by
+The usual Rust CI caching guidance exists to avoid recompiling *dependencies* — but the library
+crates have one between them, and almost every third-party crate in the lockfile is pulled in by
 `subtrackt-cli` alone. `Swatinem/rust-cache` deliberately does not cache workspace-own crates, since
 a stale one is worse than a slow build. So as this grows, the thing that grows is precisely the
 thing dependency caching does not help with.
@@ -382,6 +416,10 @@ Per-job wall clock, before any of this work and after, on an unchanged commit:
 | x86_64-unknown-linux-gnu | 51s | 35s | 75s |
 | aarch64-unknown-linux-gnu | 65s | 54s | 80s |
 
+The MSRV row is kept because it is part of the measurement; **that job no longer exists** — #71
+retired it, for the reason at the end of this document. The matrix has since gained a Windows test
+job, which these figures predate.
+
 Read the cold column before celebrating the warm one. A run that has to populate the cache is
 *slower* than having no cache at all — setup, plus storing every artifact. At this size the warm
 margin is real but modest, and it is fair to say sccache is not yet paying for itself on any single
@@ -400,7 +438,7 @@ Deliberately not done yet, with the trigger for revisiting:
 
 | Tool | Why not yet | When to add |
 | :--- | :--- | :--- |
-| `cargo-nextest` | 116 tests execute in milliseconds; the runner is not the bottleneck | Test *execution* becomes visible against compile time, or flaky-test retries are wanted |
+| `cargo-nextest` | 616 tests execute in milliseconds; the runner is not the bottleneck | Test *execution* becomes visible against compile time, or flaky-test retries are wanted |
 | `lld` / `mold` | Linking is not dominant with this little code and no C dependencies | A demuxer backend (#86) brings in native libraries |
 | A separate `dist` profile | `release` should keep meaning "what we ship" | Release-build time on main becomes an obstacle |
 
@@ -409,7 +447,8 @@ negligible and the calculus changes.
 
 ## Checks before pushing
 
-`scripts/check.sh` runs everything CI runs, in the same order: fmt, clippy, tests, docs.
+`scripts/check.sh` runs everything CI runs, in the same order: fmt, clippy, tests, dependency
+discipline, docs.
 
 Run it. The gate easiest to skip locally is the one that catches the most: clippy runs at pedantic
 with warnings denied and has already caught breakage that a plain `cargo test` waved through.
@@ -430,6 +469,10 @@ finding was a violation of a constraint it alone imposed.
   resolutions, and `FEATURE_GRID` may yet change.
 - Test names state the property under test, not the function under test.
 - `unsafe` is forbidden workspace-wide. #10 anticipated SIMD needing it; #10 shipped without any,
-  and the matcher now scans one vector per *cluster* rather than per glyph, so the case for it is
-  weaker than when the rule was written. If it ever returns, it is a decision with a justification,
-  taken then.
+  and the session cache answers 99–100% of glyphs without a reference scan at all, so the case for
+  it is weaker than when the rule was written. If it ever returns, it is a decision with a
+  justification, taken then.
+- **Never invent data to avoid an error.** A truncated object is rejected rather than padded, an
+  unmeasurable line's slant is reported as unmeasurable rather than defaulted to zero, and a metric
+  term is omitted rather than filled in when either side lacks it. `CLAUDE.md` has the reasoning:
+  an unmatched glyph is a *fact*, and that is the whole argument for this over general OCR.

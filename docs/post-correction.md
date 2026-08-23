@@ -11,6 +11,14 @@ The number moves when the fixture does, and it has four times: #48 added three c
 text, #58 a line carrying `î`, #57 a line of accented capitals, and #60 a cue supplying case-folded
 evidence. What has not changed across any of them is that no line was made worse.
 
+**Read the whole of this document as history from #110 onward.** Giving the matcher an ink aspect
+ratio took the substitutions this stage makes on a real Blu-ray from 363 to **3**, and on the
+ceiling fixture to **none at all** — the corrector no longer moves either instrument, because the
+glyphs it existed to rescue are now decided by shape. That is the right direction and it is also a
+demotion: the stage is a backstop for what shape genuinely cannot decide, not a lever on the error
+rate. The default is unaffected — it was never argued from the size of the gain. "Those 363 are now
+3" below has the detail, and [`error-census.md`](error-census.md) has the change that caused it.
+
 [issue-12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
 ## What it does
@@ -185,11 +193,11 @@ nine characters cannot move it.
 
 **Those 363 are now 3.** Every one of them was `I` → `l`, and #110 gave the matcher a way to tell
 the two apart before the corrector ever sees them: an ink aspect ratio on the reference entry, which
-Arial draws 7% wider for `I` and the 16-cell grid rounds away. The stage is unchanged and still on
-by default; what changed is that almost nothing now reaches it. That is the right direction — a
-correction is evidence about a glyph the matcher could not call, and the fewer of those there are
-the better — and it is also the answer to what this stage is *for*: not carrying the pipeline, but
-catching what shape genuinely cannot decide.
+Arial draws 7% wider for `I` and the 16-cell grid rounds away. The stage itself is unchanged, and
+still off by default; what changed is that almost nothing now reaches it. That is the right
+direction — a correction is evidence about a glyph the matcher could not call, and the fewer of
+those there are the better — and it is also the answer to what this stage is *for*: not carrying the
+pipeline, but catching what shape genuinely cannot decide.
 
 ### The sweep, and what it settled
 
@@ -304,7 +312,7 @@ had stopped refusing.
   means inventing or destroying a character. They are two components fused or one component split,
   and the place to notice that is where components are grouped.
 - ~~**A track's own vocabulary is the next lever**~~ — **built and measured**, see below. It fires,
-  it never damaged a cue, and on a feature film it corrected seven characters out of twenty-four
+  it never damaged a cue, and on a feature film it corrected nine characters out of twenty-four
   thousand. A real result and a small one.
 - **Ambiguity is a per-glyph property, not a per-cluster one.** #12 was written expecting #10's
   clustering to make it the latter — one wrong label being wrong for every instance of it, which
