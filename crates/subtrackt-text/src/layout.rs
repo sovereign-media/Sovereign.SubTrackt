@@ -180,7 +180,19 @@ impl SpatialAssembler {
         let mut widths: Vec<u32> = line.iter().map(|(g, _)| glyph_width(g)).collect();
         widths.sort_unstable();
         let width = median_of_sorted(&widths);
-        let breaks = word_breaks(&gaps, width, self.rules);
+        // A gap *inside* a repeated punctuation mark is not a candidate word break, and #134 is
+        // what it costs to let one pretend to be. An ellipsis puts two gaps between the line's
+        // kerning and its word gaps -- a third cluster where the rule assumes two -- and the widest
+        // jump then ties across its edges. On a long line the tie broke low, nothing cleared the
+        // decisiveness bar, and the whole line came back as `Hewasoneofthosemenwho...`. On a short
+        // one the dots *were* the widest jump and their 5px boxes dragged the median glyph width
+        // down far enough for the bar to be cleared, so `Otto...` read `Otto. . .`.
+        //
+        // Both are the same mistake and neither is fixed by moving a threshold. The gaps were never
+        // word gaps: three full stops in a row are one token, and the distribution the splitter
+        // reasons about should not contain the distances between them.
+        let inside_mark = repeated_mark_gaps(line);
+        let breaks = word_breaks(&gaps, &inside_mark, width, self.rules);
 
         let mut out = String::new();
         let mut origins = Vec::with_capacity(line.len());
@@ -341,17 +353,51 @@ fn median_of_sorted(sorted: &[u32]) -> u32 {
 ///
 /// Computed for the whole line at once because every rule but #11's needs the distribution rather
 /// than one gap at a time — that is the substance of #40.
-fn word_breaks(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Vec<bool> {
+fn word_breaks(
+    gaps: &[u32],
+    inside_mark: &[bool],
+    glyph_width: u32,
+    rules: LayoutRules,
+) -> Vec<bool> {
     if rules.spacing == SpacingRule::MedianMultiple {
         let median = median_gap(gaps);
         return gaps
             .iter()
-            .map(|gap| is_space(*gap, median, rules))
+            .zip(inside_mark)
+            .map(|(gap, skip)| !skip && is_space(*gap, median, rules))
             .collect();
     }
-    let threshold = split_threshold(gaps, glyph_width, rules);
+    // The threshold is derived from the gaps that could *be* word gaps. Leaving the others in
+    // moves the cut and, worse, gives the criterion a cluster to find a split in that is not one.
+    let candidates: Vec<u32> = gaps
+        .iter()
+        .zip(inside_mark)
+        .filter(|(_, skip)| !**skip)
+        .map(|(gap, _)| *gap)
+        .collect();
+    let threshold = split_threshold(&candidates, glyph_width, rules);
     gaps.iter()
-        .map(|gap| threshold.is_some_and(|cut| *gap >= cut))
+        .zip(inside_mark)
+        .map(|(gap, skip)| !skip && threshold.is_some_and(|cut| *gap >= cut))
+        .collect()
+}
+
+/// Which gaps sit between two glyphs that read as the **same punctuation mark**.
+///
+/// An ellipsis, a run of dashes, a `''` standing in for a quotation mark. Each is one token whose
+/// internal spacing is a property of the typeface rather than of the sentence, so those distances
+/// tell a word-splitting rule nothing and mislead it in both directions -- see the call site.
+///
+/// Alphanumerics are deliberately excluded: `ll` and `oo` are two letters of one word, and their
+/// gap is exactly the kerning measurement the rule is built to learn from.
+fn repeated_mark_gaps(line: &[(Glyph, GlyphMatch)]) -> Vec<bool> {
+    line.windows(2)
+        .map(|pair| match (pair[0].1.character, pair[1].1.character) {
+            (Some(left), Some(right)) => {
+                left == right && !left.is_alphanumeric() && !left.is_whitespace()
+            }
+            _ => false,
+        })
         .collect()
 }
 
@@ -380,65 +426,63 @@ pub fn split_threshold(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Op
     sorted.sort_unstable();
 
     let cut = match rules.spacing {
-        SpacingRule::OtsuSplit => otsu_cut(&sorted),
-        _ => widest_jump_cut(&sorted),
-    }?;
+        SpacingRule::OtsuSplit => ranked_otsu_cuts(&sorted),
+        _ => ranked_jump_cuts(&sorted),
+    }
+    .into_iter()
+    .next()?;
     let threshold = sorted[cut + 1];
 
     // Both decisiveness tests, against two different yardsticks. Either one alone admits a split
     // that is not there; see the field documentation for which case each of them catches.
+    //
+    // A failure here still means no spaces on the line, and that is deliberate. #134 tried walking
+    // on to the next-widest candidate instead, and it invented spaces -- `18th-century` became
+    // `1 8th-century` -- because a line that holds no word break still has jumps in it, and the
+    // second-best jump is by construction a worse-separated one. The failure of the best candidate
+    // is the strongest evidence available that there is nothing there.
     let cluster = median_of_sorted(&sorted[..=cut]).max(1);
     let decisive = threshold * 100 >= rules.split_min_width_percent * glyph_width
         && threshold * 100 >= rules.split_min_cluster_percent * cluster;
     decisive.then_some(threshold)
 }
 
-/// Index of the gap below the widest jump between consecutive sorted gaps.
+/// Cut indices by descending jump width, ties going to the **lower** cut.
 ///
-/// Strictly-greater comparison, so a tie goes to the **lower** cut. That is deliberate: on
-/// `The quick brown fox jumps` the jumps 6 to 11 and 11 to 16 are both five wide, and only the
-/// lower of them puts `fox jumps` on the far side of the boundary.
-fn widest_jump_cut(sorted: &[u32]) -> Option<usize> {
-    let mut best = None;
-    let mut widest = 0;
-    for index in 0..sorted.len() - 1 {
-        let jump = sorted[index + 1] - sorted[index];
-        if jump > widest {
-            widest = jump;
-            best = Some(index);
-        }
-    }
-    best
+/// The ordering the old `widest_jump_cut` expressed by returning only its first element. Equal
+/// neighbouring values are skipped, as they are in [`ranked_otsu_cuts`]: a boundary drawn through
+/// two identical gaps would put the same measurement on both sides of it.
+fn ranked_jump_cuts(sorted: &[u32]) -> Vec<usize> {
+    let mut cuts: Vec<(u32, usize)> = (0..sorted.len() - 1)
+        .filter(|index| sorted[index + 1] > sorted[*index])
+        .map(|index| (sorted[index + 1] - sorted[index], index))
+        .collect();
+    // Descending by jump, then ascending by index, so a tie still goes to the lower cut -- which
+    // is what puts `fox jumps` on the far side of the boundary on the fixture's longest line.
+    cuts.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    cuts.into_iter().map(|(_, index)| index).collect()
 }
 
-/// Index of the gap below the cut that maximises Otsu's between-class variance.
-///
-/// Equal neighbouring values are skipped as cut points, since a class boundary drawn through
-/// identical gaps would put the same measurement on both sides of it.
-// Gap widths are pixel counts on a subtitle plane and their sums stay far inside the range f64
-// represents exactly, so the precision-loss lint has nothing to warn about here.
-#[allow(clippy::cast_precision_loss)]
-fn otsu_cut(sorted: &[u32]) -> Option<usize> {
+/// Cut indices by descending Otsu between-class variance.
+fn ranked_otsu_cuts(sorted: &[u32]) -> Vec<usize> {
+    let mut scored: Vec<(f64, usize)> = Vec::new();
     let total: f64 = sorted.iter().map(|gap| f64::from(*gap)).sum();
+    #[allow(clippy::cast_precision_loss)]
     let count = sorted.len() as f64;
-
-    let (mut best, mut best_score) = (None, 0.0);
     let mut low_sum = 0.0;
     for index in 0..sorted.len() - 1 {
         low_sum += f64::from(sorted[index]);
         if sorted[index] == sorted[index + 1] {
             continue;
         }
+        #[allow(clippy::cast_precision_loss)]
         let low_count = (index + 1) as f64;
         let high_count = count - low_count;
         let separation = low_sum / low_count - (total - low_sum) / high_count;
-        let score = low_count * high_count * separation * separation;
-        if score > best_score {
-            best_score = score;
-            best = Some(index);
-        }
+        scored.push((low_count * high_count * separation * separation, index));
     }
-    best
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    scored.into_iter().map(|(_, index)| index).collect()
 }
 
 impl TextAssembler for SpatialAssembler {
@@ -683,6 +727,66 @@ mod tests {
 
     fn split(gaps: &[u32], width: u32, spacing: SpacingRule) -> Option<u32> {
         split_threshold(gaps, width, LayoutRules { spacing, ..LayoutRules::default() })
+    }
+
+    /// Cue 751 of Airplane!, "He was one of those men who...", as extracted.
+    ///
+    /// Three clusters rather than two: kerning at 1-7, the ellipsis at 11, and word gaps at 15-22.
+    const ELLIPSIS_LINE: [u32; 23] = [
+        7, 17, 1, 4, 20, 6, 6, 20, 3, 15, 4, 6, 4, 4, 22, 6, 6, 19, 3, 6, 7, 11, 11,
+    ];
+    /// The median glyph width of that line, so the decisiveness test has its real yardstick.
+    const ELLIPSIS_LINE_WIDTH: u32 = 28;
+
+    #[test]
+    fn a_third_cluster_does_not_cost_the_line_every_space_it_had() {
+        // #134. The two gaps inside `...` sit between the kerning and the word gaps, so the widest
+        // jump ties across that cluster's edges -- 7->11 and 11->15 are both 4. The tie breaks low,
+        // the cut lands under the ellipsis, and 11 clears neither yardstick against a 28px glyph.
+        //
+        // Returning None there threw the whole line away: six word gaps at 15-22, each of which
+        // passes both tests outright, came back with nothing between them and the disc read
+        // `Hewasoneofthosemenwho...`.
+        //
+        // The gaps are excluded rather than the threshold moved, because they were never candidate
+        // word gaps: three full stops are one token. With them gone the jump is 7->15, an outright
+        // winner at 8 rather than a tie at 4.
+        let inside_mark: Vec<bool> = ELLIPSIS_LINE
+            .iter()
+            .enumerate()
+            .map(|(index, _)| index >= ELLIPSIS_LINE.len() - 2)
+            .collect();
+
+        for spacing in [SpacingRule::WidestSplit, SpacingRule::OtsuSplit] {
+            let rules = LayoutRules { spacing, ..LayoutRules::default() };
+            let breaks = word_breaks(&ELLIPSIS_LINE, &inside_mark, ELLIPSIS_LINE_WIDTH, rules);
+            assert_eq!(
+                breaks.iter().filter(|b| **b).count(),
+                6,
+                "{spacing:?} did not find the six word gaps"
+            );
+            assert!(
+                !breaks[breaks.len() - 1] && !breaks[breaks.len() - 2],
+                "{spacing:?} put a space inside the ellipsis"
+            );
+        }
+
+        // Without the exclusion the line loses every space, which is the bug as it shipped.
+        let none = vec![false; ELLIPSIS_LINE.len()];
+        let breaks =
+            word_breaks(&ELLIPSIS_LINE, &none, ELLIPSIS_LINE_WIDTH, LayoutRules::default());
+        assert!(!breaks.iter().any(|b| *b), "the shipped bug is what this pins against");
+    }
+
+    #[test]
+    fn only_a_repeated_mark_is_excluded_and_never_a_repeated_letter() {
+        // `ll` and `oo` are two letters of one word and their gap is exactly the kerning the rule
+        // is built to learn from. Excluding those would blind it to its own yardstick.
+        let line: Vec<(Glyph, GlyphMatch)> = [('.', 0), ('.', 10), ('l', 20), ('l', 30), ('.', 40)]
+            .iter()
+            .map(|(c, x)| (glyph(*x, 4, 0), matched(*c)))
+            .collect();
+        assert_eq!(repeated_mark_gaps(&line), vec![true, false, false, false]);
     }
 
     #[test]
