@@ -16,13 +16,15 @@
 pub mod config;
 pub mod fit;
 pub mod pipeline;
+pub mod provenance;
 pub mod report;
 pub mod score;
 pub mod survey;
 
-pub use config::{Config, Defusing, UnmatchedPolicy};
+pub use config::{Config, Defusing, ProvenancePolicy, UnmatchedPolicy};
 pub use fit::{Fit, rank, rank_watched, score_set};
 pub use pipeline::{Outcome, Pipeline, UnreadGlyph};
+pub use provenance::note;
 pub use report::Report;
 pub use score::{Score, score_text, score_track};
 pub use subtrackt_text::correct::VocabularyRules;

@@ -158,6 +158,51 @@ pub struct TextTrack {
     pub confidence: Confidence,
 }
 
+/// A provenance note: what produced this file, and what it read.
+///
+/// Carried as **pre-rendered lines** rather than as typed fields, because the two halves of this
+/// belong to different crates. *Which* facts are worth recording is a pipeline question — it has
+/// the report, the reference set and the clock — while *how* a comment is spelled is a format
+/// question, and only the writer knows that `WebVTT` has `NOTE` and `SubRip` has nothing at all.
+///
+/// **Every line here is a count or a measurement.** There is deliberately no character error rate:
+/// CER needs a reference transcript, an extraction has none, and a file that asserted its own
+/// accuracy would be the confident wrong answer this project exists to avoid. `docs/fit-confidence.md`
+/// is six statistics long on why nothing can grade a read without ground truth. #129.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Provenance {
+    /// Lines of the note, in order, without any comment marker.
+    pub lines: Vec<String>,
+}
+
+impl Provenance {
+    /// Build a note from lines, making each one safe to sit in either format's comment.
+    ///
+    /// `-->` is the one sequence that cannot appear: `WebVTT` ends a `NOTE` block at the first line
+    /// containing it, and a `SubRip` parser looking for its next cue would take such a line for a
+    /// timing. A reference set named after a file is unlikely to carry one, and "unlikely" is not
+    /// the standard a writer that must never corrupt its own output is held to.
+    #[must_use]
+    pub fn new<I, S>(lines: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        Self {
+            lines: lines
+                .into_iter()
+                .map(|l| l.as_ref().replace("-->", "--)"))
+                .collect(),
+        }
+    }
+
+    /// Whether there is anything to write.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+}
+
 impl TextTrack {
     /// Build a track from cues, recomputing the track-level tally.
     #[must_use]

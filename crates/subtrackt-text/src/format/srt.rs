@@ -2,11 +2,21 @@
 
 use std::io::Write;
 
-use subtrackt_core::{Error, Result, TextTrack, Timestamp, TrackWriter};
+use subtrackt_core::{Error, Provenance, Result, TextTrack, Timestamp, TrackWriter};
 
 /// Writes a track as `SubRip`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SrtWriter;
+///
+/// The provenance note is `None` by default, and that default is the conservative one on purpose:
+/// **`SubRip` has no comment syntax.** There is nowhere in the format for a line that is not a cue,
+/// so a note here is text before the first index — which our own parser skips, which most parsers
+/// skip, and which a strict one is entitled to reject. #129 shipped it behind a flag for exactly
+/// that reason, off unless asked for, while `WebVTT` gets a note by default because `NOTE` is part
+/// of that format.
+#[derive(Debug, Clone, Default)]
+pub struct SrtWriter {
+    /// A note to write before the first cue, or `None` to write none.
+    pub provenance: Option<Provenance>,
+}
 
 /// Format a timestamp as `HH:MM:SS,mmm`.
 #[must_use]
@@ -18,6 +28,16 @@ pub fn format_timestamp(timestamp: Timestamp) -> String {
 impl TrackWriter for SrtWriter {
     fn write(&self, track: &TextTrack, out: &mut dyn Write) -> Result<()> {
         let io = |e: std::io::Error| Error::io("<srt output>", e);
+
+        if let Some(note) = self.provenance.as_ref().filter(|n| !n.is_empty()) {
+            for line in &note.lines {
+                writeln!(out, "{line}").map_err(io)?;
+            }
+            // The blank line matters more than the note does. A parser that scans for its next
+            // cue resynchronises on it; without one, a lenient parser can fold the note into the
+            // first cue's text and a viewer reads our version string as dialogue.
+            writeln!(out).map_err(io)?;
+        }
 
         // Empty cues are skipped rather than written as blank blocks, and the numbering counts
         // what was written — a gap in SRT indices makes some players stop reading.
@@ -59,14 +79,14 @@ mod tests {
     #[test]
     fn writes_the_canonical_block_layout() {
         let track = TextTrack::new(vec![cue(1_000, 3_500, &["Hello there."])], None);
-        let out = SrtWriter.to_string(&track).unwrap();
+        let out = SrtWriter::default().to_string(&track).unwrap();
         assert_eq!(out, "1\n00:00:01,000 --> 00:00:03,500\nHello there.\n\n");
     }
 
     #[test]
     fn multi_line_cues_keep_their_line_breaks() {
         let track = TextTrack::new(vec![cue(0, 1_000, &["- Yes.", "- No."])], None);
-        let out = SrtWriter.to_string(&track).unwrap();
+        let out = SrtWriter::default().to_string(&track).unwrap();
         assert!(out.contains("- Yes.\n- No.\n\n"));
     }
 
@@ -80,7 +100,7 @@ mod tests {
             ],
             None,
         );
-        let out = SrtWriter.to_string(&track).unwrap();
+        let out = SrtWriter::default().to_string(&track).unwrap();
         assert!(out.starts_with("1\n"), "{out}");
         assert!(
             out.contains("\n2\n"),
@@ -96,14 +116,21 @@ mod tests {
 
     #[test]
     fn an_empty_track_writes_nothing_at_all() {
-        assert_eq!(SrtWriter.to_string(&TextTrack::default()).unwrap(), "");
+        assert_eq!(
+            SrtWriter::default()
+                .to_string(&TextTrack::default())
+                .unwrap(),
+            ""
+        );
     }
 
     #[test]
     fn a_leaning_line_is_written_as_an_italic_tag_and_an_upright_one_is_untouched() {
         let mut c = cue(0, 1_000, &["He is late.", "So am I."]);
         c.italic = vec![false, true];
-        let out = SrtWriter.to_string(&TextTrack::new(vec![c], None)).unwrap();
+        let out = SrtWriter::default()
+            .to_string(&TextTrack::new(vec![c], None))
+            .unwrap();
         assert!(out.contains("\nHe is late.\n"), "{out}");
         assert!(out.contains("\n<i>So am I.</i>\n"), "{out}");
     }
@@ -113,6 +140,11 @@ mod tests {
         // The compatibility claim, asserted rather than assumed: a track nothing measured must come
         // out byte for byte as it did.
         let track = TextTrack::new(vec![cue(0, 1_000, &["Plain text."])], None);
-        assert!(!SrtWriter.to_string(&track).unwrap().contains("<i>"));
+        assert!(
+            !SrtWriter::default()
+                .to_string(&track)
+                .unwrap()
+                .contains("<i>")
+        );
     }
 }
