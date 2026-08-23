@@ -816,6 +816,21 @@ of what is left on it. [`italic-slant.md`](italic-slant.md) names the mechanism:
 overhangs the box after it, so a quarter of an italic line's gaps reach the spacing rule already
 saturated at zero and the rule has no band left to cut in.
 
+**#121 fixed that measurement and 31 of the 38 came back.** The disc reads **0.6%** with the italic
+act at **2.0%** against 4.1%, and the table above becomes:
+
+| release → read | errors | share |
+| :--- | ---: | ---: |
+| word spaces never read | 36 | **24%** |
+| `"` read as two `'` | 40 | 27% |
+| `I`, `!`, `i`, `l` read as `Í` | 16 | 11% |
+| everything else | 55 | 37% |
+
+The word space is no longer the largest class on this disc. **29 of the 36 that remain are on
+upright lines**, where no amount of deskewing can help and [#49][issue-49]'s decisiveness margin is
+the only lever left. On Gone Girl the same change took missed word spaces from 783 to 165 and the
+whole disc from 2.8% to 2.0%.
+
 ### Predictions, scored
 
 - **1. A works and B is not needed.** *Right, and for the stated reason.* The bias is quantisation

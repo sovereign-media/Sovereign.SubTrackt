@@ -7,6 +7,7 @@
 //! testable before the expensive parts exist, and each stage can be dropped in without touching
 //! the others.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
@@ -549,7 +550,43 @@ fn part_glyph(
         // the cut is what gave it a box of its own, and unlike the metrics above it needs nothing
         // recovered to measure.
         aspect: subtrackt_core::InkAspect::measure(bounds.width, bounds.height),
+        // A part reports its box, and that is an approximation rather than a measurement. #121's
+        // span is the ink of one *labelled component*, and a part is by definition half of one —
+        // there is no label that names it. The deskewed set is not even the same set: under a shear
+        // the vertical cut `split` makes maps to a slanted line, so "left of the column" and "left
+        // of the deskewed column" hold different pixels. What makes the box tolerable here is what
+        // put the part on this path at all: the two characters were *touching*, so the gap this
+        // span would report between them is near zero either way, and the outer edges — the ones a
+        // word break is measured against — are the parent's own, which the box has right.
+        upright: subtrackt_core::UprightSpan::of_box(bounds),
     })
+}
+
+/// The shear of each line that has one, with the pivot its spans are measured about.
+///
+/// A line missing from the map is one [`slant::line_shear`] declined to measure — too little ink,
+/// too few glyphs. Its glyphs fall back to their bounding boxes, which is what the spacing rule
+/// used before #121, rather than to a shear of zero that nothing measured.
+///
+/// The pivot is the line's own top edge. It is a translation and cancels in every gap, so it cannot
+/// change an answer; it exists so a span reads as a number near the box it came from.
+fn line_shears(
+    labels: &subtrackt_glyph::ccl::LabelMap,
+    grouped: &[subtrackt_glyph::group::GroupedGlyph],
+) -> BTreeMap<usize, (f64, u32)> {
+    use subtrackt_glyph::slant;
+
+    let mut per_line: BTreeMap<usize, Vec<&subtrackt_glyph::group::GroupedGlyph>> = BTreeMap::new();
+    for glyph in grouped {
+        per_line.entry(glyph.line).or_default().push(glyph);
+    }
+    per_line
+        .into_iter()
+        .filter_map(|(line, members)| {
+            let pivot = members.iter().map(|g| g.bounds().y).min().unwrap_or(0);
+            slant::line_shear(labels, &members).map(|shear| (line, (shear, pivot)))
+        })
+        .collect()
 }
 
 /// The stage instances one run is assembled from.
@@ -614,13 +651,16 @@ impl ImageSegmenter {
         use subtrackt_glyph::ccl::{self, ComponentFilter};
         use subtrackt_glyph::feature::{self, AspectPolicy};
         use subtrackt_glyph::group::{self, GroupingRules};
-        use subtrackt_glyph::mark;
         use subtrackt_glyph::metrics::{self, MetricRules};
+        use subtrackt_glyph::{mark, slant};
 
         // Components and lines are yes-or-no questions and need the binary mask. Only the feature
         // vector reads the coverage plane, and only when asked to.
         let coverage = self.grey_coverage.then(|| self.binarizer.coverage(image));
-        let components = ccl::label(mask, ComponentFilter::default())?;
+        // The map, not just the boxes. A slanted letter's box contains its neighbour's ink, so
+        // `slant` cannot read a component off the mask the way `feature` and `mark` do — see
+        // `ccl::Component::label` for what that would cost.
+        let (components, labels) = ccl::label_with_map(mask, ComponentFilter::default())?;
         // One banding, used for both the assignment and the metrics. A band of nothing but accents
         // is not a text line — see `group::text_lines` — and a caller that banded twice could
         // measure line anchors against a different set than it grouped by.
@@ -631,6 +671,11 @@ impl ImageSegmenter {
         // Where each glyph stands in its line, which the feature vector cannot express and which is
         // the only thing separating `o` from `O`. Measured per line, from that line's own ink.
         let measured = metrics::measure_all(&bands, &grouped, MetricRules::default());
+
+        // How far each line leans, and therefore where its glyphs' ink would stand if it did not.
+        // Per line rather than per glyph because that is the unit slant belongs to: `A`, `V` and
+        // `w` have diagonal ink that is not slant, and #14 found slant constant within a stream.
+        let shears = line_shears(&labels, &grouped);
 
         grouped
             .iter()
@@ -658,6 +703,14 @@ impl ImageSegmenter {
                     // one. Nothing about the line enters it, so it is measurable on a line whose
                     // metrics are not.
                     aspect: subtrackt_core::InkAspect::measure(bounds.width, bounds.height),
+                    // #121: where the ink stands once the line's lean is divided out, which the box
+                    // above gets wrong by most of a stem on an italic line. A line whose shear could
+                    // not be measured reports the box, which is what the spacing rule used before
+                    // any of this — never a fabricated zero shear.
+                    upright: shears.get(&glyph.line).map_or_else(
+                        || slant::box_span(bounds),
+                        |(shear, pivot)| slant::upright_span(&labels, glyph, *shear, *pivot),
+                    ),
                 })
             })
             .collect()

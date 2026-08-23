@@ -288,6 +288,97 @@ impl InkAspect {
     }
 }
 
+/// Where a glyph's ink stands once its line's slant has been divided out, in tenths of a pixel.
+///
+/// The fourth thing a bounding box gets wrong, and the one that fails *two stages before the
+/// matcher*. A slanted ascender's box is mostly slant — Arial Italic draws `l` across 33% of cap
+/// height where the ink itself is a 12.75% stem — so an italic letter's box overhangs the box of
+/// the letter after it. `subtrackt-text`'s spacing rule measures the space between two glyphs as
+/// `next.x - this.right()`, saturating at zero, and on a real Blu-ray **27% of an italic line's
+/// gaps arrive already saturated against 0.7% of an upright line's**, half of them from boxes that
+/// genuinely overlap. #40's rule needs the line's gaps to separate into two classes; a run of
+/// clamped zeros collapses the letter-gap mode onto the floor and takes the band with it.
+///
+/// This is the same ink measured along the line's own slant instead. `docs/italic-slant.md` has the
+/// measurement and #121 the change.
+///
+/// **Tenths of a pixel, not pixels.** The unit is the finding here as much as it is for
+/// [`InkAspect`]. A word gap on a 1080p disc is five or six pixels and a kerning gap is one or two,
+/// so rounding each edge to a whole pixel puts a whole pixel of error on a quantity whose two
+/// populations sit three pixels apart. #99, #110 and #113 were each one side of this pipeline
+/// quantising away a difference the other side needed.
+///
+/// **Comparable only within one line.** The shear is applied about the line's own pivot, so two
+/// spans from different lines are offset by different constants. That offset cancels in a
+/// difference between neighbours, which is the only thing anything asks of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UprightSpan {
+    /// Left edge of the deskewed ink, in tenths of a pixel.
+    pub left: i32,
+    /// One past the right edge of the deskewed ink, in tenths of a pixel.
+    pub right: i32,
+    /// Whether the line's slant could be measured at all.
+    ///
+    /// False for a line carrying too little ink or too few glyphs to estimate a shear from. A line
+    /// that cannot be measured reports **unknown** and is *not* reported as upright: a caller then
+    /// falls back to the bounding box, which is what it would have used anyway. Defaulting to zero
+    /// shear would be a fabricated measurement, and `CLAUDE.md` has the rule.
+    pub known: bool,
+}
+
+/// Tenths of a pixel in one pixel, the unit [`UprightSpan`] carries.
+pub const SPAN_TENTHS: i32 = 10;
+
+impl UprightSpan {
+    /// A span whose line's slant could not be measured.
+    pub const UNKNOWN: Self = Self { left: 0, right: 0, known: false };
+
+    /// A measured span, in tenths of a pixel.
+    #[must_use]
+    pub const fn new(left: i32, right: i32) -> Self {
+        Self { left, right, known: true }
+    }
+
+    /// The span a glyph's own bounding box implies, which is what a zero shear produces.
+    ///
+    /// Not a fallback dressed as a measurement: it is marked `known` because it *is* the answer
+    /// when there is no slant to take out, and `a_zero_shear_span_is_the_glyph_box` pins the two
+    /// together. Callers wanting the honest unknown want [`Self::UNKNOWN`].
+    #[must_use]
+    pub const fn of_box(bounds: Rect) -> Self {
+        // A subtitle plane is a few thousand pixels across, so a coordinate in tenths is nowhere
+        // near `i32`'s range and the saturation below never fires. It is written rather than
+        // asserted because a plane wide enough to reach it would be a decoder bug, and clamping a
+        // span is a smaller wrong answer than wrapping one.
+        Self::new(
+            bounds
+                .x
+                .saturating_mul(SPAN_TENTHS.unsigned_abs())
+                .cast_signed(),
+            bounds
+                .right()
+                .saturating_mul(SPAN_TENTHS.unsigned_abs())
+                .cast_signed(),
+        )
+    }
+
+    /// The space between this glyph and the next one along the line, in tenths of a pixel.
+    ///
+    /// **Signed**, unlike the saturating subtraction it replaces. A negative gap is two glyphs whose
+    /// ink still overlaps after the slant is out, which is a real and different fact from a gap of
+    /// zero — and the one the runtime has never been able to see.
+    ///
+    /// `None` unless both sides carry a measurement, the contract [`LineMetrics::difference`],
+    /// [`MarkSlope::difference`] and [`InkAspect::difference`] all keep.
+    #[must_use]
+    pub const fn gap_to(self, next: Self) -> Option<i32> {
+        if !self.known || !next.known {
+            return None;
+        }
+        Some(next.left - self.right)
+    }
+}
+
 /// One connected component (or diacritic group) lifted out of a subtitle image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glyph {
@@ -304,6 +395,8 @@ pub struct Glyph {
     /// How wide its ink stands against its own height, which the vector says only to within a
     /// grid cell.
     pub aspect: InkAspect,
+    /// Where its ink stands once its line's slant is divided out, which its box gets wrong.
+    pub upright: UprightSpan,
 }
 
 /// The result of matching one [`Glyph`] against the reference set.

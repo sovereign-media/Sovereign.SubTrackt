@@ -274,6 +274,7 @@ mod tests {
             parts: vec![Component {
                 bounds: Rect::new(x, y, width, height),
                 pixels: u64::from(width * height),
+                label: 0,
             }],
             line,
         }

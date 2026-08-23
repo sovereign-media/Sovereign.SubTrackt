@@ -12,9 +12,18 @@
 //! *Which* ranking is #40. #11 took the median gap to stand in for "normal letter spacing" and
 //! called anything several times wider a word break; #15 later made it scorable, and it finds 21 of
 //! the fixture's 29 spaces. See [`SpacingRule`] for why, and for what replaced it.
+//!
+//! **What is ranked is #121.** Every rule here is a ranking over the line's gaps, and until #121 a
+//! gap was the space between two *bounding boxes*. A slanted letter's box is mostly slant, so it
+//! overhangs the box after it and the subtraction saturated: on a real Blu-ray 27% of an italic
+//! line's gaps arrived at these rules already at zero, against 0.7% of an upright line's. Every
+//! ranking below is only as good as what it ranks, and a run of clamped zeros collapses the
+//! letter-gap mode onto the floor and takes the band with it. A gap is now the space between two
+//! [`UprightSpan`](subtrackt_core::UprightSpan)s — the same ink, measured along the line's own
+//! slant — and `docs/italic-slant.md` has the measurement.
 
 use subtrackt_core::{
-    Confidence, Cue, Error, Glyph, GlyphMatch, Result, SubtitleImage, TextAssembler,
+    Confidence, Cue, Error, Glyph, GlyphMatch, Result, SPAN_TENTHS, SubtitleImage, TextAssembler,
 };
 
 /// How a line's word breaks are found.
@@ -153,12 +162,22 @@ impl SpatialAssembler {
     fn render_line(&self, line: &[(Glyph, GlyphMatch)]) -> (String, Vec<Option<GlyphMatch>>) {
         let gaps: Vec<u32> = line
             .windows(2)
-            .map(|pair| pair[1].0.bounds.x.saturating_sub(pair[0].0.bounds.right()))
+            .map(|pair| gap(&pair[0].0, &pair[1].0))
             .collect();
         // The yardstick the decisiveness test measures against. A word space is a sizeable
         // fraction of a character; a kerning gap is not, and no ratio between two *gaps* can tell
         // those apart once rasterisation has quantised them to single pixels.
-        let mut widths: Vec<u32> = line.iter().map(|(g, _)| g.bounds.width).collect();
+        //
+        // In the same unit as the gaps, and from the same measurement. Both matter. The unit is
+        // what keeps the two decisiveness tests ratios rather than pixel counts; the measurement is
+        // what keeps them *comparable*, and taking one side from the deskewed span and the other
+        // from the box is the mistake #99, #110 and #113 each made once.
+        //
+        // It is also the truer width. A slanted letter's box is mostly slant — 47 pixels where the
+        // ink stands 40 wide, on the first italic line of a real disc — so the box says a word gap
+        // must clear a bar that the character never actually set. Deskewed, both sides shrink
+        // together and the ratio is the one #40 measured.
+        let mut widths: Vec<u32> = line.iter().map(|(g, _)| glyph_width(g)).collect();
         widths.sort_unstable();
         let width = median_of_sorted(&widths);
         let breaks = word_breaks(&gaps, width, self.rules);
@@ -261,6 +280,37 @@ pub struct AssembledCue {
     pub origins: Vec<Vec<Option<GlyphMatch>>>,
 }
 
+/// How wide one glyph's ink stands, in tenths of a pixel.
+///
+/// The deskewed span where the line's slant was measurable and the bounding box where it was not —
+/// the same pairing [`gap`] makes, so a line is measured entirely one way or entirely the other.
+fn glyph_width(glyph: &Glyph) -> u32 {
+    if glyph.upright.known {
+        return u32::try_from(glyph.upright.right - glyph.upright.left).unwrap_or(0);
+    }
+    glyph.bounds.width * SPAN_TENTHS.unsigned_abs()
+}
+
+/// The space between two glyphs standing side by side on a line, in tenths of a pixel.
+///
+/// [`UprightSpan`](subtrackt_core::UprightSpan) where both glyphs have one and the bounding boxes
+/// where either does not — which is the same measurement, since a span with no slant to take out
+/// *is* the box, and `a_zero_shear_span_is_the_glyph_box` pins the two together. So a line whose
+/// slant could not be measured is laid out exactly as it was before #121, rather than being laid
+/// out against a shear nothing measured.
+///
+/// Saturating at zero, still. The signed gap a span can express is a better fact and this is not
+/// the place to start using it: every rule below ranks gaps, and a negative gap ranks below a zero
+/// one in exactly the way a clamped one does. What #121 changes is how *many* of them are down
+/// there, not what happens to the ones that are.
+fn gap(this: &Glyph, next: &Glyph) -> u32 {
+    let tenths = this.upright.gap_to(next.upright).unwrap_or_else(|| {
+        let boxes = i64::from(next.bounds.x) - i64::from(this.bounds.right());
+        i32::try_from(boxes * i64::from(SPAN_TENTHS)).unwrap_or(i32::MAX)
+    });
+    u32::try_from(tenths).unwrap_or(0)
+}
+
 /// Median of the observed gaps, or zero when there are none to measure.
 fn median_gap(gaps: &[u32]) -> u32 {
     if gaps.is_empty() {
@@ -300,6 +350,12 @@ fn word_breaks(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Vec<bool> 
 /// `None` is a real answer and not a failure: a line holding one word has no word gaps, every
 /// splitting criterion will still find *a* split in it, and reporting one would insert a space into
 /// the middle of a word. Saying nothing leaves the word intact.
+///
+/// **`gaps` and `glyph_width` must be in the same unit**, and the function does not care which one.
+/// Both decisiveness tests are ratios between two quantities the caller supplies, so pixels work
+/// and so do the tenths of a pixel [`SpatialAssembler`] hands it — which is the resolution #121
+/// needs, since a word gap and a kerning gap sit three pixels apart and rounding each edge to a
+/// whole pixel would put a third of that on the measurement.
 ///
 /// # Panics
 /// Does not. The cut index returned by either criterion is always less than `sorted.len() - 1`, so
@@ -423,11 +479,99 @@ mod tests {
             metrics: subtrackt_core::LineMetrics::UNKNOWN,
             mark: subtrackt_core::MarkSlope::NONE,
             aspect: subtrackt_core::InkAspect::UNKNOWN,
+            upright: subtrackt_core::UprightSpan::of_box(Rect::new(x, 0, width, 10)),
         }
     }
 
     fn matched(c: char) -> GlyphMatch {
         GlyphMatch { character: Some(c), distance: 1, runner_up_distance: 60 }
+    }
+
+    /// A line of `glyphs` whose boxes all overlap their neighbour's by `overhang` pixels, as a
+    /// slanted line's do, and whose deskewed spans sit `gap` apart — except where `text` has a
+    /// space, which puts them `word` apart instead.
+    ///
+    /// The boxes are deliberately hostile: every gap between them is zero or negative, which is the
+    /// state a real italic line arrives in and the one the runtime could not previously see past.
+    fn leaning(text: &str, overhang: u32, gap: i32, word: i32) -> (Vec<Glyph>, Vec<GlyphMatch>) {
+        let (ink, tenths) = (12i32, SPAN_TENTHS);
+        let (mut glyphs, mut matches) = (Vec::new(), Vec::new());
+        let (mut left, mut box_x) = (0i32, 0u32);
+        let mut pending = 0;
+        for ch in text.chars() {
+            if ch == ' ' {
+                pending = word;
+                continue;
+            }
+            left += pending;
+            let mut g = glyph(box_x, ink.unsigned_abs() + overhang, 0);
+            g.upright = subtrackt_core::UprightSpan::new(left, left + ink * tenths);
+            glyphs.push(g);
+            matches.push(matched(ch));
+            left += ink * tenths;
+            box_x += ink.unsigned_abs();
+            pending = gap;
+        }
+        (glyphs, matches)
+    }
+
+    #[test]
+    fn a_word_break_is_found_on_a_line_whose_boxes_all_overlap() {
+        // #121. Every box on this line overhangs the next, so every gap the old measurement could
+        // report is zero — the widest jump between them is zero too, and the line comes back as one
+        // word. The ink says otherwise and the spans carry it.
+        let (glyphs, matches) = leaning("the quick fox", 6, 20, 160);
+        for pair in glyphs.windows(2) {
+            let boxed = i64::from(pair[1].bounds.x) - i64::from(pair[0].bounds.right());
+            assert!(boxed <= 0, "the boxes were meant to overlap; they gapped by {boxed}");
+        }
+        let cue = SpatialAssembler::default()
+            .assemble(&image(), &glyphs, &matches)
+            .expect("assembles");
+        assert_eq!(cue.lines, vec!["the quick fox"]);
+    }
+
+    #[test]
+    fn a_line_whose_slant_was_not_measured_is_laid_out_from_its_boxes() {
+        // The fallback, and the reason it is safe to leave the whole pipeline switched on: a line
+        // the estimator declined to measure is laid out exactly as it was before #121. Here the
+        // boxes hold the only usable evidence and the spans hold none.
+        let (mut glyphs, matches) = lay_out("the quick fox", 1);
+        for glyph in &mut glyphs {
+            glyph.upright = subtrackt_core::UprightSpan::UNKNOWN;
+        }
+        let cue = SpatialAssembler::default()
+            .assemble(&image(), &glyphs, &matches)
+            .expect("assembles");
+        assert_eq!(cue.lines, vec!["the quick fox"]);
+    }
+
+    #[test]
+    fn a_span_that_says_the_letters_touch_does_not_invent_a_space() {
+        // The other direction, which is the one that costs two word errors rather than one. A line
+        // holding a single word has no word gap, and every splitting criterion will still find *a*
+        // split in it — the decisiveness tests are what stop that becoming a licence to invent, and
+        // they must keep working on a measurement expressed in tenths.
+        let (glyphs, matches) = leaning("Understood", 6, 20, 20);
+        let cue = SpatialAssembler::default()
+            .assemble(&image(), &glyphs, &matches)
+            .expect("assembles");
+        assert_eq!(cue.lines, vec!["Understood"]);
+    }
+
+    #[test]
+    fn a_deskewed_line_survives_a_resolution_change() {
+        // The property no spacing rule here may lose. Both sides of every ratio are now in tenths
+        // of a pixel rather than pixels, which changes the unit and must not change the answer.
+        let small = leaning("the quick fox", 6, 20, 160);
+        let large = leaning("the quick fox", 24, 80, 640);
+        let assemble = |(glyphs, matches): &(Vec<Glyph>, Vec<GlyphMatch>)| {
+            SpatialAssembler::default()
+                .assemble(&image(), glyphs, matches)
+                .expect("assembles")
+                .lines
+        };
+        assert_eq!(assemble(&small), assemble(&large));
     }
 
     /// Lay out `text` on one line, with `scale` pixels per unit so the same fixture can be run at

@@ -135,6 +135,7 @@ mod tests {
         Component {
             bounds: Rect::new(x, y, width, height),
             pixels: u64::from(width) * u64::from(height),
+            label: 0,
         }
     }
 

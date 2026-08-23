@@ -411,6 +411,10 @@ fn rejoin_split_marks(
             extended.push(Component {
                 bounds: members[*left].bounds.union(members[*right].bounds),
                 pixels: members[*left].pixels + members[*right].pixels,
+                // Nothing labelled this: it is a box drawn round two components to ask one
+                // question. It never reaches a `GroupedGlyph` — the pair is pushed below as its
+                // two original members, which carry their own labels and therefore their own ink.
+                label: crate::ccl::NO_LABEL,
             });
             let merged = extended.len() - 1;
             let Some(slot) = best_body(&extended, bodies, merged, max_gap, rules) else {
@@ -524,6 +528,7 @@ mod tests {
         Component {
             bounds: Rect::new(x, y, w, h),
             pixels: u64::from(w) * u64::from(h),
+            label: 0,
         }
     }
 
