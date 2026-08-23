@@ -471,17 +471,16 @@ italic act reads at 2.0% against its upright dialogue's 0.5%. It is *closer*, no
 can choose between an italic cut and the slant measurement per title, for the same reason nothing
 can grade a fit. [`docs/italic-slant.md`](docs/italic-slant.md) has the four-way table.
 
-**The colon is never read; it is read as two characters.** It arrives as two separate components,
-and neither the segmenter nor the matcher can put them back together — so `Neither: it is I` comes
-out `Neither.. it is I`. It is the last unmatched glyph in the ceiling fixture and the single
-largest addressable defect on real material, because a speaker label ends in one.
-[#118](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/118) has the hit list it heads.
-
 **Segmentation, not matching, is what is left.** On the disc that reads at 0.6%, the two largest
 remaining classes are a `"` arriving as two `'` — 27% of the residual, and it costs a substitution
 *and* an insertion each time — and a word space that was never cut, at 24%. Neither is a character
 the matcher got wrong. Of the word spaces, 29 of 36 are on upright lines, where the slant
-measurement cannot help and only a sharper decisiveness margin would.
+measurement cannot help and only a sharper decisiveness margin would. The colon was the largest of
+these until #130, and it is worth knowing why it lasted: the rule holding its two dots together
+allowed a gap of 200% of a dot height, and a colon's is 225–450%. It could never fire.
+
+**Word spacing collapses on some all-caps lines.** `MAN ON INTERCOM: The red zone is` can come out
+`MANONINTERCOM:Theredzoneis`. Seen on SDH speaker labels and not yet measured or explained.
 
 **Post-correction ships off, and now has very little to do.** It resolved 363 characters on a real
 Blu-ray before the matcher could tell `l` from `I` by ink width; it resolves **3** now, and none at

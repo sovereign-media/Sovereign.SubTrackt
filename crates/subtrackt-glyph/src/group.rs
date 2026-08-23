@@ -11,6 +11,15 @@
 //! nothing but another dot. So components are classified by height relative to the measured line,
 //! and a mark only attaches to a *body*.
 //!
+//! That design is right and it did not work for two years, because the threshold holding the two
+//! dots together was set to less than half what a colon needs. #130 measured it: the dots sit
+//! 225–450% of a dot height apart across eleven typefaces, against a rule that allowed 200. Every
+//! colon in the library segmented as two glyphs and read as a stray period plus something the
+//! matcher could not name — two errors per occurrence, 100% of the time, and invisible to a
+//! reference set because there was never a colon-shaped glyph to match. The lesson is in
+//! [`GroupingRules::punctuation_gap_percent`]: a threshold nothing ever measured is a guess with a
+//! type signature.
+//!
 //! Known limitation: a double quote is two marks side by side rather than stacked, so it stays two
 //! glyphs and reads as two single quotes. That degrades to something close rather than to garbage,
 //! and fixing it needs the horizontal-neighbour case that #11 is better placed to handle.
@@ -64,6 +73,16 @@ pub struct GroupingRules {
     /// Measured against the marks rather than the line for two reasons. A colon sits far further
     /// apart than a diacritic does from its base, so it needs its own threshold; and a line
     /// holding nothing but punctuation has no meaningful line height to scale against.
+    ///
+    /// **This was 200 and a colon has never once fitted under it.** A colon's dots sit 225-450% of
+    /// a dot height apart -- measured across eleven typefaces at the five sizes the library survey
+    /// spans, and never below 225 in any of them. The rule written to hold a colon together could
+    /// not fire on one at any size, which is the whole of why `:` failed 100% of the time. #130.
+    ///
+    /// The denominator is what makes the number look large and what makes it unstable: a dot is
+    /// 2-5px, so a one-pixel quantisation swings the ratio by a third -- Arial alone reads 320, 350
+    /// and 450 at different sizes. 800 clears the observed worst case by 78%, which is headroom for
+    /// that swing rather than for a typeface nobody has measured.
     pub punctuation_gap_percent: u32,
 }
 
@@ -74,7 +93,7 @@ impl Default for GroupingRules {
             max_gap_percent: 25,
             min_overlap_percent: 50,
             mark_cluster_gap_percent: 150,
-            punctuation_gap_percent: 200,
+            punctuation_gap_percent: 800,
         }
     }
 }
@@ -471,10 +490,17 @@ fn cluster_orphans(
         let mark = members[*orphan];
         let joined = clusters.iter_mut().find(|cluster| {
             cluster.iter().any(|other| {
-                let tallest = mark.bounds.height.max(other.bounds.height).max(1);
+                // The *shorter* of the two, and that is the half of this rule that does the
+                // separating. A colon's dots are the same size, so which one denominates makes no
+                // difference to it — but a small mark stranded far above a much taller one is not
+                // a stacked pair, and against the shorter box its gap explodes rather than
+                // shrinking. Denominating by the taller box hid that case at exactly the ratio a
+                // colon needs: a 2px mark 38px above a 12px one reads 316% against a colon's 350%,
+                // and no threshold can split those two. Against the shorter box it reads 1900%.
+                let shorter = mark.bounds.height.min(other.bounds.height).max(1);
                 overlaps_enough(mark.bounds, other.bounds, rules)
                     && vertical_gap(mark.bounds, other.bounds) * 100
-                        <= tallest * rules.punctuation_gap_percent
+                        <= shorter * rules.punctuation_gap_percent
             })
         });
         match joined {
@@ -764,8 +790,18 @@ mod tests {
     }
 
     /// A colon: two dots stacked, with no body under either.
+    ///
+    /// The proportions are the ones a typeface actually draws, and that is the whole point of this
+    /// helper. It used to be `(12, 3, 3)` and `(19, 3, 3)` — a gap of 4 over a dot of 3, **133%** —
+    /// which fits under any threshold anyone would pick and fitted under the 200 that shipped. Three
+    /// tests asserted a colon groups, all three passed, and no colon in the library ever grouped,
+    /// because the fixture was 2.6x tighter than the thing it stood for. See #130.
+    ///
+    /// These numbers come off a rendered Arial: the lower dot sits on the baseline, the dot is 13%
+    /// of cap height and the gap is 47% of it. Against [`letter`]'s cap of 14 that is a 2px dot and
+    /// a 7px gap — **350%**, the middle of the 225–450% measured across eleven typefaces.
     fn colon(x: u32) -> Vec<Component> {
-        vec![component(x, 12, 3, 3), component(x, 19, 3, 3)]
+        vec![component(x, 11, 2, 2), component(x, 20, 2, 2)]
     }
 
     /// A full-height letter body, as a neighbour for the punctuation cases.
@@ -792,7 +828,7 @@ mod tests {
         assert_eq!(glyphs.len(), 2, "the letter and the colon are separate characters");
         assert_eq!(glyphs[0].parts.len(), 1, "the letter keeps to itself");
         assert_eq!(glyphs[1].parts.len(), 2, "both dots of the colon are one character");
-        assert_eq!(glyphs[1].bounds(), Rect::new(10, 12, 3, 10));
+        assert_eq!(glyphs[1].bounds(), Rect::new(10, 11, 2, 11));
     }
 
     #[test]
