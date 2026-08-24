@@ -178,6 +178,23 @@ other three.
 Blu-ray to the same numbers a development build gives. All four checksums verify against
 `SHA256SUMS`.
 
-The remaining caveat is narrow: cold start is still a Windows measurement, because that is the
-platform available to run one on. Linux process creation is cheaper, so the figure is an upper
-bound, and the argument in *CLI, not `cdylib`* only gets stronger if it is re-taken.
+The remaining caveat is now closed. #131 built the `x86_64-unknown-linux-musl` binary into an
+`ubuntu:24.04` container to benchmark it against five other tools, which put a Linux process on a
+stopwatch for the first time:
+
+| | Windows | Linux, musl, in a container |
+| :--- | ---: | ---: |
+| `subtrackt --version`, cold | 16.1–16.4 ms | **below 10 ms**, `time`'s resolution |
+| peak RSS for that invocation | — | **1,204 kB** |
+| binary | 1.56 MB | 2.07 MB, statically linked |
+
+Linux process creation is cheaper, as predicted, and by enough that the instrument cannot see it:
+twenty invocations all reported `0.00` against `/usr/bin/time`'s centisecond resolution, so the
+figure is a ceiling rather than a measurement. The Windows number stays as the quotable one, because
+it is the only one large enough to quote. The argument in *CLI, not `cdylib`* rests on process
+creation being cheap relative to the work, and on the platform where that argument was weakest it is
+weaker still than assumed.
+
+The extraction figure above is a separate matter and is **not** comparable to the per-track seconds
+in [`alternatives.md`](alternatives.md): 22 s was measured natively on Windows reading a 5.5 GB rip
+over SMB, and those were measured in a container reading a flat `.sup` off a local volume.

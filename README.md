@@ -383,6 +383,18 @@ burn-in rather than shipping text nobody wrote.
 That property is the whole argument, and it is why the report counts glyphs rather than estimating
 probabilities.
 
+**That is now measured rather than asserted.** Nine configurations of five tools read the same
+bytes, and on the generated fixture — the only corpus item with true ground truth — this reads
+**2.3%** against the best Tesseract wrapper's **9.1%**. On real discs the ranking is *not* ours:
+every engine lands within a point of every other, and every one of those gaps is smaller than the
+instrument's own uncertainty, so the honest verdict on all three is **inconclusive**. What is not
+close is the failure column. Across 24,267 cues the three Tesseract wrappers reported **zero**
+glyphs they could not read, because they have no way to say so; this pipeline reported 651, each
+one a location a caller can gate on. Subtitle Edit's two glyph matchers do mark failures, with a
+`*` inline in the subtitle text — a marker rather than a count, indistinguishable from a `*` the
+disc displayed. [`docs/alternatives.md`](docs/alternatives.md) has the tables, the cost, and the
+places the comparison is unfair to the competition.
+
 ### Inside the pipeline
 
 [How it works](#how-it-works) above is the workflow; this is what the code does with a track. The
@@ -439,17 +451,24 @@ crates.
 
 ### How accurate it is
 
-On a real Blu-ray, with a fitted reference set: **0.6% character error across all 818 scored cues**,
-at **99.9%** glyph coverage. A reference set chosen to be wrong reads the same track at **61.6%**.
-That gap is the entire argument for fitting, and it is why nothing ships embedded.
+On a real Blu-ray, with a fitted reference set: **0.4% character error across all 818 scored cues**,
+at **99.9%** glyph coverage. A reference set chosen to be wrong does not produce a worse number —
+it produces **no output at all**: reading the same track against a Times New Roman set matches
+77.8% of glyphs, the threshold gate refuses the track against its 90% floor, and the caller gets
+an error it can route to a fallback. Forced past the gate it reads **47.3%**. That is the entire
+argument for fitting, and it is why nothing ships embedded.
 
 Scored against the English subtitle shipped beside the rip; [`docs/reference-set.md`](docs/reference-set.md)
 explains why that is evidence rather than ground truth. [`docs/error-census.md`](docs/error-census.md)
 says character by character where the error is, and it is far less spread out than the number
-suggests: the rate fell from 5.5% to 0.6% by closing four classes, each of which was a fifth or more
+suggests: the rate fell from 5.5% to 0.4% by closing four classes, each of which was a fifth or more
 of the total on its own. The pipeline's own ceiling — fixture and reference rendered from the same
-font, so typeface mismatch is excluded by construction — is **1.2%** CER, and real material can only
-do worse.
+font, so typeface mismatch is excluded by construction — is **0.0%** CER over the 328 characters
+`xtask accuracy` generates, and **2.4%** over the 500-cue fixture of
+[`docs/alternatives.md`](docs/alternatives.md), which repeats the same text at five slightly
+different sizes. Both are ceilings and real material can only do worse; the second is the honest
+one to quote, because a stream's characters recur at slightly different rasterisations and that is
+the variation a real disc actually presents.
 
 **That is one disc, chosen because it fits Arial.** Pointed at a library rather than at the three
 titles the pipeline was tuned against, a single Arial set reads 47 titles at **12.88%** CER pooled
@@ -465,11 +484,22 @@ Known, measured, and stated here rather than discovered later.
 
 **You have to supply the reference set, and it reads best when it comes from the material's own
 typeface.** This is the big one, and it is what stands between this and working out of the box.
+It is also less lopsided than it reads: every peer needs something supplied too. `seconv` ships no
+OCR database in either Linux tarball — its glyph matchers have to be pointed at a `Latin.nocr` or
+`Latin.db` fetched separately — and the only documented way to aim one at a typeface is a GUI
+trainer driven by a human. What is genuinely ours to own is the next sentence.
 Reading Arial-authored material with Liberation Sans — metric-compatible, openly licensed, the
 obvious thing to ship — costs **11 points of CER**, which is Verdana's cost to within noise. Fitting
 a set per title is as far as that can be taken without ground truth, and it is what `subtrackt fit`
 does; on a real library a single Arial set already fits 34 of 47 titles, and mean match distance
 names the ones it does not fit before any transcript is consulted.
+
+**Out of the box, a generic set loses to Tesseract on every disc.** Measured, not feared: reading
+these three Blu-rays with one Liberation Sans set scores 9.0%, 10.0% and 10.5% against the best
+Tesseract wrapper's 0.6%, 0.8% and 0.8%. The fitted set wins the fixture outright and ties on the
+discs; the unfitted one is beaten by an order of magnitude. Anyone who cannot supply a typeface is
+better served by an OCR engine today, and [`docs/alternatives.md`](docs/alternatives.md) says so
+in those words.
 
 **Nothing can tell a good fit from a bad one.**
 [#63](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/63) tested five statistics and
@@ -489,11 +519,11 @@ carrying only an upright cut reads one film's italic cues at 40.5% CER against 1
 set, and the italic set does the exact reverse — so a fit that is right about the typeface can still
 be wrong about a reel. `gen-reference --italic/--bold` puts several cuts in one set, and the slant
 measurement closes most of what is left where no italic cut exists; between them a real disc's
-italic act reads at 2.0% against its upright dialogue's 0.5%. It is *closer*, not closed. Nothing
+italic act reads at 1.7% against its upright dialogue's 0.3%. It is *closer*, not closed. Nothing
 can choose between an italic cut and the slant measurement per title, for the same reason nothing
 can grade a fit. [`docs/italic-slant.md`](docs/italic-slant.md) has the four-way table.
 
-**Segmentation, not matching, is what is left.** On the disc that reads at 0.6%, the two largest
+**Segmentation, not matching, is what is left.** On the disc that reads at 0.4%, the two largest
 remaining classes are a `"` arriving as two `'` — 27% of the residual, and it costs a substitution
 *and* an insertion each time — and a word space that was never cut, at 24%. Neither is a character
 the matcher got wrong. Of the word spaces, 29 of 36 are on upright lines, where the slant
@@ -556,12 +586,13 @@ the plan it was meant to confirm.
 | :--- | :--- |
 | [`library-survey.md`](docs/library-survey.md) | 56 titles, 1950s–2020s, 149,604 glyphs. One glyph cluster covers 43 of 56 titles across seventy years, and fits **Arial or very close** — but a fixed set covers only **46%** of glyph instances, and "or very close" was the expensive half of that sentence. |
 | [`glyph-stability.md`](docs/glyph-stability.md) | Why. Two renderings of the *same* character are typically further apart (median 46 cells) than two *different* characters are (median 31). A one-pixel shift in the binarization threshold costs 30 cells — as much as character identity itself. Rendering size and anti-aliasing cost 11 and 8: the axes normalisation was built to absorb, and it absorbs them. |
-| [`error-census.md`](docs/error-census.md) | Where the error actually is, per character, on a real disc, and what closing each class was worth. Half of it was the full stop, a quarter was two characters touching and fusing into one component nothing could read, and two thirds of what remained was `l` read as `I` — the pair #10 measured at distance *zero*, separated in the end by a ratio the 16-cell grid rounds away. Between them, **5.5% to 0.7%**, and two further discs say the same. The italic gap below took it to **0.6%**, and what is left is a colon, a quotation mark and a word space — segmentation rather than matching. |
+| [`error-census.md`](docs/error-census.md) | Where the error actually is, per character, on a real disc, and what closing each class was worth. Half of it was the full stop, a quarter was two characters touching and fusing into one component nothing could read, and two thirds of what remained was `l` read as `I` — the pair #10 measured at distance *zero*, separated in the end by a ratio the 16-cell grid rounds away. Between them, **5.5% to 0.7%**, and two further discs say the same. The italic gap below took it to **0.4%**, and what is left is a colon, a quotation mark and a word space — segmentation rather than matching. |
 | [`reference-rendering.md`](docs/reference-rendering.md) | Why the full stop matched nothing, and the two-line change that halved the disc's error rate. The reference set letterboxed the *rasteriser's* box; the runtime letterboxes a connected component's. They differ by a pixel — 1.5% of an `M`, **15% of a period** — and controls show the box is the whole effect: a second entry at any size or threshold buys nothing unless it changes the box, and buys 2.7 points when it does. |
 | [`post-correction.md`](docs/post-correction.md) | What is left once shapes are as good as they get. Resolving `0`/`O` and `1`/`l`/`I` from context takes 1.9–2.2 points off the ceiling fixture's CER and makes no line worse. |
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
 | [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — six statistics, three mechanisms. The fifth identifies a typeface from its font file 79–85% of the time and still cannot gate a track, because a decoded glyph drifts further from its own typeface than the typefaces sit apart. The sixth scores the read text against a language prior and overlaps at every threshold, because the characters a model cannot score are exactly the ones where the read went wrong. |
 | [`library-accuracy.md`](docs/library-accuracy.md) | What the pipeline reads on a real library rather than on the three discs it was tuned against: 50 titles, 1950–2025, 268 GB. **13.56% CER** pooled, 8.21% median, and the upper tail is mostly the instrument — a title read at 99.6% coverage and a good fit still scores 77.6% when the sidecar it is scored against is a different transcript. Per-title font selection moves the corpus figure by 0.4 points; three characters fail *every single time*. |
+| [`alternatives.md`](docs/alternatives.md) | The one claim in this README that had no measurement behind it, now measured: nine configurations of five tools over the same bytes. On the only corpus item with true ground truth this reads **2.3%** against the best Tesseract wrapper's **9.1%**; on real discs every engine lands within a point of every other and **every gap is smaller than the sidecar spread**, so all three titles are inconclusive and the doc says so. Cost is not close — **48-79x** faster in wall clock and **110-307x** in CPU seconds — and neither is the column the argument rests on: **zero** machine-readable failures from three Tesseract wrappers across 24,267 cues. Also finds that a generic Latin database reads *nothing* at 100% CER, that Subtitle Edit's spell-corrector rewrites 43% of cues where this one rewrites 0.4%, and that out of the box we lose. |
 | [`italic-slant.md`](docs/italic-slant.md) | Why the italic act is a third of the errors left on a real disc while being 6% of it. **27% of an italic line's gaps reach the spacing rule already saturated at zero**, against 0.7% of an upright line's, because a slanted box overhangs the box after it — a failure two stages before the matcher, which is why no reference set ever touched it. Measuring the gap between deskewed ink instead took **Gone Girl from 2.8% to 2.0% CER** and gave back 618 of its 783 missing word spaces, on a disc whose release marks none of its 18% italic lines. Sampling along the line's own slant takes #14's most expensive axis from 47 cells to 26 — and a disc then says a deskew and an italic reference cut are **alternatives**, not a stage and an improvement to it: **47.1% to 8.1%** on a set with no italic entries, and worse on a set that has them. One number tells the two acts apart at 99.4% per cue, and that ships as an `<i>` on the output at **98.8%** agreement with a release's own tags, without moving CER by a character. |
 | [`distribution.md`](docs/distribution.md) | CLI over `cdylib`, static musl over glibc, and the binary-size and cold-start numbers behind both. |
 | [`architecture.md`](docs/architecture.md) | How the workspace is laid out, and where each decision lives. |
