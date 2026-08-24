@@ -91,6 +91,17 @@ pub trait GlyphMatcher {
     fn cache_hits(&self) -> u64 {
         0
     }
+
+    /// How many times the session cache was consulted at all.
+    ///
+    /// The denominator [`Self::cache_hits`] needs, and without it the numerator was being divided
+    /// by the wrong thing: `Report` used the *glyph* count, and a real VOBSUB track reported
+    /// **`cache 101%`**. The two are not the same quantity, because #106's de-fusing retries a
+    /// component as two characters and matches each part — lookups that never become glyphs when
+    /// the cut is rejected. A rate that can exceed one is a counter disagreeing with itself.
+    fn cache_lookups(&self) -> u64 {
+        0
+    }
 }
 
 /// Reassembles matched glyphs into lines of text, inserting spaces and applying post-correction.

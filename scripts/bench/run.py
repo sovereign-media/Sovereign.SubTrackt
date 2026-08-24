@@ -139,6 +139,12 @@ def do_dump(args, roster):
         if os.path.exists(out) and os.path.getsize(out) > 0:
             print(f"  {track['key']:15s} cached")
             continue
+        # A `.sup` holds PGS and nothing else, so a VOBSUB track has nowhere to be dumped to and
+        # `score` reads it from its container instead. Said rather than retried three times and
+        # reported as a failure, which is what it did when #140 put the first one on the bench.
+        if track.get("codec") == "vobsub":
+            print(f"  {track['key']:15s} vobsub, read from the container")
+            continue
         print(f"  {track['key']:15s} dumping...", flush=True)
         # Retried because a read over SMB fails about 1.7% of the time and succeeds next attempt.
         # #133 measured that; it is not a defect and it is not worth losing a 30-minute pass to.

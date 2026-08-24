@@ -78,6 +78,26 @@
       "sidecar": null,
       "covers": "the short and sparse extreme: 106 cues, 2,247 glyphs, forced-subtitle shape. Every per-line median -- the spacing rule, the cap line of #75, the slant estimator of #123 -- needs a population, and nothing else here is small enough to test what happens when there is not one.",
       "glyphs": 2247
+    },
+    {
+      "key": "karate-kid",
+      "folder": "The Karate Kid (1984) [tmdbid-1885]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "The Karate Kid (1984) [imdbid-tt0087538] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-TDD.eng.srt",
+      "covers": "the first VOBSUB track on the bench (#140). Every accuracy figure this project had published was PGS -- the decoder for the other codec had shipped and nothing had ever scored it. Plain rather than SDH, and its own disc's SDH sidecar scores the same extraction at 66.4% against this one's 2.5%.",
+      "glyphs": 42634,
+      "codec": "vobsub"
+    },
+    {
+      "key": "training-day",
+      "folder": "Training Day (2001) [tmdbid-2034]",
+      "stream": 0,
+      "kind": "scored",
+      "sidecar": "Training Day (2001) [imdbid-tt0139654] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-c0kE.eng.SDH-BD.srt",
+      "covers": "VOBSUB carrying SDH, against the SDH sidecar cut from the same Blu-ray. The disc's other three sidecars score this extraction at 5.0%, 79.7% and 80.7% -- the WEB ones are a different cut -- so it is also the sharpest measurement of what choosing the wrong sidecar costs.",
+      "glyphs": 39000,
+      "codec": "vobsub"
     }
   ]
 }

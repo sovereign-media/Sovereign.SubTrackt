@@ -372,6 +372,10 @@ impl GlyphMatcher for HammingMatcher {
     fn cache_hits(&self) -> u64 {
         self.cache.hits()
     }
+
+    fn cache_lookups(&self) -> u64 {
+        self.cache.hits() + self.cache.misses()
+    }
 }
 
 #[cfg(test)]
