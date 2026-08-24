@@ -146,10 +146,15 @@ rest moves: it is transcript divergence rather than misreading, and one title su
    track is ambiguous by construction. `docs/post-correction.md` §"The one-character word" has the
    measurement and the arm that answers it — 395 cues improved across the bench, none made worse,
    and Wanda from 1.7% to 1.1% CER.
-2. **Fused components.** Not a family in #118's table at all, and it turns up inside the first one:
-   a fifth of Gone Girl's `l` population is glyphs several times too wide. #106's de-fusing fires
-   only where the matcher already returned *unmatched*, so a fusion that matches something is
-   invisible to it — which is exactly this case, since a fused `l` matches `I`.
+2. ~~**Fused components.**~~ **Measured, and the mechanism named here is not the one at work.**
+   The wide tail in the `l` population is real; what it is not is glyphs matching `I`. `xtask
+   overwide` finds **no matched component on any of three discs standing 25% wider than the
+   character it matched**, because #110 prices ink aspect into the match itself — a component too
+   wide for a narrow character comes back *unmatched*, which is where #106 already reaches. The
+   fusions that survive present as **deletions** (66 `r` and 13 `f` on Gone Girl), and a rule that
+   cuts a matched component was written and priced at **0 cues better** under three successive
+   guards, cutting `"` into `''`, then `n` into `I1`, then `H` into `f1`. `docs/error-census.md`
+   §"The fusion that reads, and why it stays unread" has the three tables.
 3. ~~**Unmeasured lines on King Kong**, 14%, now visible.~~ **Named, and 93% of it is one rule.**
    #184 gave the six refusals names and counted them: 420 of King Kong's 451 unmeasured lines are
    the height-variety guard, which is the all-capitals SDH line. Such a line has a baseline and no

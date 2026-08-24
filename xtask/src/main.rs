@@ -20,6 +20,7 @@ mod fixture;
 mod fontid;
 mod geometry;
 mod mark;
+mod overwide;
 mod pairs;
 mod refmatch;
 mod rendersweep;
@@ -169,6 +170,7 @@ fn main() -> anyhow::Result<()> {
         Some("cue-images") => return cueimage::run(&args[1..]),
         Some("glyph-geometry") => return geometry::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
+        Some("overwide") => return overwide::run(&args[1..]),
         Some("shape-votes") => return voting::run(&args[1..]),
         Some("slant") => return slant::run(&args[1..]),
         Some("width-sweep") => return widthsweep::run(&args[1..]),
@@ -195,6 +197,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask cue-images <media> <out-dir> [--stream N] [--from N] [--count N]");
     eprintln!("  xtask glyph-geometry <media> <reference.subtref> <release.srt> [--pair lI]");
     eprintln!("  xtask unread <media> <reference.subtref>");
+    eprintln!("  xtask overwide <media> <reference.subtref> [--stream N]");
     eprintln!("  xtask shape-votes <media> <reference.subtref>");
     eprintln!("  xtask slant <media> <reference.subtref> <release.srt>");
     eprintln!("  xtask width-sweep <media> <reference.subtref> <release.srt> [--post-correct]");
