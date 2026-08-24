@@ -503,6 +503,8 @@ pub struct ContextCorrector {
     use_vocabulary: bool,
     /// Whether the lone-word arm runs at all.
     use_lone_words: bool,
+    /// Whether that arm may also cross an apostrophe, which only English makes safe.
+    use_contractions: bool,
     /// How the vocabulary is built, kept so `observe` can build it.
     vocabulary_rules: VocabularyRules,
 }
@@ -522,6 +524,7 @@ impl ContextCorrector {
             vocabulary: Vocabulary::default(),
             use_vocabulary: false,
             use_lone_words: false,
+            use_contractions: false,
             vocabulary_rules: VocabularyRules::default(),
         }
     }
@@ -534,10 +537,24 @@ impl ContextCorrector {
         self
     }
 
-    /// Enable the lone-word arm, which is the one that knows a language.
+    /// Enable the lone-word arm: a word of one character is `I` rather than `l`.
+    ///
+    /// Says nothing about which language the track is in, and #180 is why it does not have to.
     #[must_use]
     pub const fn with_lone_words(mut self) -> Self {
         self.use_lone_words = true;
+        self
+    }
+
+    /// Let that arm cross an apostrophe as well, for `I'm` and `I've`.
+    ///
+    /// Separate because it is the half that needs a language. `l'ai`, `l'ho` and `l'un` are
+    /// ordinary French and Italian and occupy exactly the same shape as `I'm` and `I'd`; on two
+    /// foreign tracks of one disc this fired 47 times and was wrong every time. Only a caller who
+    /// knows the track is English may switch it on, which in practice means the container said so.
+    #[must_use]
+    pub const fn with_contractions(mut self) -> Self {
+        self.use_contractions = true;
         self
     }
 
@@ -693,10 +710,19 @@ impl ContextCorrector {
     ///   using them: `- Is it 1 or l?` is in the accuracy fixture for exactly that, and is
     ///   the only correct lone `l` this project has ever observed. The `1` beside it is what
     ///   says so.
-    /// * **an apostrophe may carry at most two letters after it.** `I'm`, `I've`, `I'll` and `I'd`
-    ///   are what a lone `l` is followed by in English; `l'` before a longer word is a French or
-    ///   Italian elision and is left alone. That is the arm's language assumption at its thinnest,
-    ///   and `l'un` is where it would still be wrong.
+    /// * **an apostrophe is a separate switch.** `I'm`, `I've`, `I'll` and `I'd` are what a lone
+    ///   `l` carries in English, and they are a third of what this arm fixes — but `l'ai`, `l'ho`
+    ///   and `l'un` are ordinary French and Italian in exactly the same shape, and no rule about
+    ///   the tail separates them because the two occupy the same one and two letters. #180
+    ///   measured it: 47 firings across two foreign tracks of one disc, wrong every time. So it
+    ///   sits behind [`Self::with_contractions`], which only a caller that knows the language may
+    ///   set.
+    ///
+    /// **The bare rule needs no such gate, and that is measured rather than assumed.** Over six
+    /// French, Italian, Spanish and Portuguese tracks it fired seven times, all seven on Italian,
+    /// and all seven were right: `l piloti` is the article `i` opening a sentence, and the letter
+    /// this promotes it to is the letter Italian wanted. A lone lowercase `l` is not a word in any
+    /// of the four.
     fn resolve_lone_word(
         &self,
         chars: &[char],
@@ -719,7 +745,9 @@ impl ContextCorrector {
         let tail = &chars[start + 1..end];
         let lone = match tail {
             [] => true,
-            ['\'', rest @ ..] => rest.len() <= 2 && rest.iter().all(|c| c.is_alphabetic()),
+            ['\'', rest @ ..] => {
+                self.use_contractions && rest.len() <= 2 && rest.iter().all(|c| c.is_alphabetic())
+            }
             _ => false,
         };
         if !lone {
@@ -988,15 +1016,46 @@ mod tests {
         assert_eq!(correct_lone("- Is it 1 or l?", &[9, 14]).0, "- Is it 1 or l?");
     }
 
+    /// Correct one line with the lone-word arm *and* its contraction half on.
+    fn correct_contracted(line: &str, ambiguous: &[usize]) -> String {
+        let mut c = cue(&[line]);
+        let mut log = Vec::new();
+        ContextCorrector::default()
+            .with_lone_words()
+            .with_contractions()
+            .correct(&mut c, &[origins(line, ambiguous)], 0, &mut log);
+        c.lines[0].clone()
+    }
+
     #[test]
-    fn a_contraction_is_promoted_and_an_elision_is_not() {
-        // `I'm` and `I've` are what a lone `l` carries in English, and they are the larger half of
-        // what this arm fixes. `l'` before a longer word is a French or Italian elision, and the
-        // length of the tail is the only thing separating the two without knowing which language
-        // the track is in.
-        assert_eq!(correct_lone("l'm fixing breakfast.", &[0]).0, "I'm fixing breakfast.");
-        assert_eq!(correct_lone("l've got a horse.", &[0]).0, "I've got a horse.");
-        assert_eq!(correct_lone("l'amour est beau.", &[0]).0, "l'amour est beau.");
+    fn crossing_an_apostrophe_needs_a_language_and_the_bare_rule_does_not() {
+        // #180. `I'm` and `I've` are a third of what this arm fixes on English discs, and `l'ai`,
+        // `l'ho` and `l'un` are ordinary French and Italian in exactly the same one and two
+        // letters -- so no rule about the tail can separate them and the caller has to say. On two
+        // foreign tracks of The Prestige the ungated version fired 47 times and was wrong every
+        // time.
+        assert_eq!(correct_lone("l'm fixing breakfast.", &[0]).0, "l'm fixing breakfast.");
+        assert_eq!(
+            correct_contracted("l'm fixing breakfast.", &[0]),
+            "I'm fixing breakfast."
+        );
+        assert_eq!(correct_contracted("l've got a horse.", &[0]), "I've got a horse.");
+    }
+
+    #[test]
+    fn a_long_tail_is_an_elision_even_when_the_language_is_known() {
+        // The tail length is not what makes the contraction rule safe -- the switch above is --
+        // but it is still worth keeping, because `l'amour` is nothing English ever writes and a
+        // rule that fired on it would be wrong in a way no track could correct.
+        assert_eq!(correct_contracted("l'amour est beau.", &[0]), "l'amour est beau.");
+    }
+
+    #[test]
+    fn the_bare_rule_asserts_nothing_about_a_language() {
+        // Measured on six French, Italian, Spanish and Portuguese tracks: seven firings, all seven
+        // on Italian, all seven right. `l piloti` is the article `i` opening a sentence, and `I`
+        // is the letter Italian wanted. A lone lowercase `l` is not a word in any of the four.
+        assert_eq!(correct_lone("l piloti sono qui.", &[0]).0, "I piloti sono qui.");
     }
 
     #[test]

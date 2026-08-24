@@ -105,9 +105,10 @@ Complete and tested:
 - **Glyph matching, complete**: linear scan by Hamming distance with a line-relative metric term,
   the runner-up margin that flags an ambiguous read, and the session cache.
 - **Post-correction**: ambiguous reads resolved from the characters either side of them, from the
-  track's own vocabulary, and — for a one-character word, which `l` is not — from the one rule here
-  that knows a language. All off by default. [post-correction.md](post-correction.md) records the
-  measurement behind that default, and behind each arm.
+  track's own vocabulary, and — for a one-character word, which `l` is not — from the shape of the
+  token alone. All off by default. The only half that needs to know a language reads the language
+  the container declares. [post-correction.md](post-correction.md) records the measurement behind
+  that default, and behind each arm.
 - **Reference-set generation and fitting**: `gen-reference` renders a font — or a directory of them
   — through the same normalisation the runtime applies, carrying separate entries for italic and
   bold cuts; `fit` scores a directory of candidates against a title and proposes a winner.

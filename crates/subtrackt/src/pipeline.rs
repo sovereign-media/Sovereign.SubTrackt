@@ -242,7 +242,7 @@ impl Pipeline {
             unread: &mut unread,
             cost: &mut cost,
         };
-        let track = self.build_track(&images, &mut stages, &mut tally, progress)?;
+        let track = self.build_track(&images, &stream, &mut stages, &mut tally, progress)?;
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
         report.cache_hits = stages.matcher.cache_hits();
@@ -267,7 +267,7 @@ impl Pipeline {
     /// Off is a corrector too, not an absent one. Keeping the switched-off case on the same code
     /// path means the reporting, the logging and the cue loop are identical either way, so nothing
     /// can behave differently for a reason other than the corrections themselves.
-    fn corrector(&self) -> Box<dyn PostCorrector> {
+    fn corrector(&self, stream: &StreamInfo) -> Box<dyn PostCorrector> {
         if self.config.post_correct {
             // One margin, from the matching thresholds, shared with the confidence tally the
             // assembler produced. A corrector working to a different one would rewrite glyphs the
@@ -282,7 +282,15 @@ impl Pipeline {
                 corrector
             };
             if self.config.lone_words {
-                Box::new(corrector.with_lone_words())
+                // The bare rule needs no language and the contraction rule does, so the second one
+                // is switched on only where the container itself says English. #180 has the
+                // measurement on both halves.
+                let corrector = corrector.with_lone_words();
+                if self.config.assume_english || declares_english(stream) {
+                    Box::new(corrector.with_contractions())
+                } else {
+                    Box::new(corrector)
+                }
             } else {
                 Box::new(corrector)
             }
@@ -311,6 +319,7 @@ impl Pipeline {
     fn build_track(
         &self,
         images: &[SubtitleImage],
+        stream: &StreamInfo,
         stages: &mut Stages<'_>,
         tally: &mut Tally<'_>,
         progress: &dyn Progress,
@@ -365,7 +374,7 @@ impl Pipeline {
         // separate pass. Every image is already resident, so this costs nothing but the ordering.
         let read_cues = self.read_images(images, per_image, stages, tally, progress)?;
 
-        let mut corrector = self.corrector();
+        let mut corrector = self.corrector(stream);
         corrector.observe(&read_cues);
 
         let mut cues = Vec::with_capacity(read_cues.len());
@@ -664,6 +673,41 @@ fn permille(shear: f64) -> i32 {
 /// Read off the set rather than configured, because it is a property of the set and a user who
 /// generated one from a single font file did not make a choice about slant — they simply have no
 /// italic to offer. The documented first invocation of `gen-reference` produces exactly that set.
+/// Whether the container claims this stream is English.
+///
+/// #180. Nothing in this pipeline knew what language it was reading, and one post-correction rule
+/// needs to: `l'ai` and `l'ho` are ordinary French and Italian in the same shape as `I'm`. The
+/// evidence was already parsed and consulted by nothing — `StreamInfo` has carried a language tag
+/// and a title since the Matroska reader landed.
+///
+/// **Two signals, and the weaker one is not optional.** Over the 50-title corpus sample, only
+/// **21** declare a language on the track this pipeline chooses; **16** more name English in the
+/// free-text title, for 35 of 50 between them. The pattern behind that gap is worth stating,
+/// because it is the opposite of what you would guess: **the English track is the one the muxer
+/// leaves untagged.** A Fish Called Wanda, King Kong, The Prestige and Airplane! all label every
+/// foreign track and leave the English one blank, and three of the four still say `English` in the
+/// title. So reading the title is not a nicety here — without it this rule would be off for most
+/// of the material it was built for.
+///
+/// A third signal exists and is deliberately not used: on a file that tags `chi`, `dan` and `est`
+/// and leaves one track blank, the blank one is the English one, and that inference reaches a
+/// further 11 of the 50. It is an inference about a *muxer's habit* rather than a claim about the
+/// track, and every wrong firing of the rule behind it is a defect — so it stays out of the gate.
+/// `docs/post-correction.md` §"Which language is this" records what it would be worth.
+fn declares_english(stream: &StreamInfo) -> bool {
+    let tagged = stream.language.as_deref().is_some_and(|tag| {
+        let tag = tag.to_ascii_lowercase();
+        tag == "eng" || tag == "en" || tag.starts_with("en-") || tag.starts_with("en_")
+    });
+    // Case-insensitive and substring, because the field is prose: `English`, `English (SDH)`,
+    // `English SDH` and `Full English` are all real titles from the bench discs.
+    let titled = stream
+        .title
+        .as_deref()
+        .is_some_and(|title| title.to_lowercase().contains("english"));
+    tagged || titled
+}
+
 fn carries_a_slanted_cut(reference: &subtrackt_glyph::ReferenceSet) -> bool {
     use subtrackt_glyph::reference::Style;
     reference
@@ -932,6 +976,45 @@ mod tests {
     use super::*;
     use subtrackt_core::{IndexedBitmap, Palette, PaletteEntry, Rect, TimeSpan, Timestamp};
     use subtrackt_glyph::matcher::MatchThresholds;
+
+    /// A subtitle stream declaring `language` and titled `title`.
+    fn stream(language: Option<&str>, title: Option<&str>) -> StreamInfo {
+        StreamInfo {
+            index: 0,
+            codec: subtrackt_demux::BitmapCodec::Pgs,
+            language: language.map(str::to_owned),
+            title: title.map(str::to_owned),
+            plane_width: 1920,
+            plane_height: 1080,
+            codec_private: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_title_is_read_because_the_english_track_is_the_untagged_one() {
+        // #180's whole finding. Over the 50-title corpus sample only 21 declare a language on the
+        // track this pipeline chooses, and the pattern behind the gap is the opposite of the
+        // obvious one: a muxer labels every foreign track and leaves the English one blank. A Fish
+        // Called Wanda, King Kong, The Prestige and Airplane! are all that shape, and three of the
+        // four still say so in the title. Reading only the tag would switch the rule off for most
+        // of the material it exists for.
+        assert!(declares_english(&stream(Some("eng"), None)));
+        assert!(declares_english(&stream(None, Some("English (SDH)"))));
+        assert!(declares_english(&stream(None, Some("English SDH"))));
+        assert!(!declares_english(&stream(None, None)));
+    }
+
+    #[test]
+    fn a_declared_foreign_track_is_not_english_whatever_it_is_called() {
+        // The Prestige carries French, Italian, Spanish and Portuguese bitmap tracks beside its
+        // English one, all of them tagged. Every one of them is a track the contraction rule would
+        // damage, and the tag is what keeps it away from them.
+        assert!(!declares_english(&stream(Some("fre"), Some("French (Parisian)"))));
+        assert!(!declares_english(&stream(Some("ita"), Some("Italian"))));
+        // `en-GB` and `en_US` are both spellings a container may carry.
+        assert!(declares_english(&stream(Some("en-GB"), None)));
+        assert!(declares_english(&stream(Some("EN"), None)));
+    }
 
     /// A reference entry for `character` in one style. Only the style is under test here.
     fn entry(
