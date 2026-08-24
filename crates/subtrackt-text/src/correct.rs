@@ -29,7 +29,7 @@
 //!
 //! [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use subtrackt_core::{Confidence, Cue, GlyphMatch};
@@ -322,7 +322,16 @@ impl Default for VocabularyRules {
 /// is what makes every test written against the context arm a regression guard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Vocabulary {
-    tokens: HashMap<String, usize>,
+    /// Ordered, so a prefix query is a range rather than a scan.
+    ///
+    /// A `HashMap` until #153, which made [`Self::support`] walk every clear token in the track for
+    /// every candidate of every ambiguous glyph. On the numbers this arm was measured against --
+    /// thousands of tokens, seven thousand ambiguous glyphs, four candidates each -- that is on the
+    /// order of 10^8 prefix comparisons. `docs/cost-baseline.md` then measured it costing nothing
+    /// at all, because both flags gating this arm are off by default and the constants are small;
+    /// it is fixed anyway, so that whether the arm is worth turning on is decided on what it reads
+    /// rather than on what it costs.
+    tokens: BTreeMap<String, usize>,
     rules: VocabularyRules,
 }
 
@@ -330,7 +339,7 @@ impl Vocabulary {
     /// An empty vocabulary, which corrects nothing.
     #[must_use]
     pub fn new(rules: VocabularyRules) -> Self {
-        Self { tokens: HashMap::new(), rules }
+        Self { tokens: BTreeMap::new(), rules }
     }
 
     /// Build from every cue the pipeline assembled, before any correction has touched them.
@@ -341,7 +350,7 @@ impl Vocabulary {
     /// substitution can become the evidence for the next one.
     #[must_use]
     pub fn observed(cues: &[AssembledCue], rules: VocabularyRules, ambiguity_margin: u32) -> Self {
-        let mut tokens: HashMap<String, usize> = HashMap::new();
+        let mut tokens: BTreeMap<String, usize> = BTreeMap::new();
 
         for assembled in cues {
             for (line, origins) in assembled.cue.lines.iter().zip(&assembled.origins) {
@@ -392,15 +401,23 @@ impl Vocabulary {
     /// the evidence rather than assert it.
     fn support(&self, candidate: &str) -> Option<(&str, usize)> {
         if self.rules.prefix_match {
+            // Every token extending `candidate` sorts together and immediately after it, so the
+            // range starts at the candidate and ends at the first token that stops matching.
             let mut found: Option<(&str, usize)> = None;
-            for (token, count) in &self.tokens {
-                if *count >= self.rules.min_occurrences && token.starts_with(candidate) {
-                    // Several clear tokens can extend one candidate — `line` sits under `linear`
-                    // and `lines` — and they all argue for the same character. The shortest is
-                    // reported because it is the closest thing to what was actually read.
-                    if found.is_none_or(|(best, _)| token.len() < best.len()) {
-                        found = Some((token.as_str(), *count));
-                    }
+            for (token, count) in self.tokens.range(candidate.to_owned()..) {
+                if !token.starts_with(candidate) {
+                    break;
+                }
+                if *count < self.rules.min_occurrences {
+                    continue;
+                }
+                // Several clear tokens can extend one candidate — `line` sits under `linear` and
+                // `lines` — and they all argue for the same character. The shortest is reported
+                // because it is the closest thing to what was actually read. Ordered iteration
+                // does *not* give that for free: `line` sorts before `linear`, but `lines` and
+                // `linear` sort in an order length has nothing to do with. So it stays explicit.
+                if found.is_none_or(|(best, _)| token.len() < best.len()) {
+                    found = Some((token.as_str(), *count));
                 }
             }
             return found;
@@ -601,6 +618,7 @@ impl ContextCorrector {
         &self,
         chars: &[char],
         origins: &[Option<GlyphMatch>],
+        spans: &[(usize, usize)],
         at: usize,
     ) -> Option<(char, char, CorrectionRule)> {
         if !self.is_ambiguous(origins, at) {
@@ -621,7 +639,7 @@ impl ContextCorrector {
             return None;
         }
 
-        self.resolve_from_vocabulary(chars, at, from, set)
+        self.resolve_from_vocabulary(chars, spans, at, from, set)
     }
 
     /// The second arm: a token the track itself read clearly, matched case-folded.
@@ -636,6 +654,7 @@ impl ContextCorrector {
     fn resolve_from_vocabulary(
         &self,
         chars: &[char],
+        spans: &[(usize, usize)],
         at: usize,
         from: char,
         set: &Confusion,
@@ -643,8 +662,10 @@ impl ContextCorrector {
         if !self.use_vocabulary || self.vocabulary.is_empty() {
             return None;
         }
-        let (start, end) = token_spans(chars)
-            .into_iter()
+        // The line's spans, computed once by the caller. This used to recompute every token
+        // boundary on the line for each ambiguous character on it.
+        let (start, end) = *spans
+            .iter()
             .find(|(start, end)| (*start..*end).contains(&at))?;
         if end - start < self.vocabulary.rules.min_len {
             return None;
@@ -710,9 +731,10 @@ impl PostCorrector for ContextCorrector {
             // the matcher read clearly and corrections only ever land on ones it did not, so the
             // two sets are disjoint and a substitution can never become evidence for the next one.
             // Deciding first makes that a property of the code rather than of the iteration order.
+            let spans = token_spans(&chars);
             let changes: Vec<(usize, char, char, CorrectionRule)> = (0..chars.len())
                 .filter_map(|at| {
-                    self.resolve(&chars, line_origins, at)
+                    self.resolve(&chars, line_origins, &spans, at)
                         .map(|(from, to, rule)| (at, from, to, rule))
                 })
                 .collect();
