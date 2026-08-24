@@ -18,7 +18,7 @@ Every stage is built, and the pipeline reads a Blu-ray rip end to end. What it c
 characters *out of the box*, because nothing is embedded to match against — a decision rather than
 a gap, and the reason is in [reference-set.md](reference-set.md). Given a reference set built from
 the material's own typeface it reads a real disc at 0.6% character error and a library of 47 titles
-at 13.56%; given one built from a near-identical typeface, it loses 11 points. #43 and #62 closed
+at 12.88%; given one built from a near-identical typeface, it loses 11 points. #43 and #62 closed
 that gap by fitting the set to the title instead of to the binary. #63 asked the part that survived
 — can anything tell a good fit from a bad one without ground truth — and the answer is no, now
 across six statistics and three distinct mechanisms. So the choice is reported to the user rather

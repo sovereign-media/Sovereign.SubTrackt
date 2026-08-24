@@ -143,10 +143,17 @@ only instrument that splits by style is the one that reads the release's tags. T
 those 592 lines — 28.3%, against 0.8% on the same disc's upright lines — is the estimator and the
 gap measurement agreeing about a population neither of them was told existed.
 
-This also corrects something. [`library-accuracy.md`](library-accuracy.md) reports a cue-level italic CER of 25.04% against
-22.41% upright over 47 titles, and that split is taken from the release's tags. A release that marks
-none of its italics puts the whole italic act in the upright column, so the true gap between the two
-styles is **wider than that table shows**, by an unknown amount.
+This also corrects something, and the correction now runs the other way. When this was written,
+[`library-accuracy.md`](library-accuracy.md) reported a cue-level italic CER of 25.04% against
+22.41% upright over 47 titles. That corpus has since been re-extracted with the gaps measured as
+described here, and the two styles are level: **22.18% italic against 21.85% upright**, and 33.32%
+against 32.20% in words where the gap had been 14.6 points. This section is why.
+
+The caveat on the split itself survives: it is taken from the release's tags, and a release that
+marks none of its italics puts the whole italic act in the upright column. Gone Girl is the case in
+point. So *both* columns above carry italic lines, and the remaining third of a point between them
+is an underestimate of nothing in particular — which is a better problem than the one this
+paragraph used to describe.
 
 ## The matching half: 21 cells of 47, and the rest is letterform
 

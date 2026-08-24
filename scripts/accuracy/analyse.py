@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate the library sweep into the two tables."""
+"""Aggregate the library sweep into the tables `docs/library-accuracy.md` publishes."""
 import collections
 import glob
 import json
@@ -59,6 +59,27 @@ def pooled(group, band="track"):
     W = sum(r["_best"][band]["words"] for r in group)
     WE = sum(r["_best"][band]["word_errors"] for r in group)
     return C, E, W, WE
+
+
+FAMILIES = ("case pairs", "I / l", "brackets", "punctuation", "other")
+
+
+def family(got, want):
+    """Which kind of confusion this is.
+
+    The split exists to separate what a *matcher* can get wrong from what a second transcript looks
+    like. Case pairs and `I`/`l` are shapes that genuinely resemble each other; `other` is a
+    substitution between characters that do not, which nothing in the pipeline produces at volume.
+    """
+    if got.lower() == want.lower() and got.isalpha():
+        return "case pairs"
+    if {got, want} <= set("Il"):
+        return "I / l"
+    if got in "[](){}" or want in "[](){}":
+        return "brackets"
+    if got in ".,:;!?-'\"\u266a\u2014" or want in ".,:;!?-'\"\u266a\u2014":
+        return "punctuation"
+    return "other"
 
 
 def chars_table(group, label, floor=1000, top=45):
@@ -167,18 +188,41 @@ def main():
         if g:
             print("  %-14s %4d titles" % (label, len(g)))
 
-    # The per-character census is built from the cue-level alignment, so it inherits that
-    # alignment's faults: where the sidecar transcribes something different, the aligner pairs
-    # characters that were never meant to correspond and the census records the difference as a
-    # confusion. On a title the sidecar broadly agrees with, that noise is small and what is left
-    # is the matcher's own failures. This is a conditional question -- "among titles where the
-    # transcript corroborates, which characters still fail?" -- and it is the only form of the
-    # question the instrument can actually answer.
+    # Both tables are printed, and the corroborated one is what `docs/library-accuracy.md`
+    # publishes. #169 removed the reason that used to be given for the restriction -- the census
+    # was built from the cue-level alignment and inherited its mispairing -- so #119 asked whether
+    # the table could widen to every scored title. It cannot, for a different reason, and
+    # `families` below is the evidence: the wide table measures the difference between two
+    # transcripts rather than the matcher, and two titles supply most of it.
     corroborated = [r for r in ok if r["_best"]["track"]["cer"] < 5.0]
     out = {"all": chars_table(ok, "every scored title"),
            "corroborated": chars_table(corroborated,
                                        "titles the sidecar corroborates (track CER < 5%)")}
     json.dump(out, open(os.path.join(SP, "pooled_chars.json"), "w", encoding="utf-8"))
+
+    print()
+    print("== substitutions by family, per 1,000 release characters ==")
+    print("  A rate rather than a count, so the three populations can be compared at all. The")
+    print("  families a matcher can plausibly confuse hold roughly still as the population widens;")
+    print("  `other` -- substitutions between characters that share no shape -- does not, because")
+    print("  it is what a different transcript looks like rather than a misread.")
+    worst = max(ok, key=lambda r: r["_best"]["track"]["cer"])
+    groups = [("corroborated (CER < 5%)", corroborated), ("every scored title", ok),
+              ("every title but " + worst["folder"].split(" (")[0][:17],
+               [r for r in ok if r is not worst])]
+    print("  %-34s %6s %6s %6s %6s %6s %7s"
+          % ("population", "case", "I / l", "brack", "punct", "other", "all"))
+    for label, group in groups:
+        counts = collections.Counter()
+        chars = sum(r["_best"]["track"]["chars"] for r in group)
+        for r in group:
+            for c in r["_best"].get("confusions", []):
+                if c["to"] == "unread" or len(c["to"]) != 1 or len(c["from"]) != 1:
+                    continue
+                counts[family(c["from"], c["to"])] += c["upright"] + c["italic"]
+        cells = [1000.0 * counts[k] / chars for k in FAMILIES]
+        print("  %-34s %6.2f %6.2f %6.2f %6.2f %6.2f %7.2f"
+              % (label, *cells, sum(cells)))
 
     print()
     print("== by decade ==")
