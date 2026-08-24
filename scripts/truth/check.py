@@ -29,9 +29,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TRUTH = os.path.join(HERE, "wanda-0000-0299.srt")
 
 # The arms, in the order they compose. Each row is (name, extra flags for `extract`).
+# Every arm names every flag it wants, including the ones it wants *off*. The defaults moved once
+# already -- #185 turned two of these on, on the evidence this script prints -- and an arm that
+# said nothing would have quietly become a copy of the row below it.
 ARMS = [
-    ("off", []),
-    ("context", ["--post-correct"]),
+    ("off", ["--no-post-correct"]),
+    ("context", ["--post-correct", "--no-lone-words"]),
     # `--assume-english` because a `.sup` is a codec dump with no container around it, so it carries
     # no language tag for the contraction half to read. #180 has why that half needs one.
     ("lone words", ["--post-correct", "--lone-words", "--assume-english"]),
