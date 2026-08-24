@@ -217,32 +217,59 @@ net is under two points.
 So the fixture row survives the fairest configuration available to it. It is still the row where the
 corpus most suits us, and the disc rows below are where real material lives.
 
-### Table 3 — accuracy on the discs, and why it settles nothing
+### Table 3 — accuracy on the discs, against what it cost to get there
 
-Track-level CER, median of three repeats, against one pinned sidecar per title.
+Track-level CER per title, then the two statistics that do not select a winner per column — and the
+cost of getting there, because an accuracy table with no cost column silently prices a 400x
+difference at zero.
 
-| engine | clover | wanda | gonegirl |
-| :--- | ---: | ---: | ---: |
-| subtrackt, fitted | 0.8% | 1.3% | 1.3% |
-| subtrackt, Arial | 0.8% | 1.3% | 1.3% |
-| subtrackt, Liberation | 10.0% | 9.0% | 10.5% |
-| seconv, Tesseract (apt) | 1.7% | 0.9% | 2.2% |
-| seconv, Tesseract (best) | 1.6% | **0.8%** | 1.9% |
-| pgsrip | **0.6%** | 3.5% | **0.8%** |
-| PgsToSrt | 1.5% | 0.9% | 1.8% |
-| seconv, nOCR | 96.8% | 97.0% | 97.0% |
-| seconv, binary compare | 96.8% | 97.0% | 97.0% |
-| **best competitor − subtrackt** | **−0.2** | **−0.5** | **−0.5** |
-| **sidecar spread on this title** | **14.3** | **3.4** | **14.0** |
+| engine | clover | wanda | gonegirl | **mean** | **worst** | wall | CPU | ms/cue |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **subtrackt, fitted** | 0.8% | 1.3% | 1.3% | **1.13** | **1.3** | **5.5 s** | **4.1 s** | **0.9** |
+| subtrackt, Arial | 0.8% | 1.3% | 1.3% | 1.13 | 1.3 | 3.7 s | 3.2 s | 0.7 |
+| PgsToSrt | 1.5% | 0.9% | 1.8% | 1.37 | 1.8 | 411 s | **1,630 s** | 350 |
+| seconv, Tesseract (best) | 1.6% | **0.8%** | 1.9% | 1.41 | 1.9 | 511 s | 692 s | 149 |
+| seconv, Tesseract (apt) | 1.7% | 0.9% | 2.2% | 1.61 | 2.2 | 404 s | 522 s | 112 |
+| pgsrip | **0.6%** | 3.5% | **0.8%** | 1.62 | **3.5** | 462 s | 638 s | 137 |
+| subtrackt, Liberation | 10.0% | 9.0% | 10.5% | 9.84 | 10.5 | 3.7 s | 3.2 s | 0.7 |
+| seconv, nOCR | 96.8% | 97.0% | 97.0% | 96.9 | 97.0 | 25 s | 25 s | 5.4 |
+| seconv, binary compare | 96.8% | 97.0% | 97.0% | 96.9 | 97.0 | 27 s | 27 s | 5.7 |
+| **sidecar spread on this title** | **14.3** | **3.4** | **14.0** | | | | | |
 
-**Every gap is an order of magnitude smaller than the instrument's own uncertainty.** Scoring one
-engine against the other English sidecar in the same folder moves Cloverfield by 14.3 points and Gone
-Girl by 14.0. Against that, a 0.2-point lead means nothing at all.
+Wall and CPU are the sum over the three discs, 4,660 cues.
 
-So the honest verdict on all three discs is **inconclusive**, and it is inconclusive in the direction
-that costs us: taken at face value a competitor is ahead on every one of them. What the numbers
-support is *"on real Blu-rays, subtrackt and a Tesseract wrapper read within half a point of each
-other, and this instrument cannot separate them"*. They do not support a claim that either wins.
+**Every accuracy gap here is an order of magnitude smaller than the instrument's own uncertainty.**
+Scoring one engine against the other English sidecar in the same folder moves Cloverfield by 14.3
+points and Gone Girl by 14.0. Against that, a 0.2-point lead means nothing, and **no title is
+individually decidable**.
+
+Two things follow, and an earlier draft of this document got both of them wrong.
+
+**First, beware the statistic.** That draft carried a per-title *"best competitor"* row — the maximum
+over five engines on each title, compared against one fixed engine. That is best-of-N selection bias,
+and it is **structurally the same error §(d) forbids for sidecars**: with enough candidates, something
+beats you everywhere by chance. Having named that as poison three sections earlier, this document
+then committed it in the engine dimension. By the statistics that do not select, subtrackt-fitted is
+first on both: lowest mean (1.13 against PgsToSrt's 1.37) and lowest worst case (1.3 against 1.8),
+winning 2-1 head to head against three of the four working competitors and losing 1-2 to pgsrip.
+
+The reason is consistency rather than peak accuracy. **No competitor is good on all three.** pgsrip
+takes the two best individual results in the table — 0.6% and 0.8% — and then reads Wanda at
+**3.5%**, the worst of any working engine, having dropped 69 of its 1,396 cues. subtrackt wins no
+title outright and is never worse than 1.3%.
+
+**Second, and larger: accuracy alone is the wrong frame, and omitting cost flattered the
+competition.** Reading these three discs costs subtrackt **4.1 CPU-seconds** and the cheapest
+competitor **522** — 127x — while every one of them also lands *behind* on mean CER. There is no
+trade being made here. **Not one competitor is on the accuracy-cost frontier**: each is
+simultaneously slower and, averaged over the corpus, less accurate. The single place a competitor is
+genuinely ahead is pgsrip on Cloverfield, 0.6% against 0.8%, bought for **48x the wall clock and
+110x the CPU** — and given back with interest on Wanda.
+
+So the defensible sentence is: *"on real Blu-rays this pipeline is the most consistent engine tested,
+with the best mean and best worst case, at two orders of magnitude less CPU — and every individual
+margin is far inside what this instrument can resolve."* It is **not** *"a competitor is ahead on
+every disc"*, which was an artefact of the statistic rather than a finding.
 
 ### Table 4 — cost
 
@@ -454,17 +481,22 @@ location, and refused a whole track outright when pointed at a Times New Roman s
 matched against a 90% floor, an error rather than 47.3% of confidently wrong text. That is the entire
 claim `README.md` has been making without a measurement, and it is now measured.
 
-**The accuracy argument is much weaker than the project has been implying.** On real Blu-rays a
-Tesseract wrapper reads within half a point of this pipeline, and on two of three discs it reads
-*better*. The gaps are inside the instrument's uncertainty, so nobody wins — but "nobody wins" is a
-long way from what a reader would have inferred. Only the fixture separates them, and the fixture is
-ours.
+**The accuracy argument is weaker than the project has been implying, but not in the direction a
+per-title table suggests.** No individual disc is decidable: every margin sits inside the sidecar
+spread, and a Tesseract wrapper can take any single title. Across the three, though, this pipeline
+has the best mean (1.13% against 1.37%) and the best worst case (1.3% against 1.8%), because no
+competitor is good on all three — pgsrip owns two titles and then reads the third at 3.5%. What is
+true is the narrower claim: *nothing here separates these engines on one disc*, and the fixture,
+which is ours, is the only row that separates anyone at all.
 
 **Out of the box we lose, unambiguously.** A generic Liberation Sans set reads 9–10.5% where Tesseract
 reads 0.6–0.8%. Anyone who cannot supply the typeface is better served by an OCR engine today. That
 sentence is now in `README.md` §Shortcomings.
 
-**The cost argument is entirely intact and is the least interesting one.** 48–79x wall, 110–307x CPU,
+**The cost argument is entirely intact, and pairing it with the accuracy table is what makes the
+result unambiguous: no competitor is on the frontier.** Each is both slower and, averaged over the
+corpus, less accurate — 522 CPU-seconds at best against 4.1 for the same three discs, for a worse
+mean CER. There is no trade on offer, only a price. 48–79x wall, 110–307x CPU,
 37 seconds against 1.4 core-hours for Death Race 2's 37 tracks. But **nOCR is 5 ms/cue against our
 1 ms**, so most of that gap is *glyph matching versus neural OCR* rather than anything about this
 implementation. Against the same class of algorithm the speed advantage is about 5x, not 60x, and
