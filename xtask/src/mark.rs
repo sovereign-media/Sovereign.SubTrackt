@@ -277,7 +277,7 @@ fn decompose(
     let (width, height, coverage) =
         render_line(font, &format!("{neighbour} {character} {neighbour}"), size)?;
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= ink).collect();
-    let plane = BinaryMask::from_bits(width, height, bits).ok()?;
+    let plane = BinaryMask::from_bits(width, height, &bits).ok()?;
     let components = ccl::label(&plane, ComponentFilter::permissive()).ok()?;
     let lines = group::assign_lines(&plane, &components).ok()?;
     let glyphs = group::group(&components, &lines, GroupingRules::default()).ok()?;
@@ -486,7 +486,7 @@ fn has_mark(font: &Font, character: char, ink: u8) -> bool {
         return false;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= ink).collect();
-    let Ok(mask) = BinaryMask::from_bits(width, height, bits) else {
+    let Ok(mask) = BinaryMask::from_bits(width, height, &bits) else {
         return false;
     };
     ccl::label(&mask, ComponentFilter::permissive()).is_ok_and(|parts| parts.len() > 1)

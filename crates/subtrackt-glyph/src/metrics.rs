@@ -99,19 +99,24 @@ impl LineAnchors {
 fn mode(values: &[u32], tolerance: u32) -> Option<(u32, usize)> {
     values
         .iter()
-        .map(|candidate| {
-            let members: Vec<u32> = values
-                .iter()
-                .copied()
-                .filter(|v| v.abs_diff(*candidate) <= tolerance)
-                .collect();
-            // Report the bucket's own centre rather than the candidate that seeded it, so the
-            // answer does not depend on which member happened to be tried first.
-            let sum: u32 = members.iter().sum();
-            let centre = sum / u32::try_from(members.len()).unwrap_or(1);
-            (centre, members.len())
-        })
+        .map(|candidate| bucket(values, *candidate, tolerance))
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+}
+
+/// The values within `tolerance` of `candidate`, as their centre and their count.
+///
+/// The centre rather than the candidate that seeded it, so the answer does not depend on which
+/// member happened to be tried first. Summed in place: this used to collect the members into a
+/// `Vec` to add them up, once per candidate, in a function that is already quadratic.
+fn bucket(values: &[u32], candidate: u32, tolerance: u32) -> (u32, usize) {
+    let (mut sum, mut count) = (0u32, 0u32);
+    for value in values {
+        if value.abs_diff(candidate) <= tolerance {
+            sum += *value;
+            count += 1;
+        }
+    }
+    (sum / count.max(1), count as usize)
 }
 
 /// One glyph as the anchor estimate sees it.
@@ -194,12 +199,7 @@ pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Opti
     let support = (voting.len() * rules.min_cap_support_percent as usize / 100).max(2);
     let cap_top = tops
         .iter()
-        .map(|candidate| {
-            let reaching = tops.iter().filter(|t| t.abs_diff(*candidate) <= tolerance);
-            let members: Vec<u32> = reaching.copied().collect();
-            let sum: u32 = members.iter().sum();
-            (sum / u32::try_from(members.len()).unwrap_or(1), members.len())
-        })
+        .map(|candidate| bucket(&tops, *candidate, tolerance))
         .filter(|(_, count)| *count >= support)
         .map(|(centre, _)| centre)
         .min()?;

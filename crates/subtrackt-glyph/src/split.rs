@@ -75,15 +75,7 @@ pub fn cut_columns(mask: &BinaryMask, bounds: Rect, rules: SplitRules) -> Vec<u3
     if bounds.width < 4 {
         return Vec::new();
     }
-    let profile: Vec<u32> = (bounds.x..bounds.right())
-        .map(|x| {
-            (bounds.y..bounds.bottom())
-                .filter(|&y| mask.get(x, y))
-                .count()
-                .try_into()
-                .unwrap_or(u32::MAX)
-        })
-        .collect();
+    let profile = mask.column_projection_in(bounds);
 
     let mut sorted = profile.clone();
     sorted.sort_unstable();
@@ -155,11 +147,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     /// Two blocks joined by a single-pixel bridge: the shape a corner touch makes.

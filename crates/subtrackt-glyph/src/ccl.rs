@@ -379,11 +379,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     fn label_all(rows: &[&str]) -> Vec<Component> {
@@ -556,7 +556,7 @@ mod tests {
             expected += 1;
         }
 
-        let mask = BinaryMask::from_bits(width, height, bits).unwrap();
+        let mask = BinaryMask::from_bits(width, height, &bits).unwrap();
         let start = std::time::Instant::now();
         let components = label(&mask, ComponentFilter::default()).unwrap();
         let elapsed = start.elapsed();
@@ -584,7 +584,7 @@ mod tests {
             }
         }
 
-        let mask = BinaryMask::from_bits(width, height, bits).unwrap();
+        let mask = BinaryMask::from_bits(width, height, &bits).unwrap();
         let start = std::time::Instant::now();
         let (components, map) = label_with_map(&mask, ComponentFilter::default()).unwrap();
         let elapsed = start.elapsed();

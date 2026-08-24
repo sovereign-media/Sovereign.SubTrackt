@@ -380,14 +380,28 @@ fn best_body(
     max_gap: u32,
     rules: GroupingRules,
 ) -> Option<usize> {
+    best_body_for(&members[mark], members, bodies, max_gap, rules)
+}
+
+/// As [`best_body`], for a mark that is not one of `members`.
+///
+/// The union of two orphaned marks is the only such mark, and it exists for the length of one
+/// question — see [`rejoin_split_marks`].
+fn best_body_for(
+    mark: &Component,
+    members: &[Component],
+    bodies: &[usize],
+    max_gap: u32,
+    rules: GroupingRules,
+) -> Option<usize> {
     bodies
         .iter()
         .enumerate()
         .filter(|(_, body)| {
-            overlaps_enough(members[mark].bounds, members[**body].bounds, rules)
-                && vertical_gap(members[mark].bounds, members[**body].bounds) <= max_gap
+            overlaps_enough(mark.bounds, members[**body].bounds, rules)
+                && vertical_gap(mark.bounds, members[**body].bounds) <= max_gap
         })
-        .min_by_key(|(_, body)| vertical_gap(members[mark].bounds, members[**body].bounds))
+        .min_by_key(|(_, body)| vertical_gap(mark.bounds, members[**body].bounds))
         .map(|(slot, _)| slot)
 }
 
@@ -423,19 +437,19 @@ fn rejoin_split_marks(
                 continue;
             }
 
-            // The pair as one mark, appended so the body indices still address the same
-            // components. If it now finds a body, the two were one character all along.
-            let mut extended = members.to_vec();
-            extended.push(Component {
+            // The pair as one mark, asked about directly rather than appended to a copy of every
+            // component on the line -- which is what this did until #149, inside a nested loop
+            // over orphans.
+            //
+            // Nothing labelled the union: it is a box drawn round two components to ask one
+            // question. It never reaches a `GroupedGlyph` — the pair is pushed below as its two
+            // original members, which carry their own labels and therefore their own ink.
+            let merged = Component {
                 bounds: members[*left].bounds.union(members[*right].bounds),
                 pixels: members[*left].pixels + members[*right].pixels,
-                // Nothing labelled this: it is a box drawn round two components to ask one
-                // question. It never reaches a `GroupedGlyph` — the pair is pushed below as its
-                // two original members, which carry their own labels and therefore their own ink.
                 label: crate::ccl::NO_LABEL,
-            });
-            let merged = extended.len() - 1;
-            let Some(slot) = best_body(&extended, bodies, merged, max_gap, rules) else {
+            };
+            let Some(slot) = best_body_for(&merged, members, bodies, max_gap, rules) else {
                 continue;
             };
 
@@ -925,11 +939,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     #[test]

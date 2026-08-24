@@ -269,7 +269,7 @@ fn measure_weight(
     // What an `o` against an `O` — 28 points of cap height — is worth in cells. Quoted in the
     // `o`/`O` gap rather than in the whole cap height the setting is priced against, because that
     // pair is what the term exists to separate and what #37 reported.
-    row.scaled = 28 * thresholds.metric_weight() / 100;
+    row.scaled = 28 * thresholds.weights().metric() / 100;
     Ok(row)
 }
 
@@ -294,7 +294,7 @@ fn measure_mark_weight(
     // What an acute against a grave is worth in cells. Quoted in that gap rather than in the 100
     // points the setting is priced against, because that pair is what the term exists to separate
     // and 131 points is what #48 measured it at.
-    row.scaled = 131 * thresholds.mark_weight() / 100;
+    row.scaled = 131 * thresholds.weights().mark() / 100;
     Ok(row)
 }
 

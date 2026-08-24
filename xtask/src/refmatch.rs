@@ -103,7 +103,7 @@ fn threshold_vector(font: &Font, ch: char, px: f32, ink: u8, crop: Crop) -> Opti
         return None;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= ink).collect();
-    let mask = BinaryMask::from_bits(width, height, bits).ok()?;
+    let mask = BinaryMask::from_bits(width, height, &bits).ok()?;
     let bounds = if crop == Crop::Ink {
         ink_bounds(&mask)?
     } else {
@@ -668,11 +668,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     #[test]

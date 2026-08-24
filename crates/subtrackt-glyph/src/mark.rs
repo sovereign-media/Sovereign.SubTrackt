@@ -128,7 +128,7 @@ mod tests {
             .iter()
             .flat_map(|row| row.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     fn part(x: u32, y: u32, width: u32, height: u32) -> Component {

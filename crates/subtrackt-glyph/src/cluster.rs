@@ -25,13 +25,15 @@ use std::collections::HashMap;
 
 use subtrackt_core::{FEATURE_BITS, FeatureVector, InkAspect, LineMetrics, MarkSlope};
 
+use crate::weights::Weights;
+
 /// A shape, where it sat in its line, and which way its mark leans — what identifies a glyph for
 /// grouping.
 ///
 /// Shape alone stopped identifying a glyph in #37: an `o` and an `O` can normalise to the same
 /// vector, and treating them as one shape would undo the feature that separates them. #48 adds the
 /// mark for the same reason — an `à` and an `á` agree on both the vector and the height.
-pub type Shape = (FeatureVector, LineMetrics, MarkSlope, InkAspect);
+pub use crate::weights::Shape;
 
 /// The measurements of a shape, in an order two of them can be compared by.
 ///
@@ -131,28 +133,18 @@ impl ClusterRules {
         (FEATURE_BITS as u32) * self.radius_percent / 100
     }
 
-    /// What a full cap height of ink-width difference costs, in cells. See
-    /// [`MatchThresholds::width_weight`](crate::matcher::MatchThresholds::width_weight).
+    /// The exchange rates this clusterer prices its three measured terms at.
+    ///
+    /// The same type `MatchThresholds` returns, which is the point: grouping decides *which glyphs
+    /// get one answer*, so a term the matcher weighs and the clusterer does not would merge an `l`
+    /// with an `I` before the matcher ever saw them apart. See [`crate::weights`].
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn width_weight(self) -> u32 {
-        (FEATURE_BITS as u32) * self.width_weight_permille / 1000
-    }
-
-    /// What a full cap-height metric difference costs, in cells. See
-    /// [`MatchThresholds::metric_weight`](crate::matcher::MatchThresholds::metric_weight).
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn metric_weight(self) -> u32 {
-        (FEATURE_BITS as u32) * self.metric_weight_permille / 1000
-    }
-
-    /// What a full 100 points of mark-direction difference costs, in cells. See
-    /// [`MatchThresholds::mark_weight`](crate::matcher::MatchThresholds::mark_weight).
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn mark_weight(self) -> u32 {
-        (FEATURE_BITS as u32) * self.mark_weight_permille / 1000
+    pub const fn weights(self) -> Weights {
+        Weights {
+            metric_permille: self.metric_weight_permille,
+            mark_permille: self.mark_weight_permille,
+            width_permille: self.width_weight_permille,
+        }
     }
 }
 
@@ -288,14 +280,19 @@ pub fn centroid(members: &[(Shape, u64)]) -> Shape {
         );
     }
 
+    // One pass over the members accumulating a counter per cell, rather than one pass per cell.
+    // The answer is identical; the traversals are 1 instead of 256.
+    let mut weight_of = vec![0u64; FEATURE_BITS];
+    for ((vector, _, _, _), count) in members {
+        for (bit, weight) in weight_of.iter_mut().enumerate() {
+            if vector.get(bit) {
+                *weight += *count;
+            }
+        }
+    }
     let mut out = FeatureVector::EMPTY;
-    for bit in 0..FEATURE_BITS {
-        let set: u64 = members
-            .iter()
-            .filter(|((v, _, _, _), _)| v.get(bit))
-            .map(|(_, count)| *count)
-            .sum();
-        if set * 2 > total {
+    for (bit, weight) in weight_of.iter().enumerate() {
+        if weight * 2 > total {
             out.set(bit);
         }
     }
@@ -375,17 +372,7 @@ pub fn centroid(members: &[(Shape, u64)]) -> Shape {
 /// metric weight here in #37, with a sharper edge, because those two are at Hamming distance zero.
 #[must_use]
 pub fn distance(a: &Shape, b: &Shape, rules: ClusterRules) -> u32 {
-    let mut total = a.0.distance(&b.0);
-    if let Some(points) = a.1.difference(b.1) {
-        total += points * rules.metric_weight() / 100;
-    }
-    if let Some(points) = a.2.difference(b.2) {
-        total += points * rules.mark_weight() / 100;
-    }
-    if let Some(points) = a.3.difference(b.3) {
-        total += points * rules.width_weight() / 1000;
-    }
-    total
+    rules.weights().distance(a, b)
 }
 
 /// Group a stream's shapes.
@@ -738,21 +725,19 @@ mod tests {
     }
 
     #[test]
-    fn clustering_prices_line_metrics_exactly_as_the_matcher_does() {
+    fn clustering_prices_every_term_exactly_as_the_matcher_does() {
         // The two are documented as mirrors, and a divergence between them would be invisible:
         // shapes would be grouped under one exchange rate and labelled under another. #45 moved
         // both units at once, and this is what stops a later change from moving only one.
+        //
+        // Comparing the whole `Weights` rather than a term at a time, since #149 gave them one to
+        // hold: a mirror test naming two of the three terms is a test that a third can walk past.
+        // `l` and `I` are the case that makes it matter -- Hamming distance zero, identical
+        // metrics, no mark -- so a clusterer blind to the aspect ratio would put them in one group
+        // and hand both the same answer, and the matcher's term would never be asked.
         assert_eq!(
-            ClusterRules::default().metric_weight(),
-            crate::matcher::MatchThresholds::default().metric_weight()
-        );
-        // #110's term, and the mirror matters more here than for the metric. `l` and `I` are at
-        // Hamming distance zero with identical metrics and no mark, so a clusterer blind to the
-        // aspect ratio would put them in one group and hand both the same answer — and the
-        // matcher's term would never be asked.
-        assert_eq!(
-            ClusterRules::default().width_weight(),
-            crate::matcher::MatchThresholds::default().width_weight()
+            ClusterRules::default().weights(),
+            crate::matcher::MatchThresholds::default().weights()
         );
     }
 
