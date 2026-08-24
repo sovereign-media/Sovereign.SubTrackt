@@ -81,7 +81,7 @@ impl SessionCache {
             .get(&cache_key(features, metrics, mark, aspect))
         {
             self.hits += 1;
-            Some(hit.clone())
+            Some(*hit)
         } else {
             self.misses += 1;
             None

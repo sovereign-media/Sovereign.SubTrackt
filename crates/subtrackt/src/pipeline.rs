@@ -519,7 +519,7 @@ fn defuse(
             }
         } else {
             out_glyphs.push(glyph.clone());
-            out_answers.push(answer.clone());
+            out_answers.push(*answer);
         }
     }
     Ok(changed.then_some((out_glyphs, out_answers)))

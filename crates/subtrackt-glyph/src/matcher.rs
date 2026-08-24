@@ -378,8 +378,7 @@ impl GlyphMatcher for HammingMatcher {
 
         for (group, answer) in clusters.iter().zip(answers) {
             for ((features, metrics, mark, width), _) in &group.members {
-                self.cache
-                    .insert(features, *metrics, *mark, *width, answer.clone());
+                self.cache.insert(features, *metrics, *mark, *width, answer);
             }
         }
         Ok(())
@@ -399,7 +398,7 @@ impl GlyphMatcher for HammingMatcher {
         let result = self.scan_with(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect);
         self.scans += 1;
         self.cache
-            .insert(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect, result.clone());
+            .insert(&glyph.features, glyph.metrics, glyph.mark, glyph.aspect, result);
         Ok(result)
     }
 

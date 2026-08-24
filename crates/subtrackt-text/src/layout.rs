@@ -159,10 +159,10 @@ impl SpatialAssembler {
 
     /// Build one line of text from the glyphs assigned to it, and say what produced each
     /// character of it.
-    fn render_line(&self, line: &[(Glyph, GlyphMatch)]) -> (String, Vec<Option<GlyphMatch>>) {
+    fn render_line(&self, line: &[(&Glyph, GlyphMatch)]) -> (String, Vec<Option<GlyphMatch>>) {
         let gaps: Vec<u32> = line
             .windows(2)
-            .map(|pair| gap(&pair[0].0, &pair[1].0))
+            .map(|pair| gap(pair[0].0, pair[1].0))
             .collect();
         // The yardstick the decisiveness test measures against. A word space is a sizeable
         // fraction of a character; a kerning gap is not, and no ratio between two *gaps* can tell
@@ -208,7 +208,7 @@ impl SpatialAssembler {
                 }
             }
             out.push(matched.character.unwrap_or(self.rules.placeholder));
-            origins.push(Some(matched.clone()));
+            origins.push(Some(*matched));
         }
         (out, origins)
     }
@@ -251,11 +251,14 @@ impl SpatialAssembler {
         let mut origins = Vec::with_capacity(line_count);
 
         for line_index in 0..line_count {
-            let mut members: Vec<(Glyph, GlyphMatch)> = glyphs
+            // Borrowed. A `Glyph` carries its feature vector inline, so collecting them by value
+            // copied every glyph of the cue once per assembly; nothing here mutates one, and the
+            // sort below reorders the references rather than the glyphs.
+            let mut members: Vec<(&Glyph, GlyphMatch)> = glyphs
                 .iter()
                 .zip(matches)
                 .filter(|(g, _)| g.line == line_index)
-                .map(|(g, m)| (g.clone(), m.clone()))
+                .map(|(g, m)| (g, *m))
                 .collect();
             if members.is_empty() {
                 continue;
@@ -390,7 +393,7 @@ fn word_breaks(
 ///
 /// Alphanumerics are deliberately excluded: `ll` and `oo` are two letters of one word, and their
 /// gap is exactly the kerning measurement the rule is built to learn from.
-fn repeated_mark_gaps(line: &[(Glyph, GlyphMatch)]) -> Vec<bool> {
+fn repeated_mark_gaps(line: &[(&Glyph, GlyphMatch)]) -> Vec<bool> {
     line.windows(2)
         .map(|pair| match (pair[0].1.character, pair[1].1.character) {
             (Some(left), Some(right)) => {
@@ -792,10 +795,12 @@ mod tests {
     fn only_a_repeated_mark_is_excluded_and_never_a_repeated_letter() {
         // `ll` and `oo` are two letters of one word and their gap is exactly the kerning the rule
         // is built to learn from. Excluding those would blind it to its own yardstick.
-        let line: Vec<(Glyph, GlyphMatch)> = [('.', 0), ('.', 10), ('l', 20), ('l', 30), ('.', 40)]
-            .iter()
-            .map(|(c, x)| (glyph(*x, 4, 0), matched(*c)))
-            .collect();
+        let glyphs: Vec<(Glyph, GlyphMatch)> =
+            [('.', 0), ('.', 10), ('l', 20), ('l', 30), ('.', 40)]
+                .iter()
+                .map(|(c, x)| (glyph(*x, 4, 0), matched(*c)))
+                .collect();
+        let line: Vec<(&Glyph, GlyphMatch)> = glyphs.iter().map(|(g, m)| (g, *m)).collect();
         assert_eq!(repeated_mark_gaps(&line), vec![true, false, false, false]);
     }
 
