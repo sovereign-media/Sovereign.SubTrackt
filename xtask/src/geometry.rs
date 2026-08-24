@@ -620,6 +620,27 @@ impl Sample {
         variance.sqrt()
     }
 
+    /// The median and the quartiles either side of it.
+    ///
+    /// #171 is why these sit beside the mean. A mean and a standard deviation cannot tell a dead
+    /// axis from a contaminated population: an `l` whose ink measures four times its own median
+    /// width is not a wide `l`, it is a component fused to its neighbour, and a handful of those
+    /// move the mean and explode the deviation while the bulk of the class sits untouched. The
+    /// quartiles say what a *typical* glyph does, so the two readings can be told apart.
+    ///
+    /// Deliberately not routed through any of the four `percentile` functions #165 is about: they
+    /// use three different index formulas and published figures depend on each, so picking one here
+    /// would be choosing which of those to change.
+    fn quartiles(&self) -> (f64, f64, f64) {
+        if self.values.is_empty() {
+            return (0.0, 0.0, 0.0);
+        }
+        let mut sorted = self.values.clone();
+        sorted.sort_by(f64::total_cmp);
+        let at = |q: usize| sorted[(sorted.len() - 1) * q / 100];
+        (at(25), at(50), at(75))
+    }
+
     fn range(&self) -> (f64, f64) {
         let low = self.values.iter().copied().fold(f64::INFINITY, f64::min);
         let high = self
@@ -727,6 +748,13 @@ fn measures(upright: &[&Labelled], first: char, second: char) {
                 sample.sd(),
                 low,
                 high
+            );
+            // #171: the mean and the deviation cannot tell a dead axis from a contaminated
+            // population, and the quartiles can. See `Sample::quartiles`.
+            let (q1, median, q3) = sample.quartiles();
+            println!(
+                "           {:>12}  p25 {q1:>6.2}  median {median:>6.2}  p75 {q3:>6.2}",
+                ""
             );
         }
         match best_cut(&a, &b) {

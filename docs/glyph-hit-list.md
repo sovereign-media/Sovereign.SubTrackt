@@ -36,30 +36,42 @@ separate these two. Its justification is on the record: *"An `I` is 7% wider tha
 outlines"*, about 123 permille against 131, and *"on a real disc it separates `l` from `I` at two
 glyphs in 867"*.
 
-Measured on the disc rather than in the font, over two of the bench's three Arial titles:
+Measured on the discs rather than in the font, over all three of the bench's Arial titles. **The
+same feature behaves three different ways**, and the mean alone hides which:
 
-| | population | `l` | `I` | best single threshold |
-| :--- | ---: | :--- | :--- | ---: |
-| Gone Girl | 2,364 / 738 | 16.76% ± 9.33 | 15.45% ± 4.62 | **17.0% on the wrong side** |
-| A Fish Called Wanda | 1,282 / 232 | 11.94% ± 1.26 | 12.66% ± 8.16 | **15.2% on the wrong side** |
+| disc | `l` typical | `I` typical | best single threshold | `I → l` errors |
+| :--- | ---: | ---: | ---: | ---: |
+| 10 Cloverfield Lane | 5.00 px, sd **0.00** | 6.00 px, sd **0.00** | **0.0% wrong side** | 5 |
+| Gone Girl | 5.00 px (p25=median=p75) | 6.00 px (p25=median=p75) | 17.0% | 139 |
+| A Fish Called Wanda | 5.00 px (p25=median=p75) | **5.00 px** (p25=median=p75) | 15.2% | **428** |
 
-**The two classes overlap, and on Gone Girl they are the wrong way round** — the disc draws `l`
-*wider* than `I` on average, where the font predicts the reverse. No threshold on this axis can do
-better than misclassifying one glyph in six.
+**On Cloverfield the feature works exactly as designed.** Every `l` on the disc is five pixels wide
+and every `I` is six — standard deviation zero on both — and no glyph is on the wrong side of the
+threshold. #109's claim is not wrong; it is a description of this disc.
 
-Absolute ink width says the same thing more plainly. On Wanda the disc draws `l` at a mean **5.01
-pixels** and `I` at **5.33** — where #109's note records *"every upright `l` on a real Blu-ray is
-five pixels wide and every `I` is six"*. On this disc they are the same width.
+**On Gone Girl the axis is sound and the population is not.** The quartiles are disjoint at 5 and 6,
+exactly as above, but `l`'s ink runs out to 27 pixels with a standard deviation of 3.92. A vertical
+bar cannot be five times as wide as it is unless it is not one: those are components fused to a
+neighbour. About a fifth of the class is contaminated, and it is the tail rather than the axis that
+defeats the threshold.
 
-The spreads say where to look. `l` on Gone Girl ranges from 11.90% to **64.29%** — four times its own
-median — and `I` on Wanda reaches 100%. A vertical bar cannot be four times as wide as it is unless
-it is not a vertical bar: those are components fused to a neighbour, which is [#106]'s territory and
-the reason the standard deviations are what they are.
+**On Wanda the axis is simply absent.** The disc draws `l` and `I` at five pixels at the 25th, 50th
+and 75th percentile alike — the typical glyphs are identical to the pixel. The best threshold's
+15.2% is the class imbalance itself: with 1,282 `l` against 232 `I`, always guessing `l` scores
+15.3%. **No threshold does better than ignoring the measurement**, and no amount of de-fusing would
+change that, because the cores coincide.
 
-**This does not say #109 was wrong to ship.** It says the axis was validated on the reference side
-and on one disc, and does not hold on these. The term costs nothing where it carries no signal —
-`InkAspect::difference` is a fraction of a percent either way — so nothing is being actively harmed;
-it simply is not buying what the top family needs.
+So the answer to *is the axis dead or the population contaminated* is **both, and which one depends
+on the disc** — which is more useful than either, because the two want opposite work. Gone Girl
+wants [#106]'s de-fusing, which cannot reach it: that pass fires only where the matcher already
+returned `unmatched`, and a fused `l` that matches `I` is not unmatched. Wanda wants something that
+is not a glyph measurement at all.
+
+What is left for Wanda is context, and it is not reaching either. The track carries 4,271 ambiguous
+glyphs, and post-correction makes **11 corrections** against 428 `I → l` errors — the track
+vocabulary arm adds none. On a disc that draws the two letters identically the matcher is not
+hesitating between them; it is confident, and the one stage allowed to revisit a decision only
+touches glyphs the matcher itself flagged.
 
 ## The case pairs, which are in better shape than expected
 
@@ -99,12 +111,13 @@ and one glyph in seven there is being matched without the feature that separates
 
 ## Where this leaves the list
 
-1. **`I` / `l`, 2,424 errors.** The largest family, and the axis meant to separate it does not, on
-   two discs. Whatever replaces it has to be measured on discs rather than on outlines.
+1. **`I` / `l`, 2,424 errors.** The largest family, and what is wrong with it differs by disc —
+   see above, and #171. One disc needs nothing, one needs its fusions cleaned up, and one needs
+   something that is not a glyph measurement.
 2. **Fused components.** Not a family in #118's table at all, and it turns up inside the first one:
-   the `l` population is contaminated by glyphs four times too wide. #106's de-fusing fires only
-   where the matcher already returned *unmatched*, so a fusion that matches something is invisible
-   to it.
+   a fifth of Gone Girl's `l` population is glyphs several times too wide. #106's de-fusing fires
+   only where the matcher already returned *unmatched*, so a fusion that matches something is
+   invisible to it — which is exactly this case, since a fused `l` matches `I`.
 3. **Unmeasured lines on King Kong**, 14%, now visible.
 4. **Case pairs, 811 errors**, near their floor.
 
