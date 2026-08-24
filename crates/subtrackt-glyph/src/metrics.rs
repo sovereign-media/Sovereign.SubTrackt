@@ -133,13 +133,73 @@ pub struct LineGlyph {
     pub marked: bool,
 }
 
+/// Why a line could not be measured.
+///
+/// The refusals were indistinguishable until #184: every one of them returned `None`, so a track
+/// reporting that one glyph in seven matched without line metrics could not say which rule had
+/// declined or whether the same rule had declined every time. They want opposite work — a line of
+/// two glyphs has no evidence to find, while an all-capitals line has evidence and no way to read
+/// it — and naming them is what lets the counts decide which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoAnchors {
+    /// Fewer glyphs than [`MetricRules::min_glyphs`]. There is no mode to take.
+    TooFewGlyphs,
+    /// The band has no height, so the tolerance every mode is taken over would be zero.
+    FlatBand,
+    /// The glyph bottoms do not agree on a row: a line of nothing but punctuation.
+    NoBaseline,
+    /// A baseline was found and no glyph stands on it.
+    NothingOnTheBaseline,
+    /// Every glyph standing on the baseline is the same height, so the line cannot say which
+    /// height that is. `NO ONE SAW` and `no one saw` present identically.
+    ///
+    /// The one refusal that carries anything, and it carries what a scale from elsewhere needs:
+    /// the line *has* a baseline — the bottoms agreed on one — and it has a single height for its
+    /// standing glyphs. What it does not have is any way to say whether that height is cap or x.
+    OneHeight {
+        /// The row this line's glyph bottoms agreed on.
+        baseline: u32,
+        /// The one height every glyph standing on that row shares.
+        height: u32,
+    },
+    /// No row was reached by enough glyphs to be the cap line, or the cap line came out on the
+    /// baseline itself.
+    NoCapLine,
+}
+
+impl NoAnchors {
+    /// A short name for a report, stable enough to grep a log for.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::TooFewGlyphs => "too few glyphs",
+            Self::FlatBand => "flat band",
+            Self::NoBaseline => "no baseline",
+            Self::NothingOnTheBaseline => "nothing on the baseline",
+            Self::OneHeight { .. } => "one height",
+            Self::NoCapLine => "no cap line",
+        }
+    }
+}
+
 /// Find a line's baseline and cap height from the glyphs on it.
 ///
-/// Returns `None` when the line cannot support the estimate.
-#[must_use]
-pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Option<LineAnchors> {
-    if glyphs.len() < rules.min_glyphs || band.height() == 0 {
-        return None;
+/// Returns the rule that declined when the line cannot support the estimate.
+///
+/// # Errors
+///
+/// [`NoAnchors`] names which guard refused; every one of them means the line reports
+/// [`LineMetrics::UNKNOWN`] and its glyphs are matched on shape alone.
+pub fn anchors(
+    band: LineBand,
+    glyphs: &[LineGlyph],
+    rules: MetricRules,
+) -> Result<LineAnchors, NoAnchors> {
+    if glyphs.len() < rules.min_glyphs {
+        return Err(NoAnchors::TooFewGlyphs);
+    }
+    if band.height() == 0 {
+        return Err(NoAnchors::FlatBand);
     }
     let boxes: Vec<Rect> = glyphs.iter().map(|g| g.bounds).collect();
     let tolerance = band.height() * rules.edge_tolerance_percent / 100;
@@ -147,9 +207,9 @@ pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Opti
     // The baseline is where glyph bottoms agree. Descenders and floating marks are the minority and
     // fall outside the bucket, which is exactly what taking a mode is for.
     let bottoms: Vec<u32> = boxes.iter().map(|b| b.y + b.height).collect();
-    let (baseline, agreed) = mode(&bottoms, tolerance)?;
+    let (baseline, agreed) = mode(&bottoms, tolerance).ok_or(NoAnchors::NoBaseline)?;
     if agreed * 100 < boxes.len() * rules.min_agreement_percent as usize {
-        return None;
+        return Err(NoAnchors::NoBaseline);
     }
 
     // The cap line is where the tops of the *tall* glyphs agree. Only glyphs standing on the
@@ -159,7 +219,7 @@ pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Opti
         .filter(|b| (b.y + b.height).abs_diff(baseline) <= tolerance)
         .collect();
     if standing.is_empty() {
-        return None;
+        return Err(NoAnchors::NothingOnTheBaseline);
     }
 
     // Only unmarked glyphs vote on the cap line. See the comment below the height-variety guard.
@@ -179,10 +239,18 @@ pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Opti
 
     // A line whose glyphs are all one height cannot say which height that is. Refusing here is
     // what stops an all-lowercase line from reading as all capitals.
-    let tallest = standing.iter().map(|b| b.height).max()?;
-    let shortest = standing.iter().map(|b| b.height).min()?;
+    let tallest = standing
+        .iter()
+        .map(|b| b.height)
+        .max()
+        .ok_or(NoAnchors::NothingOnTheBaseline)?;
+    let shortest = standing
+        .iter()
+        .map(|b| b.height)
+        .min()
+        .ok_or(NoAnchors::NothingOnTheBaseline)?;
     if (tallest - shortest) * 100 < tallest * rules.min_height_variety_percent {
-        return None;
+        return Err(NoAnchors::OneHeight { baseline, height: tallest });
     }
 
     // The cap line is the highest row that enough glyphs reach, and it is deliberately *not* a
@@ -202,10 +270,43 @@ pub fn anchors(band: LineBand, glyphs: &[LineGlyph], rules: MetricRules) -> Opti
         .map(|candidate| bucket(&tops, *candidate, tolerance))
         .filter(|(_, count)| *count >= support)
         .map(|(centre, _)| centre)
-        .min()?;
+        .min()
+        .ok_or(NoAnchors::NoCapLine)?;
 
     let anchors = LineAnchors { baseline, cap_top };
-    (anchors.cap_height() > 0).then_some(anchors)
+    if anchors.cap_height() == 0 {
+        return Err(NoAnchors::NoCapLine);
+    }
+    Ok(anchors)
+}
+
+/// The cap height a whole track is drawn at, from every line of it that could be measured.
+///
+/// #184. A line whose glyphs are all one height cannot say which height that is, and that refusal
+/// is 93% of the unmeasured lines on the worst track of the bench — an all-capitals SDH line, of
+/// which `[MUSIC PLAYS]` is the shape. The line is not short of evidence about where it sits: its
+/// bottoms agreed on a baseline. What it is short of is a *scale*, and a scale is the one thing a
+/// subtitle track has in common from end to end, because a stream is authored once. That is the
+/// same argument #10's clustering and #171's per-disc measurement both rest on.
+///
+/// Deliberately **not** the sibling line of the same cue, which was the obvious answer and is the
+/// wrong one: on King Kong only 9 of 451 refusing lines stood in an image where another line
+/// measured. The obvious fallback reaches 2% of the population.
+///
+/// A mode rather than a mean, for the reason every other estimate here is one: a track can hold
+/// more than one type size — King Kong draws 1,505 lines at 42px and 78 at 32 — and a mean would
+/// land between them and describe neither.
+///
+/// Returns `None` when nothing was measured, which is the honest answer for a track that gave the
+/// estimate nothing to work with.
+#[must_use]
+pub fn track_cap_height(measured: &[u32], rules: MetricRules) -> Option<u32> {
+    let widest = measured.iter().copied().max()?;
+    // The same bucket width the per-line estimate uses, against the largest cap height seen rather
+    // than against a band: rasterisation moves an edge by a pixel either way, and two lines of one
+    // type size disagree by that much.
+    let tolerance = (widest * rules.edge_tolerance_percent / 100).max(1);
+    mode(measured, tolerance).map(|(centre, _)| centre)
 }
 
 /// Measure one glyph against its line's anchors.
@@ -236,9 +337,32 @@ pub fn measure_all(
     glyphs: &[GroupedGlyph],
     rules: MetricRules,
 ) -> Vec<LineMetrics> {
+    let lines = measure_lines(bands, glyphs, rules);
+    glyphs
+        .iter()
+        .map(|glyph| {
+            lines
+                .get(glyph.line)
+                .and_then(|line| line.ok())
+                .map_or(LineMetrics::UNKNOWN, |a| measure(glyph.bounds(), a))
+        })
+        .collect()
+}
+
+/// The anchors of every line of one image, or the rule that refused each.
+///
+/// One entry per band, in band order. Separate from [`measure_all`] since #184: a caller that wants
+/// to know *why* a line went unmeasured — or to do something about it — needs the per-line answer,
+/// and folding it straight into per-glyph metrics threw that away.
+#[must_use]
+pub fn measure_lines(
+    bands: &[LineBand],
+    glyphs: &[GroupedGlyph],
+    rules: MetricRules,
+) -> Vec<Result<LineAnchors, NoAnchors>> {
     // One set of anchors per line, from that line's glyphs only. Pooling across lines would be
     // wrong even though it would be steadier: a two-line cue can hold two different type sizes.
-    let anchors: Vec<Option<LineAnchors>> = bands
+    bands
         .iter()
         .enumerate()
         .map(|(index, band)| {
@@ -248,17 +372,6 @@ pub fn measure_all(
                 .map(|g| LineGlyph { bounds: g.bounds(), marked: g.parts.len() > 1 })
                 .collect();
             anchors(*band, &line, rules)
-        })
-        .collect();
-
-    glyphs
-        .iter()
-        .map(|glyph| {
-            anchors
-                .get(glyph.line)
-                .copied()
-                .flatten()
-                .map_or(LineMetrics::UNKNOWN, |a| measure(glyph.bounds(), a))
         })
         .collect()
 }
@@ -367,7 +480,7 @@ mod tests {
             .collect();
         boxes.extend((4..7).map(|i| marked(Rect::new(i * 20, 10, 14, 30))));
 
-        assert!(anchors(band(), &boxes, MetricRules::default()).is_some());
+        assert!(anchors(band(), &boxes, MetricRules::default()).is_ok());
     }
 
     #[test]
@@ -409,7 +522,10 @@ mod tests {
             plain(Rect::new(0, 10, 14, 30)),
             plain(Rect::new(20, 10, 14, 30)),
         ];
-        assert!(anchors(band(), &boxes, MetricRules::default()).is_none());
+        assert_eq!(
+            anchors(band(), &boxes, MetricRules::default()),
+            Err(NoAnchors::TooFewGlyphs)
+        );
     }
 
     #[test]
@@ -419,7 +535,54 @@ mod tests {
         let boxes: Vec<LineGlyph> = (0..6)
             .map(|i| plain(Rect::new(i * 20, 10 + i * 4, 6, 6)))
             .collect();
-        assert!(anchors(band(), &boxes, MetricRules::default()).is_none());
+        assert_eq!(
+            anchors(band(), &boxes, MetricRules::default()),
+            Err(NoAnchors::NoBaseline)
+        );
+    }
+
+    #[test]
+    fn a_line_of_one_height_says_what_it_did_measure_rather_than_only_that_it_refused() {
+        // #184. The refusal is right — a line of uniform height cannot say whether that height is
+        // cap or x — but it is not ignorance about *everything*. The bottoms agreed on a baseline,
+        // and that is half of what an anchor pair is. Carrying it is what lets a scale from
+        // elsewhere finish the job without inventing the half the line did answer.
+        let boxes: Vec<LineGlyph> = (0..6)
+            .map(|i| plain(Rect::new(i * 20, 10, 14, 30)))
+            .collect();
+        assert_eq!(
+            anchors(band(), &boxes, MetricRules::default()),
+            Err(NoAnchors::OneHeight { baseline: 40, height: 30 })
+        );
+    }
+
+    #[test]
+    fn the_track_scale_is_the_mode_of_its_lines_rather_than_their_mean() {
+        // A track can hold more than one type size — King Kong draws 1,505 lines at 42px and 78 at
+        // 32 — and a mean would land between them and describe neither.
+        let mut measured = vec![42; 20];
+        measured.extend(std::iter::repeat_n(32, 6));
+        assert_eq!(track_cap_height(&measured, MetricRules::default()), Some(42));
+        assert_eq!(track_cap_height(&[], MetricRules::default()), None);
+    }
+
+    #[test]
+    fn a_borrowed_scale_reads_capitals_as_capitals_and_lowercase_as_lowercase() {
+        // The property the whole fallback rests on, and the answer to the objection that motivates
+        // the guard it works around: `NO ONE SAW` and `no one saw` are indistinguishable to the
+        // line itself and not to a line that knows what scale the track is drawn at. Same baseline,
+        // same borrowed cap height, two heights of ink, two different answers.
+        // What `borrow_a_track_scale` builds: the line's own baseline, and a cap height from
+        // elsewhere.
+        let anchors = LineAnchors { baseline: 60, cap_top: 60 - 42 };
+        let capital = measure(Rect::new(0, 60 - 42, 30, 42), anchors);
+        let lowercase = measure(Rect::new(0, 60 - 30, 30, 30), anchors);
+        assert_eq!(capital.height_percent, 100, "a capital stands the full cap height");
+        assert!(
+            (65..=80).contains(&lowercase.height_percent),
+            "x-height is about seven tenths of cap: {}",
+            lowercase.height_percent
+        );
     }
 
     #[test]
@@ -433,7 +596,10 @@ mod tests {
     #[test]
     fn a_zero_height_line_is_rejected_rather_than_dividing_by_zero() {
         let flat = LineBand { top: 10, bottom: 10 };
-        assert!(anchors(flat, &capitals(), MetricRules::default()).is_none());
+        assert_eq!(
+            anchors(flat, &capitals(), MetricRules::default()),
+            Err(NoAnchors::FlatBand)
+        );
         assert_eq!(
             measure(Rect::new(0, 0, 4, 4), LineAnchors { baseline: 10, cap_top: 10 }),
             LineMetrics::UNKNOWN
@@ -493,7 +659,7 @@ mod tests {
                 })
                 .collect()
         };
-        assert!(anchors(small, &scatter(20), rules).is_some());
-        assert!(anchors(large, &scatter(200), rules).is_some());
+        assert!(anchors(small, &scatter(20), rules).is_ok());
+        assert!(anchors(large, &scatter(200), rules).is_ok());
     }
 }

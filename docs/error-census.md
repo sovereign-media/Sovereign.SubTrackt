@@ -847,3 +847,162 @@ whole disc from 2.8% to 2.0%.
   read at a different size, so set size, scan count and extraction time are all unchanged.
 - **3. Neither reaches zero.** *Right.* `l` → `I` stays at 2 on Cloverfield, and on Wanda the pair
   cannot be read at all.
+
+## The scale a line cannot find in itself
+
+[#184](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/184).
+[`glyph-hit-list.md`](glyph-hit-list.md) ends on three things, and the third is that **14% of King
+Kong's glyphs are matched with #37's term switched off** — one glyph in seven compared on shape
+alone, which is the one comparison that cannot separate an `o` from an `O`. That counter had existed
+since the day the feature did and had never been printed, so nothing could watch it.
+
+It says how much and it does not say why. `metrics::anchors` refuses down six paths and every one of
+them returned the same `None`, so a track could not say whether one rule had declined 451 times or
+six had declined once each. They want opposite work — a line of two glyphs has no evidence to find,
+and an all-capitals line has evidence and no way to read it — so the first move is to name them.
+
+### Which rule refuses, measured before anything was written
+
+`NoAnchors` names the six, `Report::lines` counts them, and `--report` prints them. Over the PGS
+bench:
+
+| track | measured | refused | one height | too few glyphs | no cap line |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| King Kong | 1,739 | 451 | **420** | 21 | 10 |
+| The Prestige | 2,375 | 142 | **109** | 19 | 14 |
+| Airplane! | 1,721 | 93 | **84** | 4 | 5 |
+| A Fish Called Wanda | 2,014 | 61 | 16 | 24 | 21 |
+| Gone Girl | 3,246 | 41 | 6 | 10 | 25 |
+| 10 Cloverfield Lane | 1,039 | 21 | 4 | 8 | 9 |
+
+**93% of King Kong's refusals are the height-variety guard**, and the shape of the line it fires on
+is `[MUSIC PLAYS]`. The three SDH tracks are the top three. The guard is right — *"a line whose
+glyphs are all one height cannot say which height that is"*, and relaxing it would make every
+all-lowercase line on every other disc read as capitals — so what is missing is not a looser rule
+but a **scale from somewhere else**.
+
+Two other things fall out of the same table. Wanda, Gone Girl and Cloverfield are already near their
+floor, so this is an SDH problem rather than a general one. And `no cap line` and `too few glyphs`
+are genuinely short of evidence — a line of two glyphs has no baseline either — which is why
+nothing below touches them.
+
+### The obvious fallback is wrong, and the count says so before the code does
+
+The line beside it. A two-line cue where one line is mixed-case and the other is all capitals is
+exactly the case that wants solving, and the sibling has measured anchors already.
+
+**It reaches 2% of the population.** Of King Kong's 451 refusing lines, **9** stood in an image where
+another line measured. The SDH cue that refuses is overwhelmingly a *one-line* cue, so there is no
+sibling to borrow from. `Report::lines.refused_with_a_measured_sibling` is that number, kept because
+it is the evidence for not doing the obvious thing.
+
+### What the disc is drawn at
+
+The remaining candidate is the track itself, on the argument #10's clustering and #171's per-disc
+measurement both rest on: **a stream is authored once**. Measured on King Kong:
+
+| | cap heights of measured lines | height of one-height lines |
+| :--- | :--- | :--- |
+| dominant | **42 px** (1,505 lines) | **44 px** (413 lines) |
+| next | 43 px (148), 32 px (78) | 46 px (3), 42 px (3) |
+
+A mode rather than a mean, and the 78 lines at 32px are why: the track holds a second type size, and
+a mean would land between the two and describe neither.
+
+The refusing lines are 44px where the cap height is 42, and that is not a second size — it is a
+line of capitals whose brackets *descend below the baseline*, so `[` and `]` never join the standing
+set and the letters between them are two pixels of round-letter overshoot apart. Under a borrowed
+cap height of 42 those letters measure 100–105%, which is what an `O` on a **measured** line
+already reads.
+
+### What it does
+
+`metrics::track_cap_height` takes the mode of every measured line's cap height. A line refused for
+one height, and only that refusal, is then measured against anchors built from **its own baseline**
+and that borrowed cap height.
+
+Its own baseline, because that is the half of the estimate the line *did* answer — its bottoms
+agreed on a row — and taking that from elsewhere too would move every glyph on it. The refusal
+carries it: `NoAnchors::OneHeight { baseline, height }` is the only variant with a payload.
+
+This is what makes `NO ONE SAW` and `no one saw` separable at last, and the mechanism is worth
+stating plainly, because it is not a guess about which one the line is: under a scale from outside,
+a line of capitals measures 100% and a line of lowercase measures about 70%. **The line was never
+short of evidence about its own ink. It was short of a ruler.**
+
+An approximation, so `CLAUDE.md` §Failing applies in full: documented here, a mode of measured lines
+rather than a constant, and **counted** — `lines … took the track's scale` is on the `--report` line,
+so a reader can tell a track measured from its own ink from one carrying a borrowed scale.
+
+### What it costs, on the bench
+
+`--no-borrow-track-scale` reproduces the old behaviour byte for byte, so the two arms below are one
+binary:
+
+| track | CER | cues better | cues worse |
+| :--- | ---: | ---: | ---: |
+| Training Day | 3.1% → **2.8%** | **69** | 2 |
+| King Kong | 21.3% → 21.3% | 3 | **7** |
+| The Karate Kid | 2.3% → 2.3% | 3 | **0** |
+| 10 Cloverfield Lane, Gone Girl, A Fish Called Wanda | unchanged | 0 | 0 |
+| **total** | | **75** | **9** |
+
+King Kong reports 0% unmeasured lines where it reported 14%, and 4,446 ambiguous glyphs where it
+reported 4,873.
+
+**The target track gained nothing and the measurement explains why.** King Kong's 21.3% is not
+misreading: its census is 147 substitutions against **2,404 insertions**, so its CER is almost
+entirely text the extraction read and its sidecar does not carry. There were only 11 scored
+case-pair substitutions on that track to win back, and they are the same 11 afterwards. #140 and
+#175 have the general form of this — a CER quoted without naming its sidecar means nothing — and
+this is a second instance: the track whose *counter* was worst had the least scored headroom of any
+track on the bench.
+
+The 9 that got worse split into two kinds, and only one of them is this change deciding anything:
+
+- **Two on Training Day**, both `[DIAL TONE BUZZES]` → `[UIAL TONE BUZZES]`, are borrowed lines whose
+  `D` now measures and reads as `U`. Against 69 cues improved on the same track.
+- **Seven on King Kong** are on lines that never borrowed, and are collateral from the matcher.
+  Three are `I` read as `Í`, which is an error class this file already lists on Cloverfield; the
+  other four are a leading capital that stopped reading at all. The mechanism
+  is in `weights.rs`: an unmeasured glyph has its metric term **omitted rather than defaulted**, so
+  it sits at distance zero from a measured shape with the same vector and joins its cluster. Measuring
+  those glyphs removes the merges, and a handful of shapes that had been answered by a cluster now
+  answer for themselves — sometimes worse. That is a property of clustering at radius
+  zero, exposed here rather than introduced.
+
+### Why it is on by default
+
+Not the size of the gain, which is one track. It is that the alternative is worse on its own terms:
+a line that has a baseline and no ruler is being matched on shape alone, and `o`/`O`, `c`/`C` and
+`s`/`S` are *by construction* undecidable without the term. Switching it off is not neutrality, it
+is the pipeline of before #37 for one glyph in seven of an SDH track.
+
+The failure mode is nevertheless read→read-differently rather than #106's unread→read, which is the
+weaker guarantee, so both flags exist and last-one-on-the-line wins:
+`--borrow-track-scale` and `--no-borrow-track-scale`.
+
+### Predictions, scored
+
+- **1. More than half of King Kong's 14% is the height-variety guard.** *Right, and by a distance.*
+  420 of 451, and the same rule is first on all three SDH tracks.
+- **2. Case-pair substitutions on King Kong fall.** *Wrong, and the reason is the finding.* There
+  were 11 to fall and they did not move. The track's scored error is 2,404 insertions against 147
+  substitutions, so the disc with the worst counter had the least scored headroom on the bench. The
+  gain landed on Training Day instead, which nothing predicted.
+- **3. Cloverfield and Gone Girl do not move at all.** *Right.* Byte-identical output on both, and on
+  Wanda.
+- **4. The all-lowercase case does not break.** *Right, and it has a named test rather than only a
+  bench number* — `a_borrowed_scale_reads_capitals_as_capitals_and_lowercase_as_lowercase`. The
+  ceiling fixture is 0.0% CER before and after.
+
+### What is left
+
+- **The sibling was measured and is unused.** 9 lines of 451. If a two-line SDH convention turns up
+  on some other disc, the count is already printed and will say so.
+- **`too few glyphs` and `no cap line`** are 31 of King Kong's 451 and are not reachable this way.
+  They have no baseline, and inventing one is the fabrication the guard exists to prevent.
+- **The clustering collateral is worth its own look.** An unmeasured glyph joining a measured
+  cluster at distance zero is how `weights.rs` is specified to behave, and it means the answer for a
+  shape can depend on how many *other* shapes went unmeasured. That is a strange property for a
+  matcher to have and nothing has ever measured its size.

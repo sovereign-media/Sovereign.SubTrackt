@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::config::DEFAULT_MIN_MATCHED;
 use subtrackt::config::Defusing;
-use subtrackt::{Config, ProvenancePolicy, UnmatchedPolicy, VocabularyRules};
+use subtrackt::{Config, LineScale, ProvenancePolicy, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
 use crate::style::When;
@@ -159,6 +159,14 @@ pub struct ExtractArgs {
     /// Leave an unreadable component unread rather than trying to cut it.
     #[arg(long, overrides_with = "defuse")]
     pub no_defuse: bool,
+
+    /// Measure a line whose glyphs are all one height against the scale the track is drawn at.
+    #[arg(long, overrides_with = "no_borrow_track_scale")]
+    pub borrow_track_scale: bool,
+
+    /// Leave such a line unmeasured, and match its glyphs on shape alone.
+    #[arg(long, overrides_with = "borrow_track_scale")]
+    pub no_borrow_track_scale: bool,
 
     /// Resolve ambiguous reads from the characters around them. See docs/post-correction.md.
     #[arg(long, overrides_with = "no_post_correct")]
@@ -407,6 +415,22 @@ impl ExtractArgs {
         }
     }
 
+    /// Where a one-height line takes its scale from, resolved the same way and for the same reason.
+    ///
+    /// The default is `FromTheTrack`, so `--borrow-track-scale` changes nothing today. #184's
+    /// measurement is what put it there — 75 cues better and 9 worse across the bench — and a
+    /// caller who has pinned either behaviour should not have to notice if that moves.
+    #[must_use]
+    pub fn line_scale(&self) -> LineScale {
+        if self.borrow_track_scale {
+            LineScale::FromTheTrack
+        } else if self.no_borrow_track_scale {
+            LineScale::FromTheLineAlone
+        } else {
+            Config::default().line_scale
+        }
+    }
+
     /// Whether the de-fusing pass runs, resolved the same way and for the same reason.
     ///
     /// The default is `On`, so `--defuse` changes nothing today and exists for the same reason
@@ -488,6 +512,7 @@ impl ExtractArgs {
             stream: self.stream,
             format: self.format.into(),
             defuse: self.defuse(),
+            line_scale: self.line_scale(),
             post_correct: self.post_correct(),
             track_vocabulary: self.track_vocabulary(),
             lone_words: self.lone_words(),

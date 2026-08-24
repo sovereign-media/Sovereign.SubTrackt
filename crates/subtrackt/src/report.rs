@@ -11,6 +11,96 @@ use subtrackt_core::Confidence;
 
 use crate::config::UnmatchedPolicy;
 
+/// What the line-metrics estimate did, line by line rather than glyph by glyph.
+///
+/// #184. `glyphs_without_metrics` says how much of a track is matched on shape alone and nothing
+/// said *why*: every guard in `metrics::anchors` returned the same `None`, so a track reporting one
+/// glyph in seven unmeasured could not say whether one rule had declined every time or six had
+/// declined once each. They want opposite work — a line of two glyphs has no evidence to find,
+/// while an all-capitals line has evidence and no way to read it — so the counts are what decide
+/// which is worth doing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LineCensus {
+    /// Lines whose baseline and cap height were found.
+    pub measured: u64,
+    /// Refused for having fewer glyphs than the estimate needs.
+    pub too_few_glyphs: u64,
+    /// Refused for a band of no height.
+    pub flat_band: u64,
+    /// Refused because the glyph bottoms agree on no row.
+    pub no_baseline: u64,
+    /// Refused because nothing stands on the baseline that was found.
+    pub nothing_on_the_baseline: u64,
+    /// Refused because every glyph standing on the baseline is the same height.
+    ///
+    /// The all-capitals line, and the one refusal with evidence available elsewhere: `NO ONE SAW`
+    /// and `no one saw` are indistinguishable *to the line itself*, and not to a line that knows
+    /// what scale the track is drawn at. It is also by far the largest — 420 of King Kong's 451.
+    pub one_height: u64,
+    /// Refused because no row carried enough support to be the cap line.
+    pub no_cap_line: u64,
+    /// Of the refusals, how many stood in an image where another line measured.
+    ///
+    /// The number that says whether a fallback has anything to fall back *to*. A refusing line
+    /// alone in its image has no sibling to borrow a scale from.
+    pub refused_with_a_measured_sibling: u64,
+    /// Lines that refused and were then measured against the scale the rest of the track is drawn
+    /// at.
+    ///
+    /// An approximation, and counted for the reason `CLAUDE.md` §Failing gives: a reader has to be
+    /// able to tell a track measured from its own ink from one carrying a borrowed scale. Only the
+    /// one-height refusal is reachable this way — see `pipeline::borrow_a_track_scale`.
+    pub borrowed_a_track_scale: u64,
+}
+
+impl LineCensus {
+    /// A census that has seen nothing, in a form a `const fn` can start from.
+    pub const EMPTY: Self = Self {
+        measured: 0,
+        too_few_glyphs: 0,
+        flat_band: 0,
+        no_baseline: 0,
+        nothing_on_the_baseline: 0,
+        one_height: 0,
+        no_cap_line: 0,
+        refused_with_a_measured_sibling: 0,
+        borrowed_a_track_scale: 0,
+    };
+
+    /// Every line that refused, whatever refused it.
+    #[must_use]
+    pub const fn refused(&self) -> u64 {
+        self.too_few_glyphs
+            + self.flat_band
+            + self.no_baseline
+            + self.nothing_on_the_baseline
+            + self.one_height
+            + self.no_cap_line
+    }
+
+    /// Every line the estimate was asked about.
+    #[must_use]
+    pub const fn seen(&self) -> u64 {
+        self.measured + self.refused()
+    }
+
+    /// The refusals, largest first, as name and count, dropping the ones that never fired.
+    #[must_use]
+    pub fn reasons(&self) -> Vec<(&'static str, u64)> {
+        let mut rows = vec![
+            ("too few glyphs", self.too_few_glyphs),
+            ("flat band", self.flat_band),
+            ("no baseline", self.no_baseline),
+            ("nothing on the baseline", self.nothing_on_the_baseline),
+            ("one height", self.one_height),
+            ("no cap line", self.no_cap_line),
+        ];
+        rows.retain(|(_, count)| *count > 0);
+        rows.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        rows
+    }
+}
+
 /// Counters and the gate decision for one extracted track.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
@@ -48,6 +138,10 @@ pub struct Report {
     /// means the material is mostly short lines — or that the anchors have stopped being found, and
     /// the feature is quietly doing nothing.
     pub glyphs_without_metrics: u64,
+    /// The same question asked per line, and answered with which rule declined.
+    ///
+    /// #184. `glyphs_without_metrics` counts the consequence; this says the cause.
+    pub lines: LineCensus,
     /// Distinct glyph shapes the stream contained.
     ///
     /// Tens of thousands of glyphs reduce to a few hundred shapes, which is what makes clustering

@@ -21,11 +21,11 @@ pub mod report;
 pub mod score;
 pub mod survey;
 
-pub use config::{Config, Defusing, ProvenancePolicy, UnmatchedPolicy};
+pub use config::{Config, Defusing, LineScale, ProvenancePolicy, UnmatchedPolicy};
 pub use fit::{Fit, rank, rank_watched, score_set};
 pub use pipeline::{Outcome, Pipeline, UnreadGlyph};
 pub use provenance::note;
-pub use report::{Cost, Report};
+pub use report::{Cost, LineCensus, Report};
 pub use score::{Score, score_text, score_track};
 pub use subtrackt_text::correct::VocabularyRules;
 pub use survey::{GlyphRecord, GlyphSurvey};
