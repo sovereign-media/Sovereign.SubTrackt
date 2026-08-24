@@ -733,6 +733,12 @@ runner-up — and they are what this issue turns on.
 | Gone Girl | 4.0% | 2.8%, **62** cues worse | **2.8%**, **0** worse |
 | A Fish Called Wanda | 4.8% | 4.3%, 232 cues worse | **4.2%**, 202 worse |
 
+> Wanda's figures in this table are against the **plain** sidecar, which is what the bench used
+> at the time. #175 found the track is SDH — 85 bracketed sound cues the plain sidecar does not
+> carry — and moved it to the SDH one, where the same extraction reads **1.7%**. The comparison
+> within this row is still sound, because all three columns were cut the same way; the absolute
+> level is not, and more than half of it was the missing cues rather than the read.
+
 Against the pre-#110 baseline the shipped setting is now **196 cues better and 0 worse** on
 Cloverfield and **551 better and 0 worse** on Gone Girl. Wanda is the exception and has its own
 section below.
