@@ -1,12 +1,16 @@
-//! Reading subtitle streams straight out of MP4 and MPEG-TS.
+//! Reading subtitle streams straight out of MP4.
 //!
-//! Not implemented — see #86. MKV left this module when the native Matroska reader landed under #4;
-//! what remains is the 0.2% that reader does not reach, measured rather than guessed: the library
-//! survey found 1,326 of 1,328 titles in Matroska, one `.m2ts` and one `.iso`.
+//! Not implemented, and this is now the whole of what is not. MKV left this module when the native
+//! Matroska reader landed under #4, and MPEG-TS left it under #86 — what remains is MP4 alone, for
+//! which the surveyed library holds **zero** titles carrying a bitmap subtitle track. The two
+//! containers the survey did find outside Matroska were one `.m2ts`, which [`crate::mpegts`] now
+//! reads, and one `.iso`, which is a filesystem rather than a container and is not dispatched here
+//! at all.
 //!
-//! The type below exists so that [`crate::open`] can dispatch these extensions to a named failure
-//! rather than an unrecognised-extension one. An unsupported container that says which issue tracks
-//! it is a fact a caller can act on; a generic error is not.
+//! So the gap this names is no longer a share of anything measured. It is a format that might turn
+//! up, and the type below exists so [`crate::open`] can dispatch it to a named failure rather than
+//! an unrecognised-extension one — an unsupported container that says which issue tracks it is a
+//! fact a caller can act on, and a generic error is not.
 
 use std::path::Path;
 
@@ -16,8 +20,8 @@ use crate::{Packet, StreamInfo, SubtitleSource};
 
 /// Placeholder container reader.
 ///
-/// Carries no state, and cannot: [`Self::open`] returns `Err` unconditionally until #86, so an
-/// instance has never existed. What the type is for is the dispatch arm in [`crate::open`] — an
+/// Carries no state, and cannot: [`Self::open`] returns `Err` unconditionally, so an instance has
+/// never existed. What the type is for is the dispatch arm in [`crate::open`] — an
 /// unsupported container that names the issue tracking it is a fact a caller can act on, and a
 /// generic unrecognised-extension error is not. The [`SubtitleSource`] impl below is what makes
 /// that arm type-check; its methods are unreachable by construction.

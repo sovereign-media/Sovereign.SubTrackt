@@ -512,8 +512,8 @@ which the context rule cannot reach because it needs a clear character on *both*
 another nine characters in twenty-four thousand when #60 measured it; on the three discs today it
 fires **not once**, because the glyphs it fed on are no longer ambiguous.
 
-**Format coverage.** Matroska, raw `.sup` and VOBSUB `.idx`/`.sub` only. MPEG-TS (`.m2ts`) returns
-`Unsupported` naming [#86](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/86) rather
+**Format coverage.** Matroska, MPEG-TS (`.ts`/`.m2ts`/`.mts`), raw `.sup` and VOBSUB `.idx`/`.sub`.
+MP4 returns `Unsupported` naming [#86](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/86) rather
 than guessing. VOBSUB was 4% of the surveyed library, so PGS got the attention.
 
 **Every accuracy figure here is PGS.** VOBSUB decodes, and nothing has measured what it *reads*.
