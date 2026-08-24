@@ -25,7 +25,8 @@ pub use segment::{SegmentKind, SegmentRef};
 /// Streams essentially always end with a clear. When one does not, the final cue has no end time
 /// in the data at all. Dropping it loses a line of dialogue; holding it for a fixed interval gets
 /// the text out with approximate timing. The text is what this tool exists to recover, so it is
-/// emitted — and [`PgsDecoder::unterminated_cues`] counts how often the fallback was needed.
+/// emitted — and [`BitmapDecoder::unterminated_cues`] counts how often the fallback was
+/// needed, which is the condition `CLAUDE.md` attaches to being allowed to approximate at all.
 pub const UNTERMINATED_CUE_TICKS: u64 = 5 * subtrackt_core::PTS_HZ;
 
 /// An object being reassembled across fragments, or one already decoded.
@@ -88,13 +89,6 @@ impl PgsDecoder {
     #[must_use]
     pub const fn ended_mid_display_set(&self) -> bool {
         self.ended_mid_display_set
-    }
-
-    /// How many cues were emitted with [`UNTERMINATED_CUE_TICKS`] because the stream never
-    /// cleared them.
-    #[must_use]
-    pub const fn unterminated_cues(&self) -> u64 {
-        self.unterminated_cues
     }
 
     /// The palette a composition would draw with, or a transparent one if never defined.
@@ -352,6 +346,10 @@ impl BitmapDecoder for PgsDecoder {
         }
 
         Ok(out)
+    }
+
+    fn unterminated_cues(&self) -> u64 {
+        self.unterminated_cues
     }
 
     fn finish(&mut self) -> Result<Vec<SubtitleImage>> {
@@ -623,6 +621,24 @@ mod tests {
         assert_eq!(images.len(), 1, "dropping it would lose a line of dialogue");
         assert_eq!(images[0].span.end.ticks(), 90_000 + UNTERMINATED_CUE_TICKS);
         assert_eq!(d.unterminated_cues(), 1, "the approximation must be countable");
+    }
+
+    #[test]
+    fn the_invented_end_time_survives_being_boxed_as_a_trait_object() {
+        // Countable is not the same as *reachable*, and #147 is the difference. The count above
+        // was an inherent method, and `decoder_for` hands the pipeline a `Box<dyn BitmapDecoder>`
+        // — so the one caller that has to audit the approximation was the one caller that could
+        // not see it. `CLAUDE.md` permits approximating here only on the condition that it is
+        // counted so it can be audited, which makes this test the condition rather than a nicety.
+        let mut decoder: Box<dyn BitmapDecoder> = Box::new(PgsDecoder::new());
+        decoder
+            .push(90_000, &show(2, 1, &[1, 1], false, false))
+            .unwrap();
+        assert_eq!(decoder.unterminated_cues(), 0, "nothing has been invented yet");
+
+        let images = decoder.finish().unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(decoder.unterminated_cues(), 1);
     }
 
     #[test]

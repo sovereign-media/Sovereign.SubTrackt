@@ -60,6 +60,17 @@ pub struct Report {
     /// a rising count with a flat unmatched count would mean it had started firing on something
     /// other than a fusion.
     pub defused: u64,
+    /// Cues whose end time the stream never gave, and the decoder had to invent.
+    ///
+    /// Approximating is allowed here — the alternative is losing a line of dialogue outright — on
+    /// the condition `CLAUDE.md` attaches to it: the approximation is counted, so a reader can tell
+    /// a track whose timing is entirely the stream's from one carrying a guess. Both decoders had
+    /// counted it since the day they made it; until #147 nothing could read the count, because
+    /// `decoder_for` hands back a trait object and the count was an inherent method.
+    ///
+    /// Essentially always zero. A non-zero figure on a whole film is one trailing cue; a large one
+    /// means the stream is not being framed the way the decoder thinks it is.
+    pub unterminated_cues: u64,
     /// Cues written.
     pub cues: u64,
     /// Cues dropped under [`UnmatchedPolicy::Drop`].
@@ -148,7 +159,7 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
-             ({:.1}% read); fit {:.1}; cache {:.0}%;{} corrections {}{} ({})",
+             ({:.1}% read); fit {:.1}; cache {:.0}%;{}{} corrections {}{} ({})",
             self.cues,
             self.images,
             self.packets,
@@ -165,6 +176,14 @@ impl fmt::Display for Report {
             // have been a placeholder and a hole, and that belongs in the one line a caller reads.
             if self.defused > 0 {
                 format!(" defused {};", self.defused)
+            } else {
+                String::new()
+            },
+            // Silent at zero, like `defused` above: an ordinary track invents nothing and should
+            // read exactly as it did before this counter existed. Named the moment it does, because
+            // an invented end time is the one approximation the pipeline is allowed to make.
+            if self.unterminated_cues > 0 {
+                format!(" invented timing on {} cue(s);", self.unterminated_cues)
             } else {
                 String::new()
             },

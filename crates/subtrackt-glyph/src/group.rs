@@ -391,7 +391,6 @@ fn best_body(
         .map(|(slot, _)| slot)
 }
 
-/// Cluster leftover marks that stack vertically, so `:` and `;` stay one character.
 /// Retry orphaned marks in horizontally adjacent pairs.
 ///
 /// The second half of #58. A mark is matched to a body on its own, which is right for every mark
@@ -479,6 +478,12 @@ fn side_by_side(left: Rect, right: Rect, rules: GroupingRules) -> bool {
     gap * 100 <= widest * rules.mark_cluster_gap_percent
 }
 
+/// Cluster leftover marks that stack vertically, so `:` and `;` stay one character.
+///
+/// A mark that found no body under it is punctuation in its own right, and two of them stacked are
+/// one character rather than two. What decides it is the vertical gap against the **shorter** of
+/// the pair — see the comment on the test below, which is #130's finding and the reason a colon
+/// failed to group for two years.
 fn cluster_orphans(
     members: &[Component],
     orphans: &[usize],
