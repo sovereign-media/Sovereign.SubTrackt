@@ -28,12 +28,23 @@ target
 # All of it is reproducible from the roster and none of it belongs in the tree; the figures that
 # do are in `docs/cost-baseline.md`.
 bench-cache/
+
+# Bench and ground-truth run outputs. `scripts/bench/run.py score --out X.json` writes X.json and
+# an X/ directory of extractions; `scripts/truth/check.py` writes truth-check/. The inputs are
+# checked in and these are not.
+bench-*.json
+bench-*/
+truth-check/
+truth-cache/
 *.subtref
 *.sup
 
 # Scratch extractions. `subtrackt extract -o` is pointed at the working directory constantly
 # while measuring, and none of what it writes is a source file.
 *.srt
+# ...except ground truth, which is an input rather than an output: #185's verified cues are read
+# off the disc by eye and are the only subtitle file in this repository that is not generated.
+!scripts/truth/*.srt
 
 # Python bytecode from the measurement scripts.
 __pycache__/

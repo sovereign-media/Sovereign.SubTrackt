@@ -693,7 +693,8 @@ mod tests {
             UnmatchedPolicy::Threshold { min_ratio: DEFAULT_MIN_MATCHED }
         );
         assert_eq!(config.format, SubtitleFormat::Srt);
-        assert!(!config.post_correct);
+        assert_eq!(config.post_correct, Config::default().post_correct);
+        assert_eq!(config.lone_words, Config::default().lone_words);
         assert!(!config.binarize.include_outline);
     }
 

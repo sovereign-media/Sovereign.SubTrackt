@@ -261,9 +261,9 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
 | `--report` | off | Print the extraction summary to stderr. |
 | `--provenance` / `--no-provenance` | see below | Record what produced the file, and what it read, as a comment near the top. |
 | `--defuse` / `--no-defuse` | on | Retry a component the matcher cannot read as two characters that touched. |
-| `--post-correct` / `--no-post-correct` | off | Resolve ambiguous reads from surrounding characters. |
+| `--post-correct` / `--no-post-correct` | on | Resolve ambiguous reads from surrounding characters. |
 | `--track-vocabulary` / `--no-track-vocabulary` | off | Also resolve word-edge glyphs from words the same track read clearly. Needs `--post-correct`. |
-| `--lone-words` / `--no-lone-words` | off | Also read a one-character word of `l` as `I`. Needs `--post-correct`. Crosses an apostrophe only where the container says the track is English. |
+| `--lone-words` / `--no-lone-words` | on | Also read a one-character word of `l` as `I`. Needs `--post-correct`. Crosses an apostrophe only where the container says the track is English. |
 | `--assume-english` | off | Assert the track is English for the rules that need to know. The container is asked first. |
 | `--vocab-min-occurrences <N>` | library default | How often a word must be read clearly before it counts as evidence. |
 | `--vocab-min-len <N>` | library default | Shortest word the vocabulary arm may correct. |
@@ -504,12 +504,14 @@ allowed a gap of 200% of a dot height, and a colon's is 225–450%. It could nev
 **Word spacing collapses on some all-caps lines.** `MAN ON INTERCOM: The red zone is` can come out
 `MANONINTERCOM:Theredzoneis`. Seen on SDH speaker labels and not yet measured or explained.
 
-**Post-correction ships off, and now has very little to do.** It resolved 363 characters on a real
-Blu-ray before the matcher could tell `l` from `I` by ink width; it resolves **3** now, and none at
-all on the ceiling fixture. That is the right direction — a correction is evidence about a glyph
-that shape alone could not decide — but it means the stage is no longer a lever. It stays opt-in
-because the only comparison available for a real track is another release's subtitle, which is
-evidence rather than ground truth. `--track-vocabulary` adds a second arm for word-edge ambiguity,
+**Post-correction ships on since #185, and its context arm has very little to do.** That arm
+resolved 363 characters on a real Blu-ray before the matcher could tell `l` from `I` by ink width;
+it resolves **3** now, and none at all on the ceiling fixture, which is the right direction and
+means it is no longer a lever. What turned the default on is the criterion the stage always named:
+a table over ground truth **a person read off the disc**, showing zero lines made worse. The first
+300 cues of A Fish Called Wanda are transcribed by eye in `scripts/truth/`, and against them the two
+arms improve 3 and 54 cues and worsen none. Across the whole bench they are worth **797 cues better
+and none worse**. `--track-vocabulary` adds a second arm for word-edge ambiguity,
 which the context rule cannot reach because it needs a clear character on *both* sides. It was worth
 another nine characters in twenty-four thousand when #60 measured it; on the three discs today it
 fires **not once**, because the glyphs it fed on are no longer ambiguous.
@@ -518,7 +520,7 @@ fires **not once**, because the glyphs it fed on are no longer ambiguous.
 largest confusion family left is the English pronoun — a position neither other arm can reach, since
 a one-letter word has no context on either side and no track ever reads one *clearly*. It is worth
 **371 cues across the bench and none made worse**, and takes A Fish Called Wanda from 1.7% to 1.1%
-CER.
+CER — much the larger half of what post-correction is worth, and 54 of the 300 hand-verified cues.
 
 It has two halves and they need different things. The bare rule turned out not to be English at all:
 run over French, Italian, Spanish and Portuguese tracks it fires seven times, all seven on Italian,
@@ -526,7 +528,8 @@ and all seven are right — Italian's one-letter article is `i`, and `I` is the 
 Crossing an apostrophe *is* English, and cannot be made safe by any rule about what follows it:
 `l'ai`, `l'ho` and `l'un` are the same one and two letters as `I'm` and `I'd`. So that half runs only
 where the container declares English or names it in the track title — which, it turns out, **is the
-track a muxer most often leaves untagged**. Both halves are off by default.
+track a muxer most often leaves untagged**. The bare half is on by default and the apostrophe half
+follows the container.
 [`post-correction.md`](docs/post-correction.md) §"The one-character word" and §"Which language is
 this" have the whole of it.
 

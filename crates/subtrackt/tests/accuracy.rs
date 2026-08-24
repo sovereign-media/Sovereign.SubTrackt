@@ -121,25 +121,33 @@ fn glyphs_are_measured_against_their_own_text_line() {
 }
 
 #[test]
-fn post_correction_is_off_unless_it_is_asked_for_and_the_report_says_which() {
-    // The switch, end to end. Nothing matches without a reference set, so neither run has an
-    // ambiguous glyph to work on and both correct nothing — which is the point: `0 corrections`
-    // is ambiguous on its own, and the corrector's name in the report is what resolves it.
+fn the_report_names_the_corrector_that_ran_rather_than_only_counting_it() {
+    // The switch, end to end. Nothing matches without a reference set, so no run here has an
+    // ambiguous glyph to work on and all of them correct nothing — which is the point: `0
+    // corrections` is ambiguous on its own, and the corrector's name in the report is what
+    // resolves it.
+    //
+    // #185 turned the default on, so this reads both ways round: the shipped default names its
+    // arms, and `--no-post-correct`'s equivalent still says `none`.
     let base = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
 
-    let off = Pipeline::new(base)
+    let shipped = Pipeline::new(base)
+        .run(fixture("synthetic.sup"))
+        .expect("the fixture extracts");
+    assert_eq!(shipped.report.corrector, "context+lone-word");
+    assert_eq!(
+        shipped.report.corrections, 0,
+        "an unread track offers nothing to correct"
+    );
+
+    let off = Pipeline::new(Config { post_correct: false, ..base })
         .run(fixture("synthetic.sup"))
         .expect("the fixture extracts");
     assert_eq!(off.report.corrector, "none");
     assert!(off.corrections.is_empty());
 
-    let on = Pipeline::new(Config { post_correct: true, ..base })
-        .run(fixture("synthetic.sup"))
-        .expect("the fixture extracts");
-    assert_eq!(on.report.corrector, "context");
-    assert_eq!(on.report.corrections, 0, "an unread track offers nothing to correct");
     assert_eq!(
-        on.track, off.track,
+        shipped.track, off.track,
         "with nothing flagged ambiguous, running the corrector must change nothing at all"
     );
 }

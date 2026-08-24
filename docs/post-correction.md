@@ -3,9 +3,10 @@
 Answers [#12][issue-12]. It asks for two things — a corrector for the pairs a binarized glyph cannot
 separate, and a measurement deciding whether it should be on.
 
-**It works, it is measured, and it ships switched off.** 1.9 points of character error rate on the
-ceiling fixture, zero lines made worse — and one generated fixture is not the corpus that should
-decide a default which rewrites what a viewer reads.
+**It works, it is measured, and since #185 it ships switched on.** The criterion this document named
+for its whole life was a table over hand-verified ground truth showing zero lines made worse;
+§"What flipped it" is that table, read off the disc by eye over 300 cues. Everything above it is
+history from a time when one generated fixture was the whole corpus.
 
 The number moves when the fixture does, and it has four times: #48 added three cues of accented
 text, #58 a line carrying `î`, #57 a line of accented capitals, and #60 a cue supplying case-folded
@@ -483,43 +484,96 @@ The rule fired correctly on evidence that was wrong before it arrived — the sa
 taught, on a disc where §"`C`/`c` is the cost of scale invariance" in
 [`library-accuracy.md`](library-accuracy.md) is doing the damage.
 
-## Why the default is still off
+## What flipped it
 
-The measurement is positive and the guards are structural. What is missing is not confidence in the
-rule, it is a corpus:
+**The default is on since [#185][issue-185], and the code did not change.** This document had named
+one criterion for its whole life:
 
-- **One fixture, one font, six substitutions.** That is an existence proof, not a rate. The pairs it
-  exercises are the ones [#8] found studios author against, but six events cannot say how often the
-  rule fires on real material or what it fires *at*.
-- **The ceiling case is the wrong place to see the risk.** Where the matcher is nearly right, the
-  corrector's evidence is nearly always sound. Real material moves both.
-- **[#15]'s larger corpus is referenced but not checked in.** Until it is, "measured on the test
-  corpus" means measured on one generated file.
+> the same table, produced over real tracks with hand-verified ground truth, still showing zero
+> lines made worse.
 
-`Config::track_vocabulary` stays `false` for the same reasons and one of its own: nine substitutions
-on one film is an existence proof, and the two new failure modes it introduces — a proper noun that
-case-folds onto a common word, and a single clear occurrence that was itself a misread — are both
-unobserved rather than ruled out.
+Every number above it is scored against a **release sidecar** — another transcript of the same
+dialogue, frequently read off the same bitmaps by some other tool — so a systematic error the
+corrector introduced could in principle be matched by the same systematic error in the comparison,
+and score as agreement. The hole is narrower than it sounds, because a correction only ever lands
+inside `0`/`O`/`o` and `1`/`l`/`I`/`|`, and narrower is not closed.
 
-`Config::lone_words` stays `false`, and #180 changed why. It was "the arm knows a language and
-cannot check"; the arm now checks, and its bare half turned out not to need a language at all.
-What is left is narrower and still real: 371 cues improved and none made worse is a measurement over
-six tracks of one library, the contraction half rests on a container label that is absent on 30% of
-files, and `--assume-english` is a caller's assertion that nothing verifies. The criterion this
-document has always named — the same table over real tracks with hand-verified ground truth — is
-still the one that would move it.
+So the first 300 cues of A Fish Called Wanda were read off the images by eye.
+`xtask cue-images` writes one grey PGM per cue, `scripts/truth/sheets.py` stacks them into labelled
+contact sheets, and the transcription is checked in beside them as
+[`scripts/truth/wanda-0000-0299.srt`](../scripts/truth/wanda-0000-0299.srt). The table, which
+`scripts/truth/check.py` reproduces:
 
-So `Config::post_correct` stays `false` and `subtrackt extract` defaults to off. Both flags work —
-`--post-correct` and `--no-post-correct`, last one on the line wins — so pinning either behaviour
-survives the default moving.
+| arm | CER | WER | cues better | **cues worse** |
+| :--- | ---: | ---: | ---: | ---: |
+| off | 1.9% | 7.7% | — | — |
+| context | 1.9% | 7.7% | 3 | **0** |
+| context + lone word | **1.2%** | **4.4%** | 54 | **0** |
 
-**What would flip it:** the same table, produced over real tracks with hand-verified ground truth,
-still showing zero lines made worse. Nothing else is needed; the code does not change.
+`Config::post_correct` and `Config::lone_words` are therefore `true`, and `subtrackt extract`
+corrects by default. Both flag pairs still work — `--post-correct` / `--no-post-correct` and
+`--lone-words` / `--no-lone-words`, last one on the line wins — so pinning either behaviour survives
+the default moving, which is what they were built for.
 
-## The first two of those three, on a real disc
+### What the sidecar was worth, now that there is something to check it against
 
-The first two bullets above are now answered. The third is not, and it is the one holding the
-default.
+The reason for doubting a release sidecar is now measurable rather than theoretical, and the answer
+on this track is **0.1% CER over 9,478 characters** — ten characters in three hundred cues. That is
+a good instrument, and the ten are the interesting part:
+
+| the disc draws | the sidecar writes | count |
+| :--- | :--- | ---: |
+| `x` | `X` | **5** |
+| `è` | `e'` | 2 |
+
+`neXt`, `eXciting`, `EXcuse`, `cross-eXamine`, `fiX` — **the sidecar this bench scores against
+carries its own OCR errors, and they are case-pair errors**, the same family
+[`glyph-hit-list.md`](glyph-hit-list.md) ranks this pipeline on. So the sidecar was neither
+flattering the corrector nor ground truth: it was charging it for five misreads of the sidecar's own
+and transliterating two accents away. #140's rule stands and gets a floor — *a CER quoted without
+naming its sidecar means nothing*, and even the right sidecar is a transcript rather than the disc.
+
+### And on the bench, which is where the default actually lands
+
+Turning both arms on, priced against the shipped behaviour of the release before it:
+
+| track | CER | cues better | **cues worse** |
+| :--- | ---: | ---: | ---: |
+| Training Day | 2.8% → **1.9%** | 297 | **0** |
+| The Karate Kid | 2.3% → **1.8%** | 228 | **0** |
+| A Fish Called Wanda | 1.7% → **1.3%** | 183 | **0** |
+| Gone Girl | 1.5% → **1.4%** | 80 | **0** |
+| King Kong | 21.3% → 21.3% | 7 | **0** |
+| 10 Cloverfield Lane | 0.4% → 0.4% | 2 | **0** |
+| **total** | | **797** | **0** |
+
+**The one cue this stage had ever made worse is gone, and #184 is why.** Training Day's
+`[<?>UsIc PLAYs]` was an all-caps SDH line the metrics estimate refused, so `S` and `C` were matched
+on shape alone and lost their case; the context arm then agreed with evidence that was wrong before
+it arrived. That line borrows the track's scale now and reads `[MUSIC PLAYS]`. The lesson the
+regression taught is unchanged and is worth keeping — *the context post-correction reads is the
+output of every stage before it* — but the instance is fixed rather than merely documented.
+
+### What stays off
+
+`Config::track_vocabulary`, and no longer for want of ground truth. Since #110 gave the matcher an
+ink aspect ratio the arm makes **zero substitutions on every disc of the bench**, so the verified
+table has nothing to say about it, and its two failure modes — a proper noun that case-folds onto a
+common word, and a single clear occurrence that was itself a misread — remain unobserved rather than
+ruled out. An arm that cannot be measured cannot be defaulted on.
+
+### What this does not claim
+
+One track, 300 cues, one typeface, one codec, one language. It is what the criterion asked for and
+it is not a rate. What would strengthen it is the same exercise on VOBSUB, where the context arm
+does most of its work and where nothing has yet been read by eye — `scripts/truth/` is the tooling
+for it and takes a `.sup` or a container either way.
+
+## The evidence that was not enough, kept because it says why
+
+Read this section as the state of the argument before #185. Two of the three objections that held
+the default were answered here, on a real disc, and the third — a comparison that is a transcript
+rather than the disc — is the one §"What flipped it" finally settles.
 
 **10 Cloverfield Lane (2016)**, one PGS track, 822 cues, an Arial reference set, scored by
 `xtask srt-score` against the English subtitle shipped beside the rip:
@@ -535,7 +589,7 @@ default.
 project did not render — two orders of magnitude more events than the fixture's six, and the risk
 case the second bullet asks for, since a real disc is where the corrector's evidence is least sound.
 
-### Why this still does not flip the default
+### Why this did not flip the default, and what it took
 
 The comparison subtitle is **not hand-verified ground truth**. It is another release's transcript of
 the same dialogue, and release subtitles are frequently themselves read off the same bitmaps by some
@@ -544,10 +598,12 @@ systematic error in the comparison, and score as agreement.
 
 That hole is narrower than it sounds — the corrector only ever rewrites within `0`/`O`/`o` and
 `1`/`l`/`I`/`|`, so agreeing wrongly across 263 cues would need the comparison to have made the same
-confusions in the same places — but narrower is not closed, and it is not what the criterion asks
-for. What is still missing is one track whose ground truth a person checked.
+confusions in the same places — but narrower is not closed. What was missing was one track whose
+ground truth a person checked, and it took until #185 to read one.
 
-It is also one film, in English, in one typeface. `Config::post_correct` stays `false`.
+**The doubt was justified and the size of it is now known**: on the 300 verified cues of Wanda the
+sidecar differs from the disc by 0.1%, and five of its ten differences are the sidecar's own
+lowercase `x` read as `X`. See §"What the sidecar was worth".
 
 ## Auditing a run
 
@@ -598,3 +654,4 @@ had stopped refusing.
 [#8]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/8
 [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12
 [#15]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/15
+[issue-185]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/185
