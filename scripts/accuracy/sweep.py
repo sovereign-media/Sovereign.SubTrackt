@@ -39,8 +39,11 @@ def parse_args():
     ap.add_argument("--out", default="results", help="directory for per-title result files")
     ap.add_argument("--work", default="work", help="directory to keep extracted SRTs in")
     ap.add_argument("--reference", required=True, help="the .subtref to match against")
-    ap.add_argument("--subtrackt", default="target/release/subtrackt")
-    ap.add_argument("--xtask", default="target/release/xtask")
+    # Normalised, because Windows' `CreateProcess` rejects a relative path spelled with forward
+    # slashes -- `target/release/subtrackt` is not found while `target\release\subtrackt` is. The
+    # same fix `scripts/bench/run.py` needed, for the same reason.
+    ap.add_argument("--subtrackt", default="target/release/subtrackt", type=os.path.normpath)
+    ap.add_argument("--xtask", default="target/release/xtask", type=os.path.normpath)
     ap.add_argument("--workers", type=int, default=4, help="titles extracted in parallel")
     return ap.parse_args()
 

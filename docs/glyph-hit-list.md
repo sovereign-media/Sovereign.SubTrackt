@@ -109,6 +109,33 @@ could watch it. It is on the `--report` line now, as a share:
 King Kong is the one to watch. It is also the PGS track with the worst CER on the bench at 21.3%,
 and one glyph in seven there is being matched without the feature that separates `o` from `O`.
 
+## The library agrees, and says which population each ranking describes
+
+#119 re-extracted the 47-title corpus and rebuilt its census on the track-level alignment too, so
+the same question can now be asked of 2.18 million characters rather than of nine tracks. Grouped
+into families and expressed as a rate, over the 21 titles whose sidecar corroborates:
+
+| substitutions per 1,000 release characters | rate |
+| :--- | ---: |
+| case pairs | 2.96 |
+| `I` / `l` | 2.92 |
+| brackets | 0.72 |
+| punctuation | 0.47 |
+| other | 1.72 |
+
+**Dead level** — which is #118's original finding, 2,780 against 2,677, arriving again on a corpus
+five times the size. So the two rankings never disagreed: #118 measured PGS library material and
+found them equal, this file measured a bench that had gained two VOBSUB tracks and found `I`/`l`
+three times larger. The two VOBSUB tracks contribute 1,778 of that family's 2,424 errors. **The
+family's size is a property of the codec, not of the ranking**, and a bench weighted differently
+would move it again.
+
+What survives both populations is that `I`/`l` is the *stable* family. Widening the corpus census
+from the corroborated 21 to all 47 multiplies every other family by two to ten times — case pairs
+from 2.96 to 16.88, `other` from 1.72 to 17.03 — and moves `I`/`l` from 2.92 to 4.31.
+[`library-accuracy.md`](library-accuracy.md) §"What the other 26 titles are made of" has why the
+rest moves: it is transcript divergence rather than misreading, and one title supplies 62% of it.
+
 ## Where this leaves the list
 
 1. **`I` / `l`, 2,424 errors.** The largest family, and what is wrong with it differs by disc —

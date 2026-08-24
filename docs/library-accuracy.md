@@ -35,11 +35,13 @@ before the numbers below meant anything:
 The **track** row is therefore the headline, and the cue-level rows are kept because they are the
 only ones that can separate upright from italic.
 
-**These figures predate #121.** The run below was taken before word gaps were measured between
-deskewed ink extents, which on three discs recovered most of an italic line's missing word spaces
-and took one of them from 2.8% to 2.0% CER. The italic row in particular should be read as an upper
-bound on today's error rather than a measurement of it; the corpus has not been re-scored.
-[`italic-slant.md`](italic-slant.md) has what changed.
+**Everything below was re-measured on 2026-08-24**, over the same fifty titles, with the pipeline
+as it stands. The first run predated #121's word gaps, #130's colons and #168's quotation marks, and
+it scored against a per-cue alignment #169 has since replaced. **45 of the 47 titles improved and
+neither of the other two moved by half a point**; pooled track CER went from 13.56% to 12.88% and
+WER from 24.99% to 22.62%, a median of 0.66 points per title.
+
+Where that landed is the interesting part, and it is the italic row — see Table 1.
 
 ## Method
 
@@ -67,41 +69,55 @@ Pooled over every scored character in 47 titles: 2.18 million characters and 403
 
 | | characters | CER | words | WER |
 | :--- | ---: | ---: | ---: | ---: |
-| **track** — one transcript, cue boundaries and timing ignored | 2,179,972 | **13.56%** | 403,277 | **24.99%** |
-| cue-level, all | 1,923,974 | 22.55% | 367,718 | 34.52% |
-| cue-level, upright | 1,819,552 | 22.41% | 347,559 | 33.71% |
-| cue-level, italic | 104,422 | 25.04% | 20,159 | 48.34% |
+| **track** — one transcript, cue boundaries and timing ignored | 2,179,972 | **12.88%** | 403,277 | **22.62%** |
+| cue-level, all | 1,923,974 | 21.87% | 367,718 | 32.26% |
+| cue-level, upright | 1,819,552 | 21.85% | 347,559 | 32.20% |
+| cue-level, italic | 104,422 | 22.18% | 20,159 | 33.32% |
 
 The nine points between the first two rows are cue-boundary disagreement between releases, not
-misreading. Italic remains the weaker style, and by more in words than in characters.
+misreading.
 
-**The last two rows understate the gap, and by an unknown amount.** The style split is taken from
-the release's `<i>` tags, and [`italic-slant.md`](italic-slant.md) found a title where **18% of the
-lines lean and neither English sidecar marks a single one** — measured from the ink, without opening
-a subtitle file. A release that loses the distinction puts its whole italic act in the *upright*
-row. The direction of that error is certain even though its size is not.
+**Italic is no longer the weaker style, and that is #121 arriving at corpus scale.** The first run
+put italic 2.6 points of CER and **14.6 points of WER** behind upright; it is now 0.33 and **1.12**.
+That fix — measuring a word gap between deskewed ink extents rather than between upright bounding
+boxes — was justified on three discs, where it recovered an italic line's missing word spaces and
+took one disc from 2.8% to 2.0% CER. Over 104,422 italic characters from 47 titles it closes the gap
+outright. A slanted line is now read about as well as an upright one, which is the answer #14
+wanted and did not have.
+
+**Neither row is a clean split, and that was true when the gap was wide too.** The style is taken
+from the release's `<i>` tags, and [`italic-slant.md`](italic-slant.md) found a title where **18% of
+the lines lean and neither English sidecar marks a single one** — measured from the ink, without
+opening a subtitle file. A release that loses the distinction puts its whole italic act in the
+*upright* row, so both rows carry italic lines and the third of a point between them is an
+underestimate of a gap that may not exist at all.
 
 Per title, the distribution matters more than the mean — the sample is strongly bimodal:
 
 | | p5 | p10 | p25 | **p50** | p75 | p90 | p95 |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| CER | 1.63% | 2.05% | 3.25% | **8.21%** | 22.38% | 30.18% | 36.12% |
-| WER | 6.53% | 7.52% | 11.74% | **20.61%** | 34.02% | 45.14% | 58.09% |
+| CER | 1.11% | 1.39% | 2.02% | **8.02%** | 22.13% | 29.85% | 35.48% |
+| WER | 4.48% | 5.19% | 7.71% | **17.94%** | 32.85% | 45.69% | 58.33% |
 
 | titles under | 2% CER | 5% CER | 10% CER | 20% CER |
 | :--- | ---: | ---: | ---: | ---: |
-| count | 5 (10.6%) | 20 (42.6%) | 26 (55.3%) | 34 (72.3%) |
+| count | 12 (25.5%) | 21 (44.7%) | 26 (55.3%) | 34 (72.3%) |
 
-**Where a title has more than one English sidecar to choose from, the median CER is 3.63%. Where it
-has only one, it is 15.15%.**
+The lower half moved and the upper half did not: **titles under 2% CER went from 5 to 12** while the
+count under 20% is unchanged at 34. That is the shape a genuine improvement has against this
+instrument — the titles whose sidecar agrees get better, and the ones whose sidecar is a different
+transcript stay exactly where they were, because nothing about them was ever the pipeline.
+
+**Where a title has more than one English sidecar to choose from, the median CER is 2.92%. Where it
+has only one, it is 14.27%.**
 
 | | titles | CER | WER | median | p90 |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| two or more sidecars, best taken | 26 | 10.99% | 20.97% | **3.63%** | 24.20% |
-| one candidate only | 21 | 16.50% | 29.55% | 15.15% | 33.28% |
+| two or more sidecars, best taken | 26 | 10.19% | 18.01% | **2.92%** | 23.55% |
+| one candidate only | 21 | 15.96% | 27.85% | 14.27% | 33.20% |
 
 The spread between candidate sidecars *on the same title* — the same extraction, scored twice — has
-a median of **13.13 points** and reaches 81. A title with one sidecar is scored against whatever it
+a median of **13.38 points** and reaches 81. A title with one sidecar is scored against whatever it
 happened to ship with, matched or not, and that is most of what separates the two rows.
 
 The same conclusion arrives independently from the extractor's own diagnostics. Mean match distance
@@ -109,17 +125,18 @@ says whether the reference set fits the title's typeface at all:
 
 | mean match distance | titles | median CER | median WER | median glyphs read |
 | :--- | ---: | ---: | ---: | ---: |
-| under 12 | 34 | **4.13%** | 17.09% | 99.70% |
-| 12 – 14 | 7 | 15.15% | 20.61% | 99.50% |
-| 14 – 16 | 2 | 22.58% | 39.37% | 98.45% |
-| 16 – 20 | 1 | 15.73% | 36.25% | 99.60% |
-| 20 and over | 3 | 22.94% | 60.46% | 89.90% |
+| under 12 | 33 | **3.80%** | 14.29% | 99.90% |
+| 12 – 14 | 8 | 9.65% | 14.76% | 99.75% |
+| 14 – 16 | 2 | 22.34% | 41.23% | 98.50% |
+| 16 – 20 | 1 | 14.79% | 34.74% | 99.90% |
+| 20 and over | 3 | 22.94% | 60.51% | 90.10% |
 
-A single Arial set fits 34 of 47 titles well, and those read at 4.13% median CER. **But 12 of 47
+A single Arial set fits 33 of 47 titles well, and those read at 3.80% median CER. **But 12 of 47
 titles read more than 99% of their glyphs confidently, at a good fit, and still score over 15% CER**
-— *Insomnia* at 77.6% with a fit of 10.3 and 99.6% of glyphs read. A title read confidently and
-scored badly is evidence about two transcripts, not about the matcher. Ten of those twelve were
-scored against an SDH sidecar.
+— *Insomnia* at 77.3% with a fit of 10.3 and 99.9% of glyphs read. A title read confidently and
+scored badly is evidence about two transcripts, not about the matcher. Eight of those twelve were
+scored against an SDH sidecar, and §Table 2 takes *Insomnia* apart to show what the other kind looks
+like.
 
 **So the upper tail of this distribution is mostly the instrument.** The measurable degradation
 attributable to the pipeline is the fit table above: real, bounded, and concentrated in the handful
@@ -127,75 +144,141 @@ of titles whose typeface Arial does not fit.
 
 ## Table 2 — per-character error rate
 
-Restricted to the 20 titles the sidecar corroborates (track CER under 5%), because the per-character
-census is built from the cue-level alignment and inherits its faults: where the sidecar transcribes
-something different, the aligner pairs characters that were never meant to correspond. This is a
-conditional question — *among titles where the transcript agrees, which characters still fail?* — and
-it is the only form of the question this instrument can answer.
-
 Rate is substitutions and deletions of a character over its occurrences in the release. Insertions
 are not charged here: an inserted character is one the release never had, so it has no denominator.
 
+The census behind this table is built from the **track-level** alignment now (#169) rather than
+the cue-level one, so it no longer inherits the cue-boundary mispairing #116 measured. #119 asked
+what that buys, and named the prize: whether the table could widen from the 20 titles the sidecar
+corroborates to all 47, on 2.5× the material.
+
+**It can be computed over all 47, and it should not be published that way.** The wider table is not
+a per-character error rate; it is a portrait of three titles. That result is worth more than the
+table would have been, and §"What the other 26 titles are made of" is the measurement.
+
+### The 21 titles the sidecar corroborates
+
+Titles whose track CER is under 5%. One more than the first run, and every figure in it recomputed.
+
 | character | in release | wrong | rate | read instead as |
 | :--- | ---: | ---: | ---: | :--- |
-| `:` | 1,369 | 1,369 | **100.00%** | `.` 1343, unread 7 |
-| `"` | 746 | 746 | **100.00%** | `'` 732 |
-| `♪` | 222 | 222 | **100.00%** | unread 76, `7` 32 |
-| `C` | 3,363 | 1,041 | 30.95% | `c` 1016 |
-| `I` | 11,627 | 1,973 | 16.97% | `l` 1681 |
-| `!` | 3,402 | 231 | 6.79% | `Í` 174 |
-| `l` | 26,870 | 1,417 | 5.27% | `I` 1099 |
-| `f` | 9,875 | 375 | 3.80% | unread 85 |
-| space | 145,339 | 5,435 | 3.74% | `l` 115, unread 43 |
-| `i` | 36,625 | 1,358 | 3.71% | `Í` 531, unread 272 |
-| `s` | 34,569 | 869 | 2.51% | `S` 576 |
-| `.` | 27,733 | 592 | 2.13% | `-` 105 |
-| `A` | 6,044 | 128 | 2.12% | unread 54, `a` 43 |
-| `O` | 4,470 | 87 | 1.95% | `o` 13 |
-| `c` | 12,717 | 242 | 1.90% | `C` 113 |
-| `r` | 32,651 | 607 | 1.86% | `l` 16 |
-| `B` | 2,173 | 36 | 1.66% | `b` 18 |
-| `,` | 11,550 | 177 | 1.53% | unread 46 |
-| `j` | 1,149 | 17 | 1.48% | unread 7 |
-| `t` | 55,524 | 726 | 1.31% | `d` 123 |
-| `?` | 5,359 | 32 | 0.60% | `.` 15 |
+| `C` | 3,635 | 1,300 | **35.76%** | `c` 1273 |
+| `]` | 2,162 | 364 | **16.84%** | `)` 285, `ì` 25, space 21 |
+| `[` | 2,163 | 356 | **16.46%** | `(` 324, `í` 25 |
+| `I` | 12,459 | 1,959 | **15.72%** | `l` 1802, `Í` 86, `i` 8 |
+| `!` | 3,598 | 252 | **7.00%** | `Í` 179 |
+| `l` | 28,001 | 1,269 | **4.53%** | `I` 1106, `Í` 77, `ì` 34 |
+| `i` | 38,219 | 1,154 | **3.02%** | `Í` 558, unread 268, `ì` 146 |
+| `f` | 10,382 | 311 | **3.00%** | unread 94, `í` 19, `d` 11 |
+| `O` | 4,758 | 91 | **1.91%** | `o` 10 |
+| `s` | 36,201 | 655 | **1.81%** | `S` 589, unread 32 |
+| `A` | 6,515 | 109 | **1.67%** | unread 54, `a` 41 |
+| `.` | 29,065 | 482 | **1.66%** | `-` 105, unread 87 |
+| `U` | 2,133 | 33 | **1.55%** | |
+| `R` | 4,606 | 69 | **1.50%** | `c` 11 |
+| `-` | 6,308 | 82 | **1.30%** | |
+| `r` | 34,228 | 437 | **1.28%** | `l` 13, `I` 10, `î` 8 |
+| `B` | 2,319 | 27 | **1.16%** | `b` 18 |
+| `H` | 4,488 | 49 | **1.09%** | |
+| `:` | 1,573 | 17 | **1.08%** | `.` 5 |
+| `c` | 13,242 | 142 | **1.07%** | `C` 113, unread 22 |
+| `,` | 11,920 | 125 | **1.05%** | unread 52 |
+| `W` | 4,771 | 48 | **1.01%** | `w` 37 |
+| `T` | 6,191 | 54 | **0.87%** | `t` 24 |
+| `y` | 21,260 | 168 | **0.79%** | unread 138, `Y` 8 |
 
-Three characters fail *every single time*, and they are the most actionable result here.
+### Two of the three total failures are gone
 
-### The colon is never read. It is read as two characters.
+The first run's headline was three characters that failed *every single time*. Measured again on the
+same corpus:
 
-`ERIK:` comes out as `ERIK<unread>.` — on all 1,369 colons, in every title that has any. Across
-twelve well-corroborated titles the releases carry between 39 and 279 colons each and **the pipeline
-emits exactly zero**.
+| character | first run | now |
+| :--- | ---: | ---: |
+| `:` | **100.00%** of 1,369 | **1.08%** — 17 wrong of 1,573, over the 19 of 21 titles that carry one |
+| `"` | **100.00%** of 746 | **5.21%** — 40 wrong of 768 |
+| `♪` | **100.00%** of 222 | 48.21% — 108 wrong of 224, and still the worst row on the corpus |
 
-The colon's two dots are being segmented as two connected components: the lower dot matches `.`, and
-the upper dot matches nothing. So each colon costs two errors, a substitution and an insertion, not
-one.
+The colon was a component-assembly bug, not a matching one, and #130 found the cause was a single
+threshold: stacked punctuation was allowed a gap of 200% of a mark's height, and a colon's dots sit
+225–450% apart, so the rule written to hold a colon together had never once fired on one. The
+quotation mark was two apostrophes, fixed by #168 on position rather than distance. Neither had
+been measured at this scale before; both hold.
 
-This is the same shape of failure as `!` → `Í` and `i` → `Í`: **multi-component characters are being
-assembled wrongly.** `:`, `!`, `i` and `j` are the four characters in ordinary English text made of
-more than one connected component, and all four head the table or carry unread counts. Nothing in
-the reference set is at fault; the components are being grouped before they are matched.
+**`♪` is what is left, and it is still a coverage gap.** Its 108 failures are almost entirely
+deletions — the reference set does not contain the character, so nothing can match it — and the
+handful of substitutions go to `)`, `-` and `J`. It is cheap to fix and needs no new machinery.
 
-Colons are frequent in exactly the material a user is most likely to feed this — SDH tracks, where
-every speaker label ends in one.
+### The multi-component characters that remain
 
-### The other two are coverage, not assembly
+`:`, `!`, `i` and `j` are the four characters in ordinary English text drawn as more than one
+connected component. Two of them are now clean — `:` at 1.08% and `j` at 0.66% — and the other two
+are not, in the same way:
 
-`"` is read as `'` 732 times of 746, and `♪` matches nothing at all. Neither is a subtle failure:
-one is a straight-versus-curly quote question and the other is a character the reference set never
-contained. Both are cheap to fix and neither needs new machinery.
+- `!` → `Í`, 179 times of 252 failures;
+- `i` → `Í`, 558 times of 1,154.
+
+An `Í` is a capital `I` with a mark above it, which is exactly what a dot and a stem look like when
+they are grouped as one component and matched as one glyph. So the remaining defect is not the
+reference set and not the matcher; it is the same grouping decision #130 fixed for the colon,
+reaching a mark that sits *above* a stem rather than beside a second dot.
 
 ### `C`/`c` is the cost of scale invariance
 
-`C` reads as `c` 1,016 times, and `s`/`S`, `o`/`O`, `u`/`U`, `v`/`V`, `w`/`W` all show the same
-confusion in both directions further down the table. These are the letters whose upper and lower
+`C` reads as `c` 1,273 times, and `s`/`S`, `o`/`O`, `c`/`C`, `w`/`W` and `T`/`t` all show the same
+confusion further down the table, in both directions. These are the letters whose upper and lower
 case differ only in *size* — and §7's normalisation is scale-invariant by design, which is what lets
 one reference set read a title at 21 px and another at 50 px.
 
 The property that makes the matcher work across resolutions is the same property that makes these
 pairs indistinguishable. That is a real trade-off rather than a bug, and resolving it needs the
-line's x-height, not a better vector.
+line's x-height, not a better vector. [`glyph-hit-list.md`](glyph-hit-list.md) measures how much of
+that height is available on real discs.
+
+### What the other 26 titles are made of
+
+The point of moving the census off the clock was to stop restricting it to titles whose sidecar
+agrees — a restriction that is *circular*, since it selects titles by the outcome being measured.
+So: group every substitution the census saw into families, and compare the three populations by rate
+rather than by count.
+
+| substitutions per 1,000 release characters | corroborated 21 | all 47 | 47 less *Insomnia* |
+| :--- | ---: | ---: | ---: |
+| case pairs (`C`/`c` and its kin) | 2.96 | 16.88 | 6.49 |
+| **`I` / `l`** | **2.92** | **4.31** | **4.39** |
+| brackets | 0.72 | 1.77 | 1.76 |
+| punctuation | 0.47 | 4.81 | 4.11 |
+| other | 1.72 | 17.03 | 13.74 |
+| **every substitution** | **8.79** | **44.81** | **30.49** |
+
+**`I`/`l` is the only family that survives the widening.** It moves by half; every other family
+multiplies by two to ten, and `other` — substitutions between characters that share no shape, which
+is what a *different transcript* looks like rather than a misread — multiplies by eight and becomes
+the largest thing in the table. A matcher does not read `q` as `w`. Two releases do.
+
+And most of the rest is not spread across 26 titles. It is two of them:
+
+- ***Insomnia* is 62% of every case confusion in the corpus** — 22,985 of 36,792. Its sidecar is
+  ALL CAPS from a WEBDL release and the disc is mixed case from a Blu-ray, so every capital in the
+  transcript meets a lowercase letter that was read correctly. Both of its English sidecars are that
+  release's, so there is no better choice to take. One title, 426 case substitutions per 1,000
+  characters, against 2.96 in the corroborated set.
+- ***Nosferatu* is 98–100% of `E`→`F`, `R`→`P` and `G`→`C`** — 2,308 substitutions, all of them the
+  shape of a capital that has lost a stroke. That is a genuine misread rather than a transcript
+  difference, and the extractor already says so without a sidecar: its fit is **19.4**, the worst of
+  any title Arial won, in the band §Table 3 marks as not fitting.
+
+Both are diagnosable, and neither is diagnosable *from the wide table* — they arrive there as `A`
+failing 30% of the time and `E` failing 57%, which is a statement about no character in particular.
+
+**So the restriction stays, and its justification changes.** It was "the census inherits the
+cue-level alignment's faults"; that is no longer true. It is now this: the per-character census
+measures the *difference between two transcripts*, and on a title where those transcripts disagree
+about case, about SDH convention, or about which cut is being transcribed, the difference is not
+about the matcher and cannot be made to be. Corroboration is a proxy for "the two transcripts are of
+the same thing", and it remains the only proxy this instrument has.
+
+What the widening did buy is the evidence above: the noise is now **named and attributed** rather
+than assumed, and the one family that stands up to it is `I`/`l`.
 
 ## Table 3 — typeface matchability, measured without a sidecar
 
@@ -233,15 +316,15 @@ Correlating the fit score against the track CER of the same title, over the 47 w
 
 | | value |
 | :--- | ---: |
-| Pearson *r* | **0.063** |
-| Spearman *ρ* | **0.044** |
+| Pearson *r* | **0.062** |
+| Spearman *ρ* | **0.034** |
 
 | fit score | titles | median CER | median WER |
 | :--- | ---: | ---: | ---: |
-| under 11 | 12 | 6.12% | 18.79% |
-| 11 – 12 | 19 | 6.11% | 19.82% |
-| 12 – 14 | 11 | **3.74%** | 17.76% |
-| 14 and over | 5 | 15.73% | 36.25% |
+| under 11 | 12 | 5.56% | 15.99% |
+| 11 – 12 | 19 | 5.04% | 17.94% |
+| 12 – 14 | 11 | **2.61%** | 12.65% |
+| 14 and over | 5 | 14.79% | 34.74% |
 
 Not merely weak — not even monotonic. **Within the range where Arial fits, which is 46 of 50 titles,
 matchability carries no information about measured CER.** Matchability is uniformly excellent and
@@ -256,9 +339,9 @@ chose:
 
 | title | fitted set | margin over arial-ri | CER before → after | WER before → after |
 | :--- | :--- | ---: | ---: | ---: |
-| Batman & Mr. Freeze: SubZero | arialbd | 25.6 | 45.90% → **17.81%** | 77.72% → 39.23% |
-| Excision | arialbd | 21.7 | 22.94% → **11.40%** | 60.46% → 42.67% |
-| Outland | corbel | **0.5** | 9.42% → **19.14%** ✗ | 24.38% → 56.29% |
+| Batman & Mr. Freeze: SubZero | arialbd | 25.6 | 46.28% → **17.98%** | 79.39% → 39.97% |
+| Excision | arialbd | 21.7 | 22.94% → **11.43%** | 60.51% → 42.66% |
+| Outland | corbel | **0.5** | 9.39% → **19.16%** ✗ | 24.21% → 56.31% |
 
 **The margin is the whole signal.** Both wide-margin calls were right and worth 11 and 28 points of
 CER. The one that made a title twice as bad won by half a cell — a tie, dressed as a decision. This
@@ -266,7 +349,7 @@ is exactly the failure [`reference-set.md`](reference-set.md) records for Libera
 systematically wrong set is a *low*-distance set by construction, so a narrow win certifies nothing.
 
 Adopting the fit winner only where it beats the default by more than 5 cells moves the corpus figure
-from **13.56% to 13.15% CER** and 24.99% to 24.39% WER. Small, because it changes 2 titles of 47 —
+from **12.88% to 12.47% CER** and 22.62% to 22.01% WER. Small, because it changes 2 titles of 47 —
 and that smallness is the point. Per-title font selection is not what stands between this pipeline
 and a good library-wide number.
 
@@ -285,23 +368,28 @@ All 50 titles were extracted — 268 GB of Matroska — and 47 of them scored. F
 parallel over SMB from a NAS. The per-title figures below are over the 47 that scored; the
 throughput figures are over all 268 GB actually read.
 
-| | |
-| :--- | ---: |
-| Wall clock, whole sweep | **21.5 min** |
-| Mean per title | 94.1 s |
-| Median per title | 84.2 s |
-| p90 | 168.5 s |
-| Slowest title | 272.9 s |
-| Mean file size | 5.38 GB |
-| Total CPU | 1.23 core-hours |
-| Throughput, per worker | 61 MB/s |
-| Throughput, aggregate | ~207 MB/s |
-| Cues per second | 18 |
+| | first run | 2026-08-24 |
+| :--- | ---: | ---: |
+| Wall clock, whole sweep | 21.5 min | **18.7 min** |
+| Mean per title | 94.1 s | 84.6 s |
+| Median per title | 84.2 s | 80.1 s |
+| p90 | 168.5 s | 138.6 s |
+| Slowest title | 272.9 s | 221.8 s |
+| Mean file size | 5.38 GB | 5.38 GB |
+| Total CPU | 1.23 core-hours | 1.10 core-hours |
+| Throughput, per worker | 61 MB/s | **176 MB/s** |
+| Throughput, aggregate | ~207 MB/s | ~239 MB/s |
+| Cues per second | 18 | 34 |
 
 **The work is I/O-bound, not CPU-bound.** Time per title tracks file size and nothing else — the
 demuxer reads the container to find subtitle packets, and a 10 GB remux costs proportionally more
 than a 1.8 GB encode carrying the identical subtitle track. Four workers saturated the link, so
 adding more would not help; a local disc would change this figure completely.
+
+Per-worker throughput nearly tripled between the two runs and the aggregate barely moved, which is
+what being link-bound looks like: #146 stopped the Matroska reader allocating a `Vec` per cluster
+and each worker now waits on the network instead of on itself. `docs/cost-baseline.md` has that
+measurement on its own.
 
 ## Reproducing
 
@@ -337,17 +425,22 @@ so no figure published before it moved:
 
 ## What this changes
 
-1. **The colon is the single largest addressable defect on real material** and it is a component
-   assembly bug, not a matching one. **Fixed in #130**, which found the cause was a single
+1. **The colon was the single largest addressable defect on real material**, and it was a component
+   assembly bug rather than a matching one. **Fixed in #130**, which found the cause was a single
    threshold: stacked punctuation was allowed a gap of 200% of a mark's height and a colon's dots
    sit 225–450% apart, so the rule written to hold a colon together had never once fired on one.
-   Three SDH discs recover 309 colons with no other line changed. This paragraph's claim that it is
-   invisible to `xtask accuracy` was wrong — the fixture *does* carry two colons, and closing them
-   took it from 1.2% CER to 0.0%. What it is invisible to is the three-disc bench, whose tracks are
-   all non-SDH.
-2. **A fixed Arial set is good enough for most of the library** — 34 of 47 titles at 4.13% median
+   The rerun above is the confirmation at scale: 100.00% of 1,369 colons wrong, then 1.08% of 1,573.
+   The same grouping question is still open one mark up — `!` and `i` read as `Í` — which is what
+   §"The multi-component characters that remain" is about.
+2. **A fixed Arial set is good enough for most of the library** — 33 of 47 titles at 3.80% median
    CER — and mean match distance identifies the ones it is not good enough for, before any ground
    truth is consulted.
 3. **The corpus method has a floor set by the sidecars, not by the pipeline.** Half of the apparent
    error at scale is release divergence. Any future run of this should quote the track row, take
    the best of several sidecars, and treat titles with only one as the weaker evidence they are.
+4. **Italic is no longer a weaker style than upright**, and that is #121 measured on 47 titles
+   instead of three. The word-error gap between them was 14.6 points and is 1.12.
+5. **A per-character rate needs corroborated titles, and now for a stated reason.** #169 took the
+   census off the clock and #119 asked whether that let the table widen to all 47. It does not: two
+   titles supply most of the difference, one of them because its sidecar is ALL CAPS. The restriction
+   survives its own re-examination, which is worth more than the wider table would have been.

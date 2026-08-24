@@ -450,8 +450,8 @@ font, so typeface mismatch is excluded by construction — is **1.2%** CER, and 
 do worse.
 
 **That is one disc, chosen because it fits Arial.** Pointed at a library rather than at the three
-titles the pipeline was tuned against, a single Arial set reads 47 titles at **13.56%** CER pooled
-and **8.21%** median — and most of the upper tail is the instrument rather than the pipeline, since
+titles the pipeline was tuned against, a single Arial set reads 47 titles at **12.88%** CER pooled
+and **8.02%** median — and most of the upper tail is the instrument rather than the pipeline, since
 a release subtitle is another transcript and not ground truth.
 [`docs/library-accuracy.md`](docs/library-accuracy.md) separates the two.
 

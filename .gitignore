@@ -34,3 +34,6 @@ bench-cache/
 # Scratch extractions. `subtrackt extract -o` is pointed at the working directory constantly
 # while measuring, and none of what it writes is a source file.
 *.srt
+
+# Python bytecode from the measurement scripts.
+__pycache__/
