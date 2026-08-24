@@ -246,6 +246,7 @@ impl Pipeline {
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
         report.cache_hits = stages.matcher.cache_hits();
+        report.cache_lookups = stages.matcher.cache_lookups();
 
         if report.is_rejected_by(self.config.unmatched) {
             // Every number behind the decision, because the caller is being told to fall back to

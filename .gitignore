@@ -30,3 +30,7 @@ target
 bench-cache/
 *.subtref
 *.sup
+
+# Scratch extractions. `subtrackt extract -o` is pointed at the working directory constantly
+# while measuring, and none of what it writes is a source file.
+*.srt

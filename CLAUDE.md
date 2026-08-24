@@ -147,13 +147,21 @@ Two rules the roster exists to hold, both learned by breaking them:
   track is SDH and its only sidecar is not, so correcting `[CROWD LAUGHlNG]` to `[CROWD LAUGHING]`
   scored as a *regression* against unrelated dialogue. It is a `smoke` entry for that reason: a
   track that puts false entries in the `worse` column poisons the one number you are told to read.
+  #140 put a size on this: scoring one extraction against every English sidecar in its own folder
+  moves CER by up to **77 points**, and the widest case is not SDH-versus-plain — Training Day's
+  four sidecars are all from one disc, and the two cut from the Blu-ray read 3.1% and 5.0% where the
+  two cut from the WEB release read 79.7% and 80.7%. A CER quoted without naming its sidecar means
+  nothing. `docs/vobsub.md` has the table.
 - **A track with no scoreable sidecar still earns a place.** `smoke` entries claim no accuracy and
   assert only that the track survives its own shape — which is the whole point of the 106-cue forced
   track, where every per-line median has no population to work from.
 
 Adding a track is cheap; adding one that duplicates another's coverage costs attention, which is the
 expensive half. #133 has the survey the seven were chosen from: SDH is ~75% of the library and the
-bench had none of it until then.
+bench had none of it until then. #140 added the eighth and ninth for the same reason — every figure
+this project had published was PGS, and the other codec had shipped unmeasured. Those two are read
+from their containers rather than from the dump cache, because a `.sup` holds PGS and nothing else,
+which takes a pass from about five seconds to fifty-four.
 
 ## Scope
 

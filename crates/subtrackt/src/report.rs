@@ -28,6 +28,13 @@ pub struct Report {
     pub ambiguous: u64,
     /// Glyphs answered from the session cache.
     pub cache_hits: u64,
+    /// Times the session cache was consulted.
+    ///
+    /// Not the glyph count, which is what [`Self::cache_hit_rate`] used to divide by. #106's
+    /// de-fusing matches the parts of a component it is trying to cut, and those lookups do not
+    /// become glyphs when the cut is rejected — so on a track with many unreadable components the
+    /// hits outnumbered the glyphs and the rate came back above 100%.
+    pub cache_lookups: u64,
     /// Sum of the Hamming distances of every glyph that matched.
     ///
     /// Coverage says how many glyphs found *a* reference; this says how well they fitted it, and
@@ -144,12 +151,17 @@ impl Report {
     /// Session cache hit rate in `0.0..=1.0`.
     #[must_use]
     pub fn cache_hit_rate(&self) -> f32 {
-        if self.glyphs == 0 {
+        if self.cache_lookups == 0 {
             return 0.0;
         }
-        #[allow(clippy::cast_precision_loss)]
+        // In `f64` for the reason `Confidence::ratio` gives: both operands routinely pass what a
+        // narrower type holds exactly, and only the quotient needs to be `f32`.
+        #[allow(clippy::cast_possible_truncation)]
         {
-            self.cache_hits as f32 / self.glyphs as f32
+            #[allow(clippy::cast_precision_loss)]
+            {
+                (self.cache_hits as f64 / self.cache_lookups as f64) as f32
+            }
         }
     }
 }
@@ -333,6 +345,26 @@ mod tests {
     }
 
     #[test]
+    fn a_hit_rate_cannot_exceed_one_however_many_lookups_missed_a_glyph() {
+        // #140 found `cache 101%` on a real VOBSUB track. The numerator counted every consultation
+        // of the session cache and the denominator counted *glyphs*, and #106's de-fusing consults
+        // it for the parts of a component it is trying to cut -- lookups that never become glyphs
+        // when the cut is rejected. A rate above one is a counter disagreeing with itself.
+        let mut report = Report::default();
+        report.record(Confidence { matched: 100, unmatched: 0, ambiguous: 0 });
+        report.cache_hits = 130;
+        report.cache_lookups = 140;
+
+        assert!(report.cache_hit_rate() <= 1.0, "{}", report.cache_hit_rate());
+        assert!((report.cache_hit_rate() - 130.0 / 140.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_run_that_never_consulted_the_cache_reports_no_rate_rather_than_a_division() {
+        assert!((Report::default().cache_hit_rate() - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn the_summary_line_names_the_numbers_that_matter() {
         let mut report = Report {
             cues: 3,
@@ -344,6 +376,7 @@ mod tests {
         };
         report.record(Confidence { matched: 40, unmatched: 2, ambiguous: 1 });
         report.cache_hits = 21;
+        report.cache_lookups = 42;
 
         let line = report.to_string();
         assert!(line.contains("3 cues"), "{line}");
