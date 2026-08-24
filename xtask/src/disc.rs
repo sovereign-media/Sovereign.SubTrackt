@@ -187,6 +187,35 @@ pub(crate) fn transcript(cues: &[Cue]) -> String {
     out
 }
 
+/// The same transcript, with the italic flag of the cue each character came from.
+///
+/// The half of a track-level census that a track-level *score* throws away. #116 aligned the two
+/// transcripts as one string precisely so that cue boundaries could play no part — and the upright
+/// versus italic split needs to know which cue a character came from, which is the one thing that
+/// discards. Carrying the flag per character costs one `bool` per character and gives it back.
+///
+/// The joining space between two cues takes the flag of the cue *before* it, arbitrarily. It is one
+/// character per cue and it belongs to neither; charging it to the preceding cue keeps the run
+/// contiguous, and a space is not a character the style split is read for.
+pub(crate) fn transcript_styled(cues: &[Cue]) -> (String, Vec<bool>) {
+    let mut out = String::new();
+    let mut italic = Vec::new();
+    for cue in cues {
+        let text = flatten(&cue.text);
+        if text.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+            italic.push(*italic.last().unwrap_or(&false));
+        }
+        out.push_str(&text);
+        italic.extend(std::iter::repeat_n(cue.italic, text.chars().count()));
+    }
+    debug_assert_eq!(out.chars().count(), italic.len());
+    (out, italic)
+}
+
 /// One extraction scored against a release as a single transcript, ignoring cue boundaries.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Whole {
@@ -593,10 +622,13 @@ fn score(got_path: &str, want_path: &str, align: bool) -> anyhow::Result<()> {
     let (pairs, _) = pair(&got, &want);
 
     let Scored { upright, italic, all, unpaired } = scored(&got, &want);
+    // #119: built from the track-level alignment, which is the one the headline figure already
+    // uses. Pairing by time hands the aligner characters that were never meant to correspond
+    // wherever two releases break dialogue differently, and every per-glyph number this project had
+    // was computed on that.
     let mut census = Census::new();
-    for p in &pairs {
-        census.add(&p.got.text, &p.want.text, p.want.italic);
-    }
+    let (want_text, want_italic) = transcript_styled(&want);
+    census.add_track(&transcript(&got), &want_text, &want_italic);
 
     println!(
         "  cues: {} extracted, {} in the release, {unpaired} with no partner",
@@ -865,13 +897,13 @@ fn load(
 /// object of numbers and single characters — see the dependency rule in `CLAUDE.md`.
 fn score_json(got_path: &str, want_path: &str, align: bool) -> anyhow::Result<()> {
     let (got, want, found) = load(got_path, want_path, align)?;
-    let (pairs, _) = pair(&got, &want);
     let Scored { upright, italic, all, unpaired } = scored(&got, &want);
 
+    // Track-level, as `score` is. The two commands must report one census or a reader comparing
+    // them learns something about which command they ran rather than about the disc.
     let mut census = Census::new();
-    for p in &pairs {
-        census.add(&p.got.text, &p.want.text, p.want.italic);
-    }
+    let (want_text, want_italic) = transcript_styled(&want);
+    census.add_track(&transcript(&got), &want_text, &want_italic);
 
     println!("{{");
     println!(
@@ -1081,6 +1113,73 @@ pub(crate) fn trace(want: &str, got: &str) -> Vec<Step> {
     steps
 }
 
+/// Cells a block may hold before it is split rather than solved outright.
+///
+/// The base case is [`trace`] itself, so every alignment this produces is stitched from blocks the
+/// existing full-matrix traceback aligned — which is what keeps the tie-breaking identical. 4,096
+/// cells is a 64×64 matrix, small enough that the memory is nothing and large enough that the
+/// recursion stops well before the per-call overhead matters.
+const BLOCK_CELLS: usize = 4_096;
+
+/// Align two whole transcripts, in space linear in their length.
+///
+/// Hirschberg's algorithm. [`trace`] builds the full matrix, which is right for a cue and impossible
+/// for a track: two transcripts of ninety thousand characters is 8.1 × 10⁹ cells, hundreds of
+/// gigabytes. This splits `want` in half, uses two rolling rows — one forward, one over both
+/// sequences reversed — to find the column where an optimal alignment crosses the midpoint, and
+/// recurses on the two halves. Linear space, exact, and about twice the arithmetic of one rolling
+/// row.
+///
+/// **The base case is [`trace`], deliberately**, so that a block small enough to be solved outright
+/// is solved by the traceback that produced every published census figure. Below `BLOCK_CELLS` the
+/// two are identical, and `the_split_alignment_matches_the_full_matrix_and_always_costs_what_the_score_says` pins
+/// both halves of that.
+///
+/// **Above it they need not be, and that is a property of the problem rather than of either
+/// implementation.** A pair of transcripts generally has many optimal alignments, all of the same
+/// cost, differing in whether a given mismatch is recorded as one substitution or as a deletion
+/// beside an insertion. Every operation costs one either way, so the count always equals the
+/// distance — the same invariant `a_census_accounts_for_exactly_the_errors_the_score_counted`
+/// pins per cue, and the one a census row's meaning actually rests on. Which bucket an operation
+/// lands in, where the cost is tied, is a choice; this makes it deterministically and does not
+/// pretend it is the only one.
+pub(crate) fn hirschberg(want: &[char], got: &[char]) -> Vec<Step> {
+    if want.len().saturating_mul(got.len()) <= BLOCK_CELLS || want.len() < 2 || got.len() < 2 {
+        let steps = trace(&want.iter().collect::<String>(), &got.iter().collect::<String>());
+        return steps;
+    }
+
+    let mid = want.len() / 2;
+    let head = subtrackt::score::score_row(&want[..mid], got);
+    let tail = {
+        let want_rev: Vec<char> = want[mid..].iter().rev().copied().collect();
+        let got_rev: Vec<char> = got.iter().rev().copied().collect();
+        let mut row = subtrackt::score::score_row(&want_rev, &got_rev);
+        row.reverse();
+        row
+    };
+
+    // Where an optimal alignment crosses the midpoint: the column minimising the cost of reaching
+    // it from the top plus the cost of reaching the end from it. Ties take the lowest column, which
+    // is a choice rather than a discovery — see this function's doc for what it does and does not
+    // settle.
+    let split = (0..=got.len())
+        .min_by_key(|j| head[*j] + tail[*j])
+        .unwrap_or(0);
+
+    let mut steps = hirschberg(&want[..mid], &got[..split]);
+    let rest = hirschberg(&want[mid..], &got[split..]);
+    // Indices in the tail are relative to where it started, so they are shifted back into the
+    // whole. A census that pointed at the wrong character would be worse than no census.
+    steps.extend(rest.into_iter().map(|step| Step {
+        want: step.want,
+        want_at: step.want_at.map(|at| at + mid),
+        got: step.got,
+        got_at: step.got_at.map(|at| at + split),
+    }));
+    steps
+}
+
 /// The edit operations that turn `want` into `got`, which is [`trace`] with the matches dropped.
 fn align(want: &str, got: &str) -> Vec<Op> {
     trace(want, got)
@@ -1165,23 +1264,60 @@ impl Census {
         }
     }
 
-    /// Record one cue's worth of operations.
+    /// Record a whole track's operations, from an alignment that never consulted a clock.
     ///
-    /// Scored on the flattened text, for the same reason the quoted CER is: the two releases wrap
-    /// their lines differently, and a line break in a different place would otherwise dominate
-    /// every bucket with operations on a newline.
-    fn add(&mut self, got: &str, want: &str, italic: bool) {
-        let want = flatten(want);
-        for c in want.chars() {
-            self.occurrences.add(&c, italic);
+    /// #119. The per-cue path below inherits the fault #116 demonstrated: where two releases break
+    /// dialogue differently, pairing by time hands the aligner characters that were never meant to
+    /// correspond and every difference between them is recorded as a confusion. `docs/library-
+    /// accuracy.md` worked around it by restricting the table to the titles whose sidecar
+    /// corroborates, which threw away more than half the material and made the table answer a
+    /// conditional question.
+    ///
+    /// This aligns the two transcripts as one string, exactly as the headline figure does, and
+    /// keeps the style split by carrying each release character's cue flag alongside it rather than
+    /// by asking which cue it came from afterwards.
+    fn add_track(&mut self, got: &str, want: &str, want_italic: &[bool]) {
+        let want_chars: Vec<char> = want.chars().collect();
+        let got_chars: Vec<char> = got.chars().collect();
+        debug_assert_eq!(want_chars.len(), want_italic.len());
+
+        for (c, italic) in want_chars.iter().zip(want_italic) {
+            self.occurrences.add(c, *italic);
         }
-        for op in align(&want, &flatten(got)) {
-            match op {
-                Op::Substitute(want, got) => self.substitutions.add(&(want, got), italic),
-                Op::Insert(c) => self.insertions.add(&c, italic),
-                Op::Delete(c) => self.deletions.add(&c, italic),
+        // An inserted character has no release position of its own, so it takes the style of the
+        // last release character the alignment passed -- which is the cue it was read inside.
+        // Defaulting it to upright instead would put every invented character in an italic passage
+        // into the wrong column.
+        let mut style = false;
+        for step in hirschberg(&want_chars, &got_chars) {
+            if let Some(at) = step.want_at {
+                style = want_italic.get(at).copied().unwrap_or(style);
+            }
+            match (step.want, step.got) {
+                (Some(w), Some(g)) if w != g => self.substitutions.add(&(w, g), style),
+                (Some(w), None) => self.deletions.add(&w, style),
+                (None, Some(g)) => self.insertions.add(&g, style),
+                // A match, or a column with nothing on either side, which cannot occur.
+                _ => {}
             }
         }
+    }
+
+    /// One cue's worth of operations, at one style.
+    ///
+    /// Test-only since #119 moved the census onto the track-level alignment. Every test below is
+    /// about which bucket an operation lands in and what the rates make of it, rather than about
+    /// which alignment filled them, so they are better off stating a short pair directly than
+    /// building a transcript to say the same thing.
+    ///
+    /// Flattened, for the same reason the quoted CER is: the two releases wrap their lines
+    /// differently, and a line break in a different place would otherwise dominate every bucket
+    /// with operations on a newline.
+    #[cfg(test)]
+    fn add(&mut self, got: &str, want: &str, italic: bool) {
+        let want = flatten(want);
+        let flags = vec![italic; want.chars().count()];
+        self.add_track(&flatten(got), &want, &flags);
     }
 
     /// Per-character error rate: how often each release character was not read as itself.
@@ -1745,5 +1881,85 @@ mod tests {
         assert_eq!(show(' '), "space");
         assert_eq!(show(REPLACEMENT), "unread");
         assert_eq!(show('l'), "l");
+    }
+    #[test]
+    fn the_split_alignment_matches_the_full_matrix_and_always_costs_what_the_score_says() {
+        // Hirschberg is not obviously right by reading, and what it produces is not merely a
+        // distance -- it is the split between a substitution and an insertion-plus-deletion, which
+        // is what a census row records. Two optimal alignments can disagree about that while
+        // agreeing about the distance, so agreement with the full matrix is the property to hold,
+        // not equality of cost.
+        //
+        // The block size is 4,096 cells, so the pairs below are deliberately long enough to force
+        // several levels of recursion.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |n: usize, alphabet: &[char]| -> Vec<char> {
+            (0..n)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    alphabet[usize::try_from(state % alphabet.len() as u64).unwrap_or(0)]
+                })
+                .collect()
+        };
+
+        for alphabet in [&['a', 'b'][..], &['a', 'b', 'c', 'd', ' '][..]] {
+            for (n, m) in [(1, 1), (2, 1), (5, 9), (40, 40), (64, 63), (63, 64)] {
+                let want = next(n, alphabet);
+                let got = next(m, alphabet);
+                let full = trace(&want.iter().collect::<String>(), &got.iter().collect::<String>());
+                assert_eq!(hirschberg(&want, &got), full, "{n}x{m}");
+            }
+        }
+
+        // Past the block size the two need not agree column for column, and that is a property of
+        // the problem rather than of either implementation: a pair of texts generally has many
+        // optimal alignments, differing in whether a mismatch is one substitution or a deletion
+        // beside an insertion. Every operation costs one either way, so what must hold — and does —
+        // is that the count equals the distance. A census whose rows did not add up to the number
+        // above them would be worse than no census.
+        for (n, m) in [(200, 190), (400, 380), (1_000, 1_050)] {
+            let want = next(n, &['a', 'b', 'c', 'd', ' ']);
+            let got = next(m, &['a', 'b', 'c', 'd', ' ']);
+            let operations = hirschberg(&want, &got)
+                .into_iter()
+                .filter(|s| !matches!((s.want, s.got), (Some(w), Some(g)) if w == g))
+                .count();
+            let distance = edit(&want.iter().collect::<String>(), &got.iter().collect::<String>());
+            assert_eq!(operations, distance, "{n}x{m}");
+        }
+    }
+
+    #[test]
+    fn a_track_level_census_accounts_for_exactly_the_errors_the_score_counted() {
+        // The invariant #98 pinned per cue, extended to the pair this issue is about. It is what
+        // makes a census row mean anything: every operation the census records is one unit of the
+        // distance the score reports, so the buckets add up to the number in the table above them.
+        //
+        // Over an input far past what a full matrix could hold, which is the whole reason
+        // Hirschberg is here.
+        let want: String =
+            std::iter::repeat_n("the quick brown fox jumps over the lazy dog. ", 400).collect();
+        let got = want
+            .replace("quick", "qulck")
+            .replace("lazy", "Iazy")
+            .replace("dog.", "dog");
+
+        let want_chars: Vec<char> = want.chars().collect();
+        let got_chars: Vec<char> = got.chars().collect();
+        let operations = hirschberg(&want_chars, &got_chars)
+            .into_iter()
+            .filter(|step| match (step.want, step.got) {
+                (Some(w), Some(g)) => w != g,
+                _ => true,
+            })
+            .count();
+
+        assert_eq!(operations, edit(&want, &got));
+        assert!(
+            operations > 1_000,
+            "the input has to be large enough to matter: {operations}"
+        );
     }
 }

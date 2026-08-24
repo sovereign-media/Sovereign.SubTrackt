@@ -99,13 +99,37 @@ fn ratio(errors: usize, units: usize) -> f64 {
 pub fn edit_distance<T: Eq + std::hash::Hash>(reference: &[T], hypothesis: &[T]) -> usize {
     // `reference` becomes the bit-parallel axis, so the shorter side goes there: the work is
     // O(len(hypothesis) · blocks) and blocks is len(reference) / 64 rounded up. Distance is
-    // symmetric, so this is free.
+    // symmetric, so this is free — and only available here, because `score_row`'s caller needs a
+    // particular orientation and cannot swap.
     if reference.len() > hypothesis.len() {
         return edit_distance(hypothesis, reference);
     }
+    *score_row(reference, hypothesis).last().unwrap_or(&0)
+}
+
+/// Edit distance from all of `reference` to **every prefix** of `hypothesis`.
+///
+/// `row[j]` is the distance to `hypothesis[..j]`, so `row[0]` is `reference.len()` and the last
+/// entry is [`edit_distance`]. One row of the matrix, in the orientation given rather than the
+/// cheaper one — a caller that only wants the number should use `edit_distance`, which is free to
+/// swap the sides.
+///
+/// This is the whole of what Hirschberg's algorithm needs: two of these, one forward and one over
+/// both sequences reversed, locate the column where an optimal alignment crosses a midpoint.
+/// Computing them bit-parallel rather than cell by cell is the difference between a track-level
+/// traceback taking ten seconds and taking well under one, which `xtask srt-score` pays per scored
+/// track per bench pass.
+///
+/// The running score falls out of the recurrence [`edit_distance`] already advances: after each
+/// symbol of `hypothesis` the horizontal delta out of the last block *is* the change to the
+/// bottom-right cell, so recording it per symbol costs one push.
+#[must_use]
+pub fn score_row<T: Eq + std::hash::Hash>(reference: &[T], hypothesis: &[T]) -> Vec<usize> {
     if reference.is_empty() {
-        return hypothesis.len();
+        return (0..=hypothesis.len()).collect();
     }
+    let mut row = Vec::with_capacity(hypothesis.len() + 1);
+    row.push(reference.len());
 
     let blocks = reference.len().div_ceil(64);
     // One bitmask per distinct symbol, marking where in `reference` it occurs. Built once per call
@@ -178,8 +202,9 @@ pub fn edit_distance<T: Eq + std::hash::Hash>(reference: &[T], hypothesis: &[T])
         }
         // `horizontal` now holds the delta out of the last block, which is the change to D[m][j].
         score = score.wrapping_add_signed(horizontal as isize);
+        row.push(score);
     }
-    score
+    row
 }
 
 /// Levenshtein distance between two sequences, with a rolling row.
@@ -281,6 +306,44 @@ mod tests {
         for a in &all {
             for b in &all {
                 assert_eq!(edit_distance(a, b), edit_distance_rows(a, b), "{a:?} vs {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_score_row_is_right_at_every_column_and_not_only_the_last() {
+        // The tests around this one check the corner, which is all `edit_distance` returns.
+        // Hirschberg reads the *whole* row and picks a split from it, so a row that were right only
+        // at its end would put the split in the wrong column and produce a valid-looking alignment
+        // of the wrong text. Checked against the obvious recurrence, one prefix at a time.
+        for reference in ["", "a", "abc", "banana", "the quick brown fox"] {
+            for hypothesis in ["", "a", "abd", "bananas", "the quick brown fox", "xyzzy"] {
+                let r: Vec<char> = reference.chars().collect();
+                let h: Vec<char> = hypothesis.chars().collect();
+                let row = score_row(&r, &h);
+                assert_eq!(row.len(), h.len() + 1, "{reference:?} vs {hypothesis:?}");
+                for (j, distance) in row.iter().enumerate() {
+                    assert_eq!(
+                        *distance,
+                        edit_distance_rows(&r, &h[..j]),
+                        "{reference:?} vs {hypothesis:?}[..{j}]"
+                    );
+                }
+            }
+        }
+
+        // Same property past 64 symbols, where a second word opens and the horizontal carry
+        // between blocks starts deciding the running score.
+        for len in [63usize, 64, 65, 130] {
+            let reference = pseudo_random(len, 4, 7);
+            let hypothesis = pseudo_random(len + 11, 4, 99);
+            let row = score_row(&reference, &hypothesis);
+            for (j, distance) in row.iter().enumerate() {
+                assert_eq!(
+                    *distance,
+                    edit_distance_rows(&reference, &hypothesis[..j]),
+                    "{len}/{j}"
+                );
             }
         }
     }
