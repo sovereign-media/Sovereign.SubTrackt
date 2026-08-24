@@ -10,6 +10,7 @@ $ npm ci
 $ npm run dev        # http://localhost:3000/Sovereign.SubTrackt/
 $ npm test           # the link rewrite, and what the guide is not allowed to say
 $ npm run build      # generate, render to static HTML, then follow every link in the output
+$ npm run typecheck  # after a build: the route files it checks are written by one
 ```
 
 **This is outside the Cargo workspace, and that is the point.** A Node toolchain must never be a

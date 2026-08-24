@@ -49,12 +49,15 @@ jobs:
       - name: Tests
         run: npm test
 
-      - name: Typecheck
-        run: npm run typecheck
-
       # Runs the content generator, Vite, and the link check over the prerendered output.
       - name: Build
         run: npm run build
+
+      # After the build, not before it. The per-page route files and `routeTree.gen.ts` are written
+      # by Prestige and by TanStack Router during a Vite run, and they are gitignored -- so on a
+      # fresh checkout there is nothing for `tsc` to resolve a route id against until one has run.
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Upload the Pages artifact
         if: github.event_name != 'pull_request'
