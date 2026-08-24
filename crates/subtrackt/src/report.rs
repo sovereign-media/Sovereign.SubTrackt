@@ -148,6 +148,25 @@ impl Report {
         }
     }
 
+    /// Share of glyphs whose line could not be measured, in `0.0..=1.0`.
+    ///
+    /// The denominator is every glyph the run segmented. See
+    /// [`Self::glyphs_without_metrics`](Self#structfield.glyphs_without_metrics) for what falls
+    /// back when it cannot be measured, and `docs/glyph-hit-list.md` for what that costs.
+    #[must_use]
+    pub fn unmeasured_line_share(&self) -> f32 {
+        if self.glyphs == 0 {
+            return 0.0;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                (self.glyphs_without_metrics as f64 / self.glyphs as f64) as f32
+            }
+        }
+    }
+
     /// Session cache hit rate in `0.0..=1.0`.
     #[must_use]
     pub fn cache_hit_rate(&self) -> f32 {
@@ -171,7 +190,8 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
-             ({:.1}% read); fit {:.1}; cache {:.0}%;{}{} corrections {}{} ({})",
+             ({:.1}% read); fit {:.1}; unmeasured lines {:.0}%; cache {:.0}%;{}{} \
+             corrections {}{} ({})",
             self.cues,
             self.images,
             self.packets,
@@ -182,6 +202,11 @@ impl fmt::Display for Report {
             // of the two counts before it.
             self.confidence().ratio() * 100.0,
             self.mean_match_distance(),
+            // What share of glyphs stood on a line whose baseline and cap height could not be
+            // found. #37's term is off for every one of those, so an `o` and an `O` are compared on
+            // shape alone and cannot be told apart — which is #118's case-pair family. The counter
+            // existed from the day the feature did and was never printed, so nobody could watch it.
+            self.unmeasured_line_share() * 100.0,
             self.cache_hit_rate() * 100.0,
             // Silent when nothing fused, so an ordinary run reads exactly as it did before #106.
             // Named when it did, because a recovered fusion is two characters that would otherwise
@@ -377,11 +402,16 @@ mod tests {
         report.record(Confidence { matched: 40, unmatched: 2, ambiguous: 1 });
         report.cache_hits = 21;
         report.cache_lookups = 42;
+        report.glyphs_without_metrics = 6;
 
         let line = report.to_string();
         assert!(line.contains("3 cues"), "{line}");
         assert!(line.contains("40 matched / 2 unmatched / 1 ambiguous"), "{line}");
         assert!(line.contains("cache 50%"), "{line}");
+        // #118: the share of glyphs matched without #37's term. It was counted from the day the
+        // feature existed and printed nowhere, so a track reading badly because its lines could not
+        // be measured looked exactly like one reading badly for any other reason. King Kong is 14%.
+        assert!(line.contains("unmeasured lines 14%"), "{line}");
         assert!(line.contains("fit 0.0"), "{line}");
         assert!(line.contains("corrections 2 (context)"), "{line}");
     }
