@@ -680,12 +680,6 @@ fn load(path: &Path) -> anyhow::Result<Font> {
         .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
 }
 
-/// The filename stem, which is what every table in this module names a font by.
-fn stem(path: &Path) -> String {
-    path.file_stem()
-        .map_or_else(|| "unnamed".to_owned(), |s| s.to_string_lossy().into_owned())
-}
-
 /// Spearman rank correlation, for the independence check.
 ///
 /// Rank rather than Pearson because the question is whether the two statistics *order* candidates
@@ -752,7 +746,7 @@ fn trial(
     dir: &Path,
     resolution: Resolution,
 ) -> anyhow::Result<Trial> {
-    let name = stem(material);
+    let name = crate::util::stem(material);
     let fixture_dir = dir.join(format!("fontid-{name}"));
     std::fs::create_dir_all(&fixture_dir)?;
     crate::fixture::make(&[
@@ -767,7 +761,7 @@ fn trial(
 
     let mut candidates = Vec::new();
     for font in fonts {
-        let candidate = stem(font);
+        let candidate = crate::util::stem(font);
         let Some(descriptor) = descriptors.get(&candidate) else {
             continue;
         };
@@ -1115,7 +1109,7 @@ fn report_resolutions(
     let mut per_font_raw = BTreeMap::new();
     for font in fonts {
         let loaded = load(font)?;
-        per_font_raw.insert(stem(font), raw_styles(&loaded));
+        per_font_raw.insert(crate::util::stem(font), raw_styles(&loaded));
     }
     let raw_pooled = Weights::fit_pooled(&per_font_raw, FOLDS);
     print!("  on the 96px raster, pooled fit:       ");
@@ -1177,14 +1171,21 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         );
     }
 
-    println!("fonts: {}", fonts.iter().map(|f| stem(f)).collect::<Vec<_>>().join(" "));
+    println!(
+        "fonts: {}",
+        fonts
+            .iter()
+            .map(|f| crate::util::stem(f))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     // The font side first: per-character style for every candidate, which the weights are fitted
     // from and the descriptors pooled from. No material is involved in any of it.
     let mut per_font = BTreeMap::new();
     for font in &fonts {
         let loaded = load(font)?;
-        per_font.insert(stem(font), font_styles(&loaded));
+        per_font.insert(crate::util::stem(font), font_styles(&loaded));
     }
     // The pooled fit rather than the per-character one: the bench measured the difference and it
     // is +17 to +33 points. See `Weights::fit_pooled`.
@@ -1224,7 +1225,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
                 Resolution::Grid => font_styles(&loaded),
                 Resolution::Mask => raw_styles(&loaded),
             };
-            per_side.insert(stem(font), styles);
+            per_side.insert(crate::util::stem(font), styles);
         }
         let side_weights = Weights::fit_pooled(&per_side, FOLDS);
         let side_descriptors: BTreeMap<String, Descriptor> = per_side
@@ -1244,7 +1245,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
                     &dir,
                     resolution,
                 )
-                .with_context(|| stem(material))?,
+                .with_context(|| crate::util::stem(material))?,
             );
         }
         println!(

@@ -29,7 +29,6 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use fontdue::{Font, FontSettings};
-use subtrackt::{Config, Pipeline, UnmatchedPolicy};
 use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::matcher::{HammingMatcher, MatchThresholds};
 use subtrackt_glyph::reference::Style;
@@ -89,37 +88,11 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         None => vec!['l', 'I'],
     };
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&set)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&set)?;
     // Placeholder rather than the default gate, for the same reason `xtask unread` uses it: a
     // policy that refuses the track would leave nothing to measure. Post-correction stays off —
     // the question is what the *matcher* saw, and the corrector's answer is the thing under test.
-    let config = Config {
-        unmatched: UnmatchedPolicy::Placeholder,
-        glyph_masks: true,
-        post_correct: false,
-        ..Config::default()
-    };
-    let pipeline = Pipeline::new(config).with_reference(reference.clone());
-
-    // Two passes over the file, because neither result carries the other's half. The extraction
-    // knows when each cue is on screen and nothing about the geometry of a glyph it read; the
-    // survey knows every glyph's box and nothing about time. They are joined by index, which is
-    // sound because both walk the same images in the same order — asserted below rather than
-    // assumed, since a silent off-by-one would mislabel the whole film.
-    let outcome = pipeline
-        .run(&media)
-        .with_context(|| format!("extracting {}", media.display()))?;
-    let survey = pipeline
-        .survey(&media, None)
-        .with_context(|| format!("surveying {}", media.display()))?;
-    anyhow::ensure!(
-        outcome.track.cues.len() == survey.cues,
-        "the extraction produced {} cues and the survey saw {} images; they cannot be joined by \
-         index",
-        outcome.track.cues.len(),
-        survey.cues
-    );
+    let (outcome, survey) = disc::paired_passes(&media, reference.clone())?;
 
     let matcher = HammingMatcher::new(reference.clone(), MatchThresholds::default())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -510,7 +483,7 @@ fn label(
             continue;
         };
         let Some(want) =
-            nearest(want_cues, i64::try_from(cue.span.start.as_millis()).unwrap_or(i64::MAX))
+            disc::nearest(want_cues, i64::try_from(cue.span.start.as_millis()).unwrap_or(i64::MAX))
         else {
             continue;
         };
@@ -614,13 +587,6 @@ fn cap_heights(survey: &subtrackt::GlyphSurvey, members: &[usize]) -> BTreeMap<u
             caps.get(caps.len() / 2).map(|&cap| (line, cap))
         })
         .collect()
-}
-
-/// The release cue starting nearest `at`, within the tolerance the score uses.
-fn nearest(cues: &[disc::Cue], at: i64) -> Option<&disc::Cue> {
-    cues.iter()
-        .filter(|cue| (cue.start_ms - at).abs() <= disc::TOLERANCE_MS)
-        .min_by_key(|cue| (cue.start_ms - at).abs())
 }
 
 /// One measured quantity for one class of glyph.

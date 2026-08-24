@@ -114,14 +114,6 @@ fn combined(a: &Measured, b: &Measured) -> u32 {
     a.canonical.distance(&b.canonical) + metric * MatchThresholds::default().metric_weight() / 100
 }
 
-fn median(values: &mut [u32]) -> u32 {
-    if values.is_empty() {
-        return 0;
-    }
-    values.sort_unstable();
-    values[values.len() / 2]
-}
-
 fn measure(font: &Font, which: Box2) -> Vec<Measured> {
     // Cap height from a capital H's ink rather than from a font table, because it has to mean the
     // same thing as the runtime's anchor — the tallest ink on the line.
@@ -148,7 +140,7 @@ fn measure(font: &Font, which: Box2) -> Vec<Measured> {
         out.push(Measured {
             ch,
             canonical,
-            noise: median(&mut noise),
+            noise: crate::util::median(&mut noise),
             parts: part_count(font, ch),
             height: i32::try_from(metrics.height).unwrap_or(0) * 100 / unit,
             // fontdue reports ymin as the offset of the bitmap's bottom from the baseline,
@@ -450,7 +442,7 @@ mod tests {
 
     #[test]
     fn a_median_of_nothing_is_zero_rather_than_a_panic() {
-        assert_eq!(median(&mut []), 0);
-        assert_eq!(median(&mut [5, 1, 3]), 3);
+        assert_eq!(crate::util::median(&mut []), 0);
+        assert_eq!(crate::util::median(&mut [5, 1, 3]), 3);
     }
 }

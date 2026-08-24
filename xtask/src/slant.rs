@@ -52,9 +52,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
-use subtrackt::{Config, GlyphSurvey, Pipeline, UnmatchedPolicy};
+use subtrackt::GlyphSurvey;
 use subtrackt_core::Rect;
-use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::binarize::BinaryMask;
 use subtrackt_text::layout::{LayoutRules, split_threshold};
 
@@ -129,36 +128,12 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let set: PathBuf = args.get(1).context("missing the reference set")?.into();
     let release = args.get(2).context("missing the release subtitle")?;
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&set)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&set)?;
     // Masks on, because the slant estimate reads ink rather than the letterboxed vector — at 16x16
     // a stem is one to three cells and its lean is quantised away. Placeholder rather than the
     // default gate, for the reason `xtask unread` gives: a policy that refuses the track would
     // leave nothing to measure.
-    let config = Config {
-        unmatched: UnmatchedPolicy::Placeholder,
-        glyph_masks: true,
-        ..Config::default()
-    };
-    let pipeline = Pipeline::new(config).with_reference(reference);
-
-    // Two passes, joined by index, exactly as `xtask glyph-geometry` does: the extraction knows
-    // when each cue is on screen and nothing about a glyph's box, the survey knows every box and
-    // nothing about time. The assertion is here rather than assumed because a silent off-by-one
-    // would mislabel the whole film's style.
-    let outcome = pipeline
-        .run(&media)
-        .with_context(|| format!("extracting {}", media.display()))?;
-    let survey = pipeline
-        .survey(&media, None)
-        .with_context(|| format!("surveying {}", media.display()))?;
-    anyhow::ensure!(
-        outcome.track.cues.len() == survey.cues,
-        "the extraction produced {} cues and the survey saw {} images; they cannot be joined by \
-         index",
-        outcome.track.cues.len(),
-        survey.cues
-    );
+    let (outcome, survey) = disc::paired_passes(&media, reference)?;
 
     let want = disc::read(release)?;
     let lines = measure(&outcome, &survey, &want);
@@ -193,7 +168,7 @@ fn measure(outcome: &subtrackt::Outcome, survey: &GlyphSurvey, want: &[disc::Cue
         // A cue with no partner inside the tolerance is dropped rather than assumed upright. The
         // release is the only thing here that knows the style, so an unpaired cue has no style —
         // and defaulting one would put the upright column's own premise beyond checking.
-        let Some(release) = nearest(want, at) else {
+        let Some(release) = disc::nearest(want, at) else {
             continue;
         };
 
@@ -289,13 +264,6 @@ fn deskewed_gaps(masks: &[(&BinaryMask, Rect)], shear: f64) -> Vec<f64> {
         .windows(2)
         .map(|pair| pair[1].0 - pair[0].1)
         .collect()
-}
-
-/// The release cue starting nearest `at`, within the tolerance the score uses.
-fn nearest(cues: &[disc::Cue], at: i64) -> Option<&disc::Cue> {
-    cues.iter()
-        .filter(|cue| (cue.start_ms - at).abs() <= disc::TOLERANCE_MS)
-        .min_by_key(|cue| (cue.start_ms - at).abs())
 }
 
 /// The shear that would stand a line's ink upright, as a percentage: x' = x - k·y.

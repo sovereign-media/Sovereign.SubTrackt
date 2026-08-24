@@ -156,24 +156,17 @@ fn edit_words(a: &str, b: &str) -> usize {
 /// Rolling-row Levenshtein over any two sequences of comparable items.
 ///
 /// Two rows rather than a full matrix: a cue is tens of characters, but a caller comparing whole
-/// tracks would otherwise allocate the product of two transcripts.
+/// Levenshtein distance, from the library rather than written a second time here.
 ///
-/// Shared by the character and the word rate rather than written twice. They are one recurrence
-/// over different tokens, and two copies of it could drift into disagreeing about the figures every
-/// table here turns on.
-fn distance<T: PartialEq>(a: &[T], b: &[T]) -> usize {
-    let mut previous: Vec<usize> = (0..=b.len()).collect();
-    let mut current = vec![0usize; b.len() + 1];
-
-    for (i, ca) in a.iter().enumerate() {
-        current[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let substitution = previous[j] + usize::from(ca != cb);
-            current[j + 1] = substitution.min(previous[j + 1] + 1).min(current[j] + 1);
-        }
-        std::mem::swap(&mut previous, &mut current);
-    }
-    previous[b.len()]
+/// This used to be a local copy, under a comment arguing that the character and the word rate
+/// should share one recurrence because "two copies of it could drift into disagreeing about the
+/// figures every table here turns on". The argument was right and applied one crate further out
+/// than it was made: `subtrackt::score` had the same function, and #144 found the two.
+///
+/// The library's is also the fast one now -- bit-parallel, sixty-four cells per word -- which
+/// `docs/cost-baseline.md` measured this command needing.
+fn distance<T: Eq + std::hash::Hash>(a: &[T], b: &[T]) -> usize {
+    subtrackt::score::edit_distance(a, b)
 }
 
 /// Every cue's text in time order, as one string.
@@ -243,6 +236,61 @@ pub(crate) fn whole(got: &[Cue], want: &[Cue]) -> Whole {
         words: want.split_whitespace().count(),
         word_errors: edit_words(&got, &want),
     }
+}
+
+/// One extraction and one survey of the same media, joined by index.
+///
+/// `glyph-geometry` and `slant` both need two halves that neither pass carries alone: the
+/// extraction knows when each cue is on screen and nothing about the geometry of a glyph it read,
+/// and the survey knows every glyph's box and nothing about time. They had written this out
+/// identically -- same config, same order, same assertion down to the wording of its message.
+///
+/// The assertion is the point of having it in one place. Both passes walk the same images in the
+/// same order, so index joins them; a silent off-by-one would mislabel a whole film, so it is
+/// checked rather than assumed.
+///
+/// `Placeholder` rather than the default gate for the reason `xtask unread` gives: a policy that
+/// refuses the track would leave nothing to measure. Post-correction stays off, because what these
+/// commands ask about is what the *matcher* saw.
+pub(crate) fn paired_passes(
+    media: &std::path::Path,
+    reference: subtrackt_glyph::ReferenceSet,
+) -> anyhow::Result<(subtrackt::Outcome, subtrackt::GlyphSurvey)> {
+    use anyhow::Context as _;
+    use subtrackt::{Config, Pipeline, UnmatchedPolicy};
+
+    let config = Config {
+        unmatched: UnmatchedPolicy::Placeholder,
+        glyph_masks: true,
+        post_correct: false,
+        ..Config::default()
+    };
+    let pipeline = Pipeline::new(config).with_reference(reference);
+
+    let outcome = pipeline
+        .run(media)
+        .with_context(|| format!("extracting {}", media.display()))?;
+    let survey = pipeline
+        .survey(media, None)
+        .with_context(|| format!("surveying {}", media.display()))?;
+    anyhow::ensure!(
+        outcome.track.cues.len() == survey.cues,
+        "the extraction produced {} cues and the survey saw {} images; they cannot be joined by          index",
+        outcome.track.cues.len(),
+        survey.cues
+    );
+    Ok((outcome, survey))
+}
+
+/// The release cue starting nearest `at`, within the tolerance the score uses.
+///
+/// Here rather than in a command because it is about a `Cue` and a tolerance this module owns, and
+/// because `glyph-geometry` and `slant` had written it out identically -- the same body under the
+/// same doc comment.
+pub(crate) fn nearest(cues: &[Cue], at: i64) -> Option<&Cue> {
+    cues.iter()
+        .filter(|cue| (cue.start_ms - at).abs() <= TOLERANCE_MS)
+        .min_by_key(|cue| (cue.start_ms - at).abs())
 }
 
 /// One extracted cue matched to its release counterpart.
@@ -967,21 +1015,27 @@ pub(crate) fn trace(want: &str, got: &str) -> Vec<Step> {
     let want: Vec<char> = want.chars().collect();
     let got: Vec<char> = got.chars().collect();
 
-    // The full matrix, because a traceback needs every row: `cost[i][j]` is the distance between
+    // The full matrix, because a traceback needs every row: `cost(i, j)` is the distance between
     // the first `i` characters of the release and the first `j` of the extraction.
-    let mut cost = vec![vec![0usize; got.len() + 1]; want.len() + 1];
-    for (i, row) in cost.iter_mut().enumerate() {
-        row[0] = i;
+    //
+    // One flat buffer rather than a `Vec` of `Vec`s -- the same cells, one allocation instead of
+    // one per row. It stays a full matrix on purpose: `subtrackt::score::edit_distance` is the fast
+    // way to get the *number*, and it cannot be walked backwards, which is the whole job here.
+    let stride = got.len() + 1;
+    let mut cost = vec![0usize; stride * (want.len() + 1)];
+    let at = |i: usize, j: usize| i * stride + j;
+    for i in 0..=want.len() {
+        cost[at(i, 0)] = i;
     }
-    for (j, cell) in cost[0].iter_mut().enumerate() {
-        *cell = j;
+    for j in 0..=got.len() {
+        cost[at(0, j)] = j;
     }
     for i in 1..=want.len() {
         for j in 1..=got.len() {
-            let substitution = cost[i - 1][j - 1] + usize::from(want[i - 1] != got[j - 1]);
-            let deletion = cost[i - 1][j] + 1;
-            let insertion = cost[i][j - 1] + 1;
-            cost[i][j] = substitution.min(deletion).min(insertion);
+            let substitution = cost[at(i - 1, j - 1)] + usize::from(want[i - 1] != got[j - 1]);
+            let deletion = cost[at(i - 1, j)] + 1;
+            let insertion = cost[at(i, j - 1)] + 1;
+            cost[at(i, j)] = substitution.min(deletion).min(insertion);
         }
     }
 
@@ -993,7 +1047,7 @@ pub(crate) fn trace(want: &str, got: &str) -> Vec<Step> {
     while i > 0 || j > 0 {
         if i > 0 && j > 0 {
             let step = usize::from(want[i - 1] != got[j - 1]);
-            if cost[i][j] == cost[i - 1][j - 1] + step {
+            if cost[at(i, j)] == cost[at(i - 1, j - 1)] + step {
                 steps.push(Step {
                     want: Some(want[i - 1]),
                     want_at: Some(i - 1),
@@ -1005,7 +1059,7 @@ pub(crate) fn trace(want: &str, got: &str) -> Vec<Step> {
                 continue;
             }
         }
-        if i > 0 && cost[i][j] == cost[i - 1][j] + 1 {
+        if i > 0 && cost[at(i, j)] == cost[at(i - 1, j)] + 1 {
             steps.push(Step {
                 want: Some(want[i - 1]),
                 want_at: Some(i - 1),

@@ -19,7 +19,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use subtrackt::score::{Score, score_text};
-use subtrackt_glyph::ReferenceSet;
 
 /// One candidate reference set, scored against the material fixture.
 struct Fit {
@@ -65,8 +64,7 @@ fn fit(font: &Path, sup: &Path, dir: &Path, truth: &str) -> anyhow::Result<Fit> 
         name.clone(),
     ])?;
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&path)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&path)?;
     let (text, outcome) = crate::accuracy::extract(sup, reference, false, false)?;
 
     Ok(Fit {

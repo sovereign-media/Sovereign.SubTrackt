@@ -133,11 +133,6 @@ const STATISTICS: [(&str, Pick); 2] = [
     ("charging unmatched", charged_mean),
 ];
 
-fn stem(path: &Path) -> String {
-    path.file_stem()
-        .map_or_else(|| "unnamed".to_owned(), |s| s.to_string_lossy().into_owned())
-}
-
 /// Build one reference set per candidate font, once, and keep them.
 ///
 /// Generating a set is the expensive half of fitting and it does not depend on the material, so a
@@ -149,7 +144,7 @@ pub(crate) fn reference_sets(
 ) -> anyhow::Result<Vec<(String, ReferenceSet)>> {
     let mut out = Vec::new();
     for font in fonts {
-        let name = stem(font);
+        let name = crate::util::stem(font);
         let path = dir.join(format!("select-{name}.subtref"));
         crate::gen_reference(&[
             font.display().to_string(),
@@ -157,8 +152,7 @@ pub(crate) fn reference_sets(
             "--name".to_owned(),
             name.clone(),
         ])?;
-        let set =
-            ReferenceSet::decode(&std::fs::read(&path)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let set = crate::util::load_reference(&path)?;
         out.push((name, set));
     }
     Ok(out)
@@ -171,7 +165,7 @@ fn trial(
     dir: &Path,
     repeats: usize,
 ) -> anyhow::Result<Trial> {
-    let name = stem(material);
+    let name = crate::util::stem(material);
     let fixture_dir = dir.join(format!("material-{name}-x{repeats}"));
     std::fs::create_dir_all(&fixture_dir)?;
     let mut args = vec![
@@ -1180,7 +1174,7 @@ fn report_pool(
         vec![vec![Vec::new(); SHORTLIST.len()]; STATISTICS.len()];
 
     for material in materials {
-        let t = trial(material, sets, dir, repeats).with_context(|| stem(material))?;
+        let t = trial(material, sets, dir, repeats).with_context(|| crate::util::stem(material))?;
         let Some(best) = t.truth() else { continue };
 
         for (index, (label, pick)) in STATISTICS.iter().enumerate() {
@@ -1259,7 +1253,7 @@ fn run_pool(pool: &Path, materials: &[PathBuf], dir: &Path, repeats: usize) -> a
         "materials: {}",
         materials
             .iter()
-            .map(|f| stem(f))
+            .map(|f| crate::util::stem(f))
             .collect::<Vec<_>>()
             .join(" ")
     );
@@ -1344,7 +1338,14 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         return run_pool(&pool, &fonts, &dir, repeats);
     }
 
-    println!("fonts: {}", fonts.iter().map(|f| stem(f)).collect::<Vec<_>>().join(" "));
+    println!(
+        "fonts: {}",
+        fonts
+            .iter()
+            .map(|f| crate::util::stem(f))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
     println!("fixture: {repeats} rendering(s) of each cue");
 
     let generating = Instant::now();
@@ -1354,7 +1355,9 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let scanning = Instant::now();
     let mut trials = Vec::new();
     for material in &fonts {
-        trials.push(trial(material, &sets, &dir, repeats).with_context(|| stem(material))?);
+        trials.push(
+            trial(material, &sets, &dir, repeats).with_context(|| crate::util::stem(material))?,
+        );
     }
     let scanning = scanning.elapsed();
 
