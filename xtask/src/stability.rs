@@ -543,7 +543,8 @@ fn shear_sweep(faces: &[(Style, Font)], charset: &[char]) {
 
 /// Percentiles of a sorted sample.
 fn percentiles(sorted: &[u32]) -> [u32; 5] {
-    let at = |q: usize| sorted[(sorted.len() * q / 100).min(sorted.len() - 1)];
+    // See `crate::util::percentile` for the index and #165 for why it is that one.
+    let at = |q: u32| crate::util::percentile(sorted, q).unwrap_or(0);
     [at(5), at(25), at(50), at(75), at(95)]
 }
 
