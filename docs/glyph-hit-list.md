@@ -139,8 +139,13 @@ rest moves: it is transcript divergence rather than misreading, and one title su
 ## Where this leaves the list
 
 1. **`I` / `l`, 2,424 errors.** The largest family, and what is wrong with it differs by disc —
-   see above, and #171. One disc needs nothing, one needs its fusions cleaned up, and one needs
-   something that is not a glyph measurement.
+   see above. One disc needs nothing, one needs its fusions cleaned up, and one needed something
+   that is not a glyph measurement. **#171 found what.** Four fifths of it is the English pronoun
+   `I`, at a position neither existing corrector arm can reach: a one-character word has no
+   context on either side, and the vocabulary arm cannot learn it because every `l` and `I` in a
+   track is ambiguous by construction. `docs/post-correction.md` §"The one-character word" has the
+   measurement and the arm that answers it — 395 cues improved across the bench, none made worse,
+   and Wanda from 1.7% to 1.1% CER.
 2. **Fused components.** Not a family in #118's table at all, and it turns up inside the first one:
    a fifth of Gone Girl's `l` population is glyphs several times too wide. #106's de-fusing fires
    only where the matcher already returned *unmatched*, so a fusion that matches something is

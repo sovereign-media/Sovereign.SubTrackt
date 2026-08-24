@@ -79,6 +79,12 @@ pub enum CorrectionRule {
         /// How many times the track read that token clearly.
         occurrences: usize,
     },
+    /// A one-character word, which `l` is not and `I` is.
+    ///
+    /// The only arm that knows anything about a language, and it is off by default for that
+    /// reason. `docs/post-correction.md` §"The one-character word" has what it asserts, what
+    /// measured it, and what would break it.
+    LoneWord,
 }
 
 impl fmt::Display for CorrectionLog {
@@ -90,8 +96,14 @@ impl fmt::Display for CorrectionLog {
         )?;
         // A rule that fires on evidence has to show the evidence, or it is a dictionary with extra
         // steps. The context arm's evidence is the word itself and is already printed.
-        if let CorrectionRule::Vocabulary { token, occurrences } = &self.rule {
-            write!(f, " (vocabulary: {token:?} x{occurrences})")?;
+        match &self.rule {
+            CorrectionRule::Vocabulary { token, occurrences } => {
+                write!(f, " (vocabulary: {token:?} x{occurrences})")?;
+            }
+            // The lone-word arm has no evidence on the line to show — its evidence is the corpus
+            // measurement behind the rule — so it names itself instead of going unmarked.
+            CorrectionRule::LoneWord => write!(f, " (lone word)")?,
+            CorrectionRule::Context => {}
         }
         Ok(())
     }
@@ -489,6 +501,8 @@ pub struct ContextCorrector {
     vocabulary: Vocabulary,
     /// Whether the vocabulary arm runs at all.
     use_vocabulary: bool,
+    /// Whether the lone-word arm runs at all.
+    use_lone_words: bool,
     /// How the vocabulary is built, kept so `observe` can build it.
     vocabulary_rules: VocabularyRules,
 }
@@ -507,6 +521,7 @@ impl ContextCorrector {
             ambiguity_margin,
             vocabulary: Vocabulary::default(),
             use_vocabulary: false,
+            use_lone_words: false,
             vocabulary_rules: VocabularyRules::default(),
         }
     }
@@ -516,6 +531,13 @@ impl ContextCorrector {
     pub fn with_vocabulary(mut self, rules: VocabularyRules) -> Self {
         self.use_vocabulary = true;
         self.vocabulary_rules = rules;
+        self
+    }
+
+    /// Enable the lone-word arm, which is the one that knows a language.
+    #[must_use]
+    pub const fn with_lone_words(mut self) -> Self {
+        self.use_lone_words = true;
         self
     }
 
@@ -640,6 +662,89 @@ impl ContextCorrector {
         }
 
         self.resolve_from_vocabulary(chars, spans, at, from, set)
+            .or_else(|| self.resolve_lone_word(chars, spans, at, from))
+    }
+
+    /// The third arm: a word of one character, which `l` is not.
+    ///
+    /// Neither of the other two can reach this. The context arm needs a character on each side and
+    /// a one-character word has neither; the vocabulary arm needs the track to have read the same
+    /// token *clearly* somewhere, and after #37 every `l` and `I` in a track is ambiguous by
+    /// construction — so no clear one-character token ever folds onto `i` or `l`, and the only
+    /// candidate with support is the digit. Lowering `min_len` to 1 was measured doing exactly
+    /// that: 515 correct pronouns rewritten to `1` on one disc.
+    ///
+    /// This arm is different in kind from the other two and the difference is worth stating rather
+    /// than burying: **it knows a language**. `docs/post-correction.md` rules out a dictionary
+    /// because a dictionary is unverifiable and guesses hardest at names, and this is a dictionary
+    /// of one entry — but it was not asserted, it was measured. Across 77 English release
+    /// subtitles this project did not produce, a lone lowercase `l` occurs 641 times and **every
+    /// one is itself a misread `I`**, in transcripts read off the same kind of bitmaps by other
+    /// tools. It is off by default all the same.
+    ///
+    /// Three refusals, each against something observed:
+    ///
+    /// * **only `l` and `|` are promoted, never `1`.** A lone digit is a legitimate token —
+    ///   `Chapter 1` — and a lone `I` is already right.
+    /// * **a lone twin from the same set, anywhere on the line, refuses the whole thing.**
+    ///   Two things wear that shape. A word shattered by upstream segmentation arrives as a
+    ///   run of one-character tokens — `We l l ,` for `Well,` — and without this the
+    ///   bench's cleanest disc lost a cue. And a line *about* the characters rather than
+    ///   using them: `- Is it 1 or l?` is in the accuracy fixture for exactly that, and is
+    ///   the only correct lone `l` this project has ever observed. The `1` beside it is what
+    ///   says so.
+    /// * **an apostrophe may carry at most two letters after it.** `I'm`, `I've`, `I'll` and `I'd`
+    ///   are what a lone `l` is followed by in English; `l'` before a longer word is a French or
+    ///   Italian elision and is left alone. That is the arm's language assumption at its thinnest,
+    ///   and `l'un` is where it would still be wrong.
+    fn resolve_lone_word(
+        &self,
+        chars: &[char],
+        spans: &[(usize, usize)],
+        at: usize,
+        from: char,
+    ) -> Option<(char, char, CorrectionRule)> {
+        if !self.use_lone_words || (from != 'l' && from != '|') {
+            return None;
+        }
+        let index = spans
+            .iter()
+            .position(|(start, end)| (*start..*end).contains(&at))?;
+        let (start, end) = spans[index];
+        if at != start {
+            return None;
+        }
+
+        // The token is the character alone, or the character with a contraction hanging off it.
+        let tail = &chars[start + 1..end];
+        let lone = match tail {
+            [] => true,
+            ['\'', rest @ ..] => rest.len() <= 2 && rest.iter().all(|c| c.is_alphabetic()),
+            _ => false,
+        };
+        if !lone {
+            return None;
+        }
+
+        // Another one-character token from the same confusion set, anywhere on the line, refuses
+        // the whole thing. Two shapes it exists to keep out, and the second is why this is the
+        // line rather than the neighbours:
+        //
+        // * a word shattered by segmentation arrives as a run of lone letters -- `We l l ,` for
+        //   `Well,` -- and each half looks exactly like a pronoun;
+        // * a line *about* the characters rather than using them. `- Is it 1 or l?` is in the
+        //   accuracy fixture for precisely this, and it is the one place a correct lone `l` has
+        //   ever been observed. Nothing distinguishes it from a pronoun except the `1` standing
+        //   beside it in the same sentence, which is exactly the evidence read here.
+        let set = confusion_for(from)?;
+        let solitary_twin = spans.iter().enumerate().any(|(other, (start, end))| {
+            other != index && end - start == 1 && set.contains(chars[*start])
+        });
+        if solitary_twin {
+            return None;
+        }
+
+        Some((from, 'I', CorrectionRule::LoneWord))
     }
 
     /// The second arm: a token the track itself read clearly, matched case-folded.
@@ -772,10 +877,11 @@ impl PostCorrector for ContextCorrector {
     }
 
     fn name(&self) -> &'static str {
-        if self.use_vocabulary {
-            "context+vocabulary"
-        } else {
-            "context"
+        match (self.use_vocabulary, self.use_lone_words) {
+            (true, true) => "context+vocabulary+lone-word",
+            (true, false) => "context+vocabulary",
+            (false, true) => "context+lone-word",
+            (false, false) => "context",
         }
     }
 }
@@ -828,6 +934,86 @@ mod tests {
         let mut log = Vec::new();
         ContextCorrector::default().correct(&mut c, &[origins(line, ambiguous)], 0, &mut log);
         (c.lines[0].clone(), log)
+    }
+
+    /// Correct one line with the lone-word arm on, and return what it became.
+    fn correct_lone(line: &str, ambiguous: &[usize]) -> (String, Vec<CorrectionLog>) {
+        let mut c = cue(&[line]);
+        let mut log = Vec::new();
+        ContextCorrector::default().with_lone_words().correct(
+            &mut c,
+            &[origins(line, ambiguous)],
+            0,
+            &mut log,
+        );
+        (c.lines[0].clone(), log)
+    }
+
+    #[test]
+    fn a_word_of_one_character_is_i_rather_than_l() {
+        // The failure #171 measured, and the one neither other arm can reach: a one-character word
+        // has no character on either side for the context arm, and no clear occurrence of itself
+        // for the vocabulary arm, because every `l` and `I` in a track is ambiguous by
+        // construction. On A Fish Called Wanda this single position is four fifths of the largest
+        // confusion family the project has.
+        let (line, log) = correct_lone("l rest my case.", &[0]);
+        assert_eq!(line, "I rest my case.");
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].rule, CorrectionRule::LoneWord);
+    }
+
+    #[test]
+    fn the_arm_is_off_unless_asked_for() {
+        // Every other test in this file is a regression guard for the two arms that were measured
+        // before this one existed, and stays one only while the default does not move.
+        assert_eq!(correct("l rest my case.", &[0]).0, "l rest my case.");
+    }
+
+    #[test]
+    fn a_lone_letter_beside_another_lone_letter_is_a_shattered_word() {
+        // `Well,` arrived from segmentation as `We l l ,` on 10 Cloverfield Lane, and each half of
+        // the broken `ll` looks exactly like a pronoun. Promoting them turned three errors into
+        // five on the cleanest disc on the bench -- the one where there is nothing to gain and any
+        // change is pure risk. A sentence does not put two lone letters side by side.
+        assert_eq!(correct_lone("We l l ,", &[3, 5]).0, "We l l ,");
+    }
+
+    #[test]
+    fn a_line_about_the_characters_is_not_a_line_using_them() {
+        // The accuracy fixture carries `- Is it 1 or l?` and has since #12, and it is the only
+        // correct lone `l` this project has ever seen -- the sentence is *about* the letter. What
+        // says so is the `1` standing beside it in the same line, which is a member of the same
+        // confusion set standing alone. Without this refusal the arm rewrote the ceiling case,
+        // which is the one instrument here with ground truth rather than another transcript.
+        assert_eq!(correct_lone("- Is it 1 or l?", &[9, 14]).0, "- Is it 1 or l?");
+    }
+
+    #[test]
+    fn a_contraction_is_promoted_and_an_elision_is_not() {
+        // `I'm` and `I've` are what a lone `l` carries in English, and they are the larger half of
+        // what this arm fixes. `l'` before a longer word is a French or Italian elision, and the
+        // length of the tail is the only thing separating the two without knowing which language
+        // the track is in.
+        assert_eq!(correct_lone("l'm fixing breakfast.", &[0]).0, "I'm fixing breakfast.");
+        assert_eq!(correct_lone("l've got a horse.", &[0]).0, "I've got a horse.");
+        assert_eq!(correct_lone("l'amour est beau.", &[0]).0, "l'amour est beau.");
+    }
+
+    #[test]
+    fn a_lone_digit_is_left_alone() {
+        // A one-character word that reads as `1` is a legitimate token -- a chapter, a countdown --
+        // and the confusion set contains it. Only `l` and `|` are promoted, which is the whole of
+        // why this arm cannot turn a correct line into a wrong one by reading a number as a word.
+        assert_eq!(correct_lone("Chapter 1 begins.", &[8]).0, "Chapter 1 begins.");
+        assert_eq!(correct_lone("I rest my case.", &[0]).0, "I rest my case.");
+    }
+
+    #[test]
+    fn a_confident_lone_letter_is_still_the_matchers_to_keep() {
+        // #171 supposed the corrector was blocked by the ambiguity flag. It is not -- these glyphs
+        // are flagged, which is why this arm reaches them at all -- and the flag stays the outer
+        // guard of the whole stage regardless.
+        assert_eq!(correct_lone("l rest my case.", &[]).0, "l rest my case.");
     }
 
     #[test]

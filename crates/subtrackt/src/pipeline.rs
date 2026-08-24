@@ -276,8 +276,13 @@ impl Pipeline {
             // The vocabulary is an arm of this corrector, not a stage of its own — two correctors
             // in sequence could let one's output become the other's evidence, which is the cascade
             // `docs/post-correction.md` guarantees cannot happen.
-            if self.config.track_vocabulary {
-                Box::new(corrector.with_vocabulary(self.config.vocabulary))
+            let corrector = if self.config.track_vocabulary {
+                corrector.with_vocabulary(self.config.vocabulary)
+            } else {
+                corrector
+            };
+            if self.config.lone_words {
+                Box::new(corrector.with_lone_words())
             } else {
                 Box::new(corrector)
             }
