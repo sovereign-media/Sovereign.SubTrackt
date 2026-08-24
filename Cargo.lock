@@ -312,7 +312,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "subtrackt"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "subtrackt-core",
  "subtrackt-decode",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "subtrackt-cli"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "anstream",
  "anstyle",
@@ -339,18 +339,18 @@ dependencies = [
 
 [[package]]
 name = "subtrackt-core"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 
 [[package]]
 name = "subtrackt-decode"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "subtrackt-core",
 ]
 
 [[package]]
 name = "subtrackt-demux"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "miniz_oxide",
  "subtrackt-core",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "subtrackt-glyph"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "fontdue",
  "subtrackt-core",
@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "subtrackt-text"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "subtrackt-core",
 ]
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.2-alpha"
+version = "0.0.3-alpha"
 dependencies = [
  "anyhow",
  "fontdue",
