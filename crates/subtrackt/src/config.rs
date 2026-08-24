@@ -190,7 +190,7 @@ impl ProvenancePolicy {
 /// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
 /// combinations that do not exist and hide the ones that do.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// Which stream to read, or `None` for the first bitmap subtitle stream found.
     pub stream: Option<u32>,
@@ -223,26 +223,35 @@ pub struct Config {
     pub provenance: ProvenancePolicy,
     /// Whether ambiguous reads are resolved from the characters around them.
     ///
-    /// Off, and `docs/post-correction.md` records the measurement that keeps it there rather than
-    /// a preference. The corrector cannot touch a glyph the matcher read clearly and cannot change
-    /// a line's length, so switching it on is not dangerous — it is simply not yet shown to be
-    /// worth it, and this project does not turn on a stage that rewrites text on a hunch.
+    /// **On since #185**, and the criterion `docs/post-correction.md` had named for the life of the
+    /// file is what turned it on: the same table, over real tracks with hand-verified ground truth,
+    /// still showing zero lines made worse. `scripts/truth/` holds that truth — the first 300 cues
+    /// of A Fish Called Wanda, read off the images by eye — and this arm improves 3 cues of it and
+    /// worsens none.
+    ///
+    /// An enum would say this better and a `bool` is what [`Config`]'s derived `Default` can carry
+    /// as `false`; see [`Defusing`] for the shape that solves it. This is a `bool` because it was
+    /// one before it was true, and [`Self::default`] sets it rather than deriving it.
     pub post_correct: bool,
     /// Whether post-correction may also resolve a word-edge glyph from the track's own vocabulary.
     ///
-    /// An arm of the corrector rather than a stage, and gated behind [`Self::post_correct`]. Off
-    /// for the reason that is off: the only comparison available for a real track is another
-    /// release's subtitle, which is evidence rather than hand-verified ground truth.
+    /// An arm of the corrector rather than a stage, and gated behind [`Self::post_correct`]. **Off,
+    /// and the only one of the three still off after #185** — not for want of ground truth but for
+    /// want of firings: since #110 gave the matcher an ink aspect ratio, this arm makes zero
+    /// substitutions on every disc of the bench, so the verified table has nothing to say about it.
+    /// Its two unobserved failure modes are unchanged: a proper noun that case-folds onto a common
+    /// word, and a single clear occurrence that was itself a misread.
     pub track_vocabulary: bool,
     /// Whether post-correction may promote a one-character word to `I`.
     ///
-    /// The third arm, and the only one that knows a language: `l` is not a word and `I` is. Off,
-    /// and off for a reason of its own on top of the one that keeps the stage off — every other
-    /// rule in this pipeline is checkable against the material it fires on, and this one is not.
-    /// What stands behind it is a measurement rather than an assertion: across 77 English release
-    /// subtitles, a lone lowercase `l` occurs 641 times and every one is a misread `I`.
-    /// `docs/post-correction.md` §"The one-character word" has the rest, including what a French
-    /// track would do to it.
+    /// The third arm, and the only one that knows a language: `l` is not a word and `I` is. **On
+    /// since #185**, on the same verified table as [`Self::post_correct`], where it is much the
+    /// larger half — 54 of the 300 verified cues improved and none made worse.
+    ///
+    /// What stands behind the rule itself is a measurement rather than an assertion: across 77
+    /// English release subtitles, a lone lowercase `l` occurs 641 times and every one is a misread
+    /// `I`. Only the contraction half needs a language, and it asks the container.
+    /// `docs/post-correction.md` §"The one-character word" has the rest.
     pub lone_words: bool,
     /// Assert that the track is English, whatever the container says.
     ///
@@ -274,6 +283,40 @@ pub struct Config {
     /// Nothing on the matching path reads this. It changes what a survey carries, never what an
     /// extraction decides.
     pub glyph_masks: bool,
+}
+
+/// Written out rather than derived, since #185.
+///
+/// Every field here was a derived zero until post-correction earned its default, and a derive
+/// cannot express "false for six of these and true for two". Spelling the whole thing out has a
+/// second use that is worth more than the lines it costs: a reader asking what a plain
+/// `subtrackt extract` does now reads one list rather than seventeen doc comments, and adding a
+/// field forces a decision here rather than defaulting it silently.
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            stream: None,
+            format: SubtitleFormat::default(),
+            binarize: Threshold::default(),
+            grey_coverage: false,
+            defuse: Defusing::default(),
+            split: SplitRules::default(),
+            line_scale: LineScale::default(),
+            matching: MatchThresholds::default(),
+            clustering: ClusterRules::default(),
+            layout: LayoutRules::default(),
+            unmatched: UnmatchedPolicy::default(),
+            provenance: ProvenancePolicy::default(),
+            // The two #185 turned on. `docs/post-correction.md` §"What flipped it" has the table.
+            post_correct: true,
+            lone_words: true,
+            // The arm that stays off, and not for want of ground truth — for want of firings.
+            track_vocabulary: false,
+            assume_english: false,
+            vocabulary: VocabularyRules::default(),
+            glyph_masks: false,
+        }
+    }
 }
 
 impl Config {
@@ -319,9 +362,22 @@ mod tests {
             }),
             "which is what the old default did to the median title"
         );
+    }
+
+    #[test]
+    fn the_arms_the_verified_table_turned_on_are_on_and_the_other_one_is_not() {
+        // #185. The criterion `docs/post-correction.md` names is a *table*, not a preference, and
+        // it was met on 300 cues of A Fish Called Wanda read off the disc by eye: 3 cues better
+        // from the context arm, 54 from the one-character word, none worse from either.
+        let config = Config::default();
+        assert!(config.post_correct, "the context arm: 3 verified cues better, 0 worse");
         assert!(
-            !Config::default().post_correct,
-            "post-correction stays off until the measurement says otherwise"
+            config.lone_words,
+            "the one-character word: 54 verified cues better, 0 worse"
+        );
+        assert!(
+            !config.track_vocabulary,
+            "and the arm that fires on nothing stays off: since #110 it makes no substitution on              any disc of the bench, so the verified table has nothing to say about it"
         );
     }
 
