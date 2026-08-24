@@ -3,7 +3,11 @@
 pub mod srt;
 pub mod vtt;
 
-use subtrackt_core::{Provenance, SubtitleFormat, TrackWriter};
+use std::io::Write;
+
+use subtrackt_core::{
+    Cue, Error, Provenance, Result, SubtitleFormat, TextTrack, Timestamp, TrackWriter,
+};
 
 pub use srt::SrtWriter;
 pub use vtt::VttWriter;
@@ -30,10 +34,97 @@ pub fn writer_with_provenance(
     }
 }
 
+/// What separates one subtitle format from the other.
+///
+/// The two writers used to spell out about eighty percent of each other: the same error closure,
+/// the same provenance block guarded on emptiness, the same `filter(|c| !c.is_empty())` cue loop,
+/// the same enumerated per-line `tagged` write, the same trailing blank. [`TrackWriter`] was
+/// already the right trait and `writer_with_provenance` already the right dispatch — the
+/// duplication was one level below, where two implementations of one procedure differed in four
+/// details and repeated everything else.
+///
+/// These are those four details. Anything a third format would need that is not here is a sign
+/// this is the wrong shape, not a reason to copy [`write_track`] again.
+struct Spelling {
+    /// Written once before any cue. `WebVTT` has a magic line and an optional language; `SubRip`
+    /// has nothing at all.
+    header: fn(&TextTrack, &mut dyn Write) -> std::io::Result<()>,
+    /// How a comment is spelled, or `None` where the format has no syntax for one.
+    ///
+    /// The asymmetry #129 settled. `WebVTT` has `NOTE`; `SubRip` has nowhere to put a line that is
+    /// not a cue, so a note there is leading text that a strict parser may reject — which is why
+    /// it needs the blank line after it and why it is off unless asked for.
+    note: fn(&Provenance, &mut dyn Write) -> std::io::Result<()>,
+    /// Whether cues are numbered, counting **what was written** rather than what was iterated: a
+    /// gap in `SubRip` indices makes some players stop reading.
+    numbered: bool,
+    /// The character between seconds and milliseconds. The whole of the timing difference.
+    decimal: char,
+    /// Anything the format appends to the timing line, such as `WebVTT`'s cue settings.
+    settings: fn(&Cue, &mut dyn Write) -> std::io::Result<()>,
+    /// How cue text is escaped. `WebVTT` treats `<`, `>` and `&` as markup; `SubRip` does not.
+    escape: fn(&str) -> std::borrow::Cow<'_, str>,
+}
+
+/// Write a track, in whichever format `spelling` describes.
+///
+/// The order of the two transformations on a line is load-bearing and is why `escape` and
+/// [`tagged`] are separate steps here rather than one: the text is escaped **first** and tagged
+/// **second**, so the tag survives and anything the text itself held that looked like markup does
+/// not become any.
+fn write_track(
+    track: &TextTrack,
+    spelling: &Spelling,
+    provenance: Option<&Provenance>,
+    out: &mut dyn Write,
+    what: &'static str,
+) -> Result<()> {
+    let io = |e: std::io::Error| Error::io(what, e);
+
+    (spelling.header)(track, out).map_err(io)?;
+    if let Some(note) = provenance.filter(|n| !n.is_empty()) {
+        (spelling.note)(note, out).map_err(io)?;
+    }
+
+    let mut index = 0;
+    for cue in track.cues.iter().filter(|c| !c.is_empty()) {
+        index += 1;
+        if spelling.numbered {
+            writeln!(out, "{index}").map_err(io)?;
+        }
+        write!(
+            out,
+            "{} --> {}",
+            timestamp(cue.span.start, spelling.decimal),
+            timestamp(cue.span.end, spelling.decimal)
+        )
+        .map_err(io)?;
+        (spelling.settings)(cue, out).map_err(io)?;
+        writeln!(out).map_err(io)?;
+
+        for (line, text) in cue.lines.iter().enumerate() {
+            let escaped = (spelling.escape)(text);
+            writeln!(out, "{}", tagged(&escaped, cue.line_is_italic(line))).map_err(io)?;
+        }
+        writeln!(out).map_err(io)?;
+    }
+    Ok(())
+}
+
+/// A timestamp as `HH:MM:SS<decimal>mmm`.
+///
+/// One function taking the separator, rather than one per format. `SubRip` writes a comma and
+/// `WebVTT` a full stop, and that was the entire difference between two copies of this.
+#[must_use]
+pub fn timestamp(at: Timestamp, decimal: char) -> String {
+    let (h, m, s, ms) = at.hmsm();
+    format!("{h:02}:{m:02}:{s:02}{decimal}{ms:03}")
+}
+
 /// One rendered line, tagged if the cue says it leans.
 ///
 /// Both formats spell an italic line the same way, so the decision about *whether* a line is italic
-/// lives on the [`Cue`](subtrackt_core::Cue) and only the spelling lives here. A line that was not
+/// lives on the [`Cue`] and only the spelling lives here. A line that was not
 /// shown to lean is written exactly as it was before #123 — no tag, no wrapper, byte for byte.
 ///
 /// The tag goes around the whole line rather than around a run inside it. A line is the unit the
