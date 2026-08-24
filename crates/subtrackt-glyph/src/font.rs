@@ -49,6 +49,12 @@ pub fn charset() -> Vec<char> {
     chars.extend("\u{d9}\u{da}\u{db}\u{dc}\u{df}\u{e0}\u{e1}\u{e2}\u{e4}".chars());
     chars.extend("\u{e7}\u{e8}\u{e9}\u{ea}\u{eb}\u{ec}\u{ed}\u{ee}\u{ef}".chars());
     chars.extend("\u{f1}\u{f2}\u{f3}\u{f4}\u{f6}\u{f9}\u{fa}\u{fb}\u{fc}".chars());
+    // The eighth note. Not decoration: it opens and closes every sung line in an SDH track, and
+    // #118 measured it failing **100% of the time** for the only reason a character can fail that
+    // completely — no reference set could contain it, because this list is what a set is generated
+    // from. A face that does not draw it contributes nothing and is skipped, as for any character
+    // whose outline is empty.
+    chars.push('\u{266a}');
     chars
 }
 

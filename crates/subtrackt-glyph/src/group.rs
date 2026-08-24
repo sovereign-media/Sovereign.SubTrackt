@@ -84,6 +84,25 @@ pub struct GroupingRules {
     /// and 450 at different sizes. 800 clears the observed worst case by 78%, which is headroom for
     /// that swing rather than for a typeface nobody has measured.
     pub punctuation_gap_percent: u32,
+    /// How high a pair of side-by-side marks must sit before they are one character, in percent of
+    /// line height measured to the mark's own vertical centre.
+    ///
+    /// This is what separates `"` from `..`, and it is deliberately a question about **position**
+    /// rather than about distance. Both are two small marks side by side at the same height, close
+    /// together; nothing about the gap between them tells the two apart, at any threshold. What
+    /// does is where they sit — a quotation mark floats near the top of the line and a full stop
+    /// sits on the baseline.
+    ///
+    /// Fifty, because the two populations are nowhere near it: a quote's centre is in the top fifth
+    /// of the line and a period's is in the bottom tenth. The same "cut where nothing is" the shear
+    /// floor and `SpacingRule::WidestSplit` are built on.
+    ///
+    /// Before #118 this rule did not exist and neither did the merge. `group`'s own doc recorded it
+    /// as a known limitation — *a double quote is two marks side by side rather than stacked, so it
+    /// stays two glyphs and reads as two single quotes* — and on Gone Girl that is the **largest
+    /// single character confusion on the disc**: 164 release quotes, 164 `" -> '` substitutions,
+    /// ahead of `I -> l` at 139.
+    pub quote_max_centre_percent: u32,
 }
 
 impl Default for GroupingRules {
@@ -94,6 +113,7 @@ impl Default for GroupingRules {
             min_overlap_percent: 50,
             mark_cluster_gap_percent: 150,
             punctuation_gap_percent: 800,
+            quote_max_centre_percent: 50,
         }
     }
 }
@@ -360,7 +380,7 @@ fn group_one_line(members: &[Component], line: usize, rules: GroupingRules) -> V
 
     // Marks with no body under them are punctuation in their own right. Stacked ones are a single
     // character — a colon, a semicolon — so they cluster together rather than becoming two glyphs.
-    for cluster in cluster_orphans(members, &orphans, rules) {
+    for cluster in cluster_orphans(members, &orphans, top, line_height, rules) {
         parts.push(cluster);
     }
 
@@ -501,14 +521,30 @@ fn side_by_side(left: Rect, right: Rect, rules: GroupingRules) -> bool {
 fn cluster_orphans(
     members: &[Component],
     orphans: &[usize],
+    line_top: u32,
+    line_height: u32,
     rules: GroupingRules,
 ) -> Vec<Vec<Component>> {
+    // Whether a mark floats near the top of the line rather than sitting on its baseline. See
+    // `GroupingRules::quote_max_centre_percent`: it is what separates `"` from `..`, and no
+    // threshold on the distance between them can.
+    let floats = |c: &Component| {
+        let centre = c.bounds.y + c.bounds.height / 2;
+        centre.saturating_sub(line_top) * 100 < line_height * rules.quote_max_centre_percent
+    };
     let mut clusters: Vec<Vec<Component>> = Vec::new();
 
     for orphan in orphans {
         let mark = members[*orphan];
         let joined = clusters.iter_mut().find(|cluster| {
             cluster.iter().any(|other| {
+                // Two floating marks beside each other are one character: `"` and the `''` some
+                // faces draw it as. The height test is what keeps an ellipsis out -- three full
+                // stops are also side by side at the same height, and they sit on the baseline.
+                if floats(&mark) && floats(other) && side_by_side(mark.bounds, other.bounds, rules)
+                {
+                    return true;
+                }
                 // The *shorter* of the two, and that is the half of this rule that does the
                 // separating. A colon's dots are the same size, so which one denominates makes no
                 // difference to it — but a small mark stranded far above a much taller one is not
@@ -581,6 +617,60 @@ mod tests {
     fn group_line(components: &[Component]) -> Vec<GroupedGlyph> {
         let lines = vec![0; components.len()];
         group(components, &lines, GroupingRules::default()).unwrap()
+    }
+
+    #[test]
+    fn two_marks_side_by_side_high_on_the_line_are_one_quotation_mark() {
+        // #118 measured this as the largest single character confusion on Gone Girl: 164 double
+        // quotes in the release, 164 `" -> '` substitutions, ahead of `I -> l` at 139. `group`'s
+        // own doc had it as a known limitation -- a double quote is two marks side by side rather
+        // than stacked, so it stayed two glyphs and read as two apostrophes.
+        //
+        // A line of two capitals with a quotation mark opening it. The quote's marks sit at the cap
+        // line; the letters run from there to the baseline.
+        let line = [
+            component(0, 2, 3, 8), // "
+            component(5, 2, 3, 8), // "
+            component(12, 0, 14, 30),
+            component(30, 0, 14, 30),
+        ];
+        let glyphs = group_line(&line);
+        assert_eq!(glyphs.len(), 3, "the two marks are one character, not two");
+        assert_eq!(glyphs[0].parts.len(), 2, "and it is the leading one");
+    }
+
+    #[test]
+    fn three_full_stops_on_the_baseline_stay_three_characters() {
+        // The case that decides the rule is about *position* rather than distance. An ellipsis is
+        // also three small marks side by side at one height, closer together than a quote's two --
+        // so no threshold on the gap can separate them. What can is where they sit: a quote floats
+        // at the cap line, a full stop sits on the baseline.
+        //
+        // #134 is what merging them would cost twice over: the ellipsis would become one glyph the
+        // reference set has no entry for, and the gaps the spacing rule reasons about would change
+        // under it again.
+        let line = [
+            component(0, 0, 14, 30),
+            component(18, 27, 3, 3),
+            component(24, 27, 3, 3),
+            component(30, 27, 3, 3),
+        ];
+        let glyphs = group_line(&line);
+        assert_eq!(glyphs.len(), 4, "a letter and three separate stops");
+        assert!(glyphs.iter().all(|g| g.parts.len() == 1));
+    }
+
+    #[test]
+    fn a_lone_floating_mark_is_still_one_apostrophe() {
+        // Only a *pair* merges. `don't` has one mark and must keep reading as one.
+        let line = [
+            component(0, 0, 14, 30),
+            component(18, 2, 3, 8),
+            component(26, 0, 14, 30),
+        ];
+        let glyphs = group_line(&line);
+        assert_eq!(glyphs.len(), 3);
+        assert!(glyphs.iter().all(|g| g.parts.len() == 1));
     }
 
     /// A mask with ink in the given row ranges, full width.
