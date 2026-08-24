@@ -462,7 +462,12 @@ pub struct Glyph {
 }
 
 /// The result of matching one [`Glyph`] against the reference set.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Copy`, because it is an `Option<char>` and two `u32` and every consumer wants a value rather
+/// than a borrow — the assembler keeps one per rendered character, the cache hands one back per
+/// lookup, and the matcher stores one per cluster member. Cloning it was five call sites spelling
+/// out a memcpy of twelve bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlyphMatch {
     /// The character the matcher settled on, or `None` when nothing was within threshold.
     pub character: Option<char>,
