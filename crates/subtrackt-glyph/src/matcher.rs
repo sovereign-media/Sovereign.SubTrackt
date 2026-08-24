@@ -21,6 +21,7 @@ use subtrackt_core::{
 use crate::cache::SessionCache;
 use crate::cluster::{ClusterRules, Shapes, cluster};
 use crate::reference::{ReferenceEntry, ReferenceSet};
+use crate::weights::Weights;
 
 /// Matching thresholds.
 ///
@@ -131,41 +132,17 @@ impl MatchThresholds {
         (FEATURE_BITS as u32) * self.ambiguity_margin_percent / 100
     }
 
-    /// What a full cap-height metric difference — 100 percentage points — costs, in cells.
+    /// The exchange rates this matcher prices its three measured terms at.
     ///
-    /// 50 cells on a 256-bit vector, which is the value #37 measured, and the same fraction of any
-    /// other vector.
+    /// The same type [`ClusterRules::weights`](crate::cluster::ClusterRules::weights) returns, and
+    /// `clustering_prices_every_term_exactly_as_the_matcher_does` is what holds them together.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn metric_weight(self) -> u32 {
-        Self::metric_weight_at(self.metric_weight_permille, FEATURE_BITS as u32)
-    }
-
-    /// The same conversion against an arbitrary vector length.
-    ///
-    /// Split out so a test can check the scale-free property across grid sizes. [`FEATURE_BITS`] is
-    /// a compile-time constant, so a promise about what happens when it changes is otherwise
-    /// unenforceable from inside one build — which is exactly how #45 survived unnoticed.
-    const fn metric_weight_at(permille: u32, bits: u32) -> u32 {
-        bits * permille / 1000
-    }
-
-    /// What a full 100 points of mark-direction difference costs, in cells.
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn mark_weight(self) -> u32 {
-        Self::metric_weight_at(self.mark_weight_permille, FEATURE_BITS as u32)
-    }
-
-    /// What a full cap height of ink-width difference costs, in cells.
-    ///
-    /// The same conversion as the other two. The *difference* it multiplies is counted in tenths of
-    /// a percent rather than whole percent, so the division in [`Self::distance`] is by 1000 and not
-    /// by 100 — which is where the extra resolution actually lands.
-    #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn width_weight(self) -> u32 {
-        Self::metric_weight_at(self.width_weight_permille, FEATURE_BITS as u32)
+    pub const fn weights(self) -> Weights {
+        Weights {
+            metric_permille: self.metric_weight_permille,
+            mark_permille: self.mark_weight_permille,
+            width_permille: self.width_weight_permille,
+        }
     }
 
     /// Distance between a glyph and a reference: shape, plus the line-metric term.
@@ -186,20 +163,10 @@ impl MatchThresholds {
         aspect: InkAspect,
         entry: &ReferenceEntry,
     ) -> u32 {
-        let mut total = shape.distance(&entry.features);
-        if let Some(points) = metrics.difference(entry.metrics) {
-            total += points * self.metric_weight() / 100;
-        }
-        if let Some(points) = mark.difference(entry.mark) {
-            total += points * self.mark_weight() / 100;
-        }
-        // Divided by 1000 rather than 100: the difference is in tenths of a percent of cap height
-        // while the weight is priced per whole cap height. A set generated before #109 carries no
-        // width, `InkAspect::difference` returns `None`, and this term is not applied at all.
-        if let Some(points) = aspect.difference(entry.aspect) {
-            total += points * self.width_weight() / 1000;
-        }
-        total
+        self.weights().distance(
+            &(*shape, metrics, mark, aspect),
+            &(entry.features, entry.metrics, entry.mark, entry.aspect),
+        )
     }
 }
 
@@ -619,7 +586,7 @@ mod tests {
         let permille = MatchThresholds::default().metric_weight_permille;
         for grid in [16_u32, 32, 64] {
             let bits = grid * grid;
-            let weight = MatchThresholds::metric_weight_at(permille, bits);
+            let weight = Weights::cells_at(permille, bits);
             assert!(
                 (weight * 1000).abs_diff(bits * permille) <= 1000,
                 "at {grid}x{grid} a cap height costs {weight} of {bits} cells, which is not \
@@ -635,9 +602,9 @@ mod tests {
         // than against FEATURE_BITS, so it stays a statement about the measured number and does
         // not fail the day the grid moves.
         let permille = MatchThresholds::default().metric_weight_permille;
-        assert_eq!(MatchThresholds::metric_weight_at(permille, 256), 50);
+        assert_eq!(Weights::cells_at(permille, 256), 50);
         // Which is to say an `o` against an `O` — 28 points of cap height — still costs 14 cells.
-        assert_eq!(28 * MatchThresholds::metric_weight_at(permille, 256) / 100, 14);
+        assert_eq!(28 * Weights::cells_at(permille, 256) / 100, 14);
     }
 
     #[test]
@@ -663,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             t.distance(&shape, LineMetrics::new(76, 0), none, InkAspect::UNKNOWN, &reference),
-            28 * t.metric_weight() / 100
+            28 * t.weights().metric() / 100
         );
         assert_eq!(
             t.distance(&shape, LineMetrics::UNKNOWN, none, InkAspect::UNKNOWN, &reference),
@@ -774,7 +741,7 @@ mod tests {
         let shape = vector(&[1, 2, 3]);
         let reference = accented();
 
-        let cost = 131 * t.mark_weight() / 100;
+        let cost = 131 * t.weights().mark() / 100;
         assert_eq!(
             t.distance(
                 &shape,
@@ -901,7 +868,7 @@ mod tests {
                 InkAspect::UNKNOWN,
                 &reference
             ),
-            2 * t.mark_weight() / 100,
+            2 * t.weights().mark() / 100,
             "two acutes differ only by rasterisation noise, whatever letters they sit on"
         );
     }

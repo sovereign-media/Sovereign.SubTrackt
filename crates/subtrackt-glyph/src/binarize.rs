@@ -48,29 +48,37 @@ impl Threshold {
 }
 
 /// A one-bit-per-pixel foreground mask, row-major.
+///
+/// A bit, not a byte. It was a `Vec<bool>` under this same sentence until #149 — eight times the
+/// footprint of what the doc claimed, on a plane-sized buffer, reallocated at that rate once per
+/// glyph by [`Self::crop`]. Storing it as words also turns [`Self::foreground_count`] into a
+/// popcount and lets the projections work sixty-four columns at a time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryMask {
     width: u32,
     height: u32,
-    bits: Vec<bool>,
+    /// Row-major bits, `stride` words per row so a row never straddles a word boundary.
+    ///
+    /// Padding each row is what makes a row a slice: the projections and the labelling pass both
+    /// want to walk one row at a time, and a mask whose rows started mid-word would make every one
+    /// of those a shift-and-mask. The waste is under a word per row.
+    words: Vec<u64>,
+    stride: usize,
 }
 
 impl BinaryMask {
     /// An all-background mask.
     #[must_use]
     pub fn blank(width: u32, height: u32) -> Self {
-        Self {
-            width,
-            height,
-            bits: vec![false; width as usize * height as usize],
-        }
+        let stride = (width as usize).div_ceil(64);
+        Self { width, height, words: vec![0; stride * height as usize], stride }
     }
 
     /// Build a mask from a row-major slice of flags.
     ///
     /// # Errors
     /// Returns [`Error::Config`] if the flag count does not match the dimensions.
-    pub fn from_bits(width: u32, height: u32, bits: Vec<bool>) -> Result<Self> {
+    pub fn from_bits(width: u32, height: u32, bits: &[bool]) -> Result<Self> {
         let expected = width as usize * height as usize;
         if bits.len() != expected {
             return Err(Error::Config(format!(
@@ -78,7 +86,14 @@ impl BinaryMask {
                 bits.len()
             )));
         }
-        Ok(Self { width, height, bits })
+        let mut mask = Self::blank(width, height);
+        for (index, set) in bits.iter().enumerate() {
+            if *set {
+                let (x, y) = (index % width as usize, index / width as usize);
+                mask.words[y * mask.stride + x / 64] |= 1 << (x % 64);
+            }
+        }
+        Ok(mask)
     }
 
     /// Mask width.
@@ -100,21 +115,45 @@ impl BinaryMask {
         if x >= self.width || y >= self.height {
             return false;
         }
-        self.bits[y as usize * self.width as usize + x as usize]
+        let x = x as usize;
+        self.words[y as usize * self.stride + x / 64] >> (x % 64) & 1 == 1
     }
 
     /// Set `(x, y)`. Out-of-bounds writes are ignored.
     pub fn set(&mut self, x: u32, y: u32, value: bool) {
-        if x < self.width && y < self.height {
-            let index = y as usize * self.width as usize + x as usize;
-            self.bits[index] = value;
+        if x >= self.width || y >= self.height {
+            return;
         }
+        let x = x as usize;
+        let word = &mut self.words[y as usize * self.stride + x / 64];
+        let bit = 1u64 << (x % 64);
+        if value {
+            *word |= bit;
+        } else {
+            *word &= !bit;
+        }
+    }
+
+    /// The words of one row, for a caller walking a row at a time.
+    ///
+    /// Bit `i % 64` of word `i / 64` is column `i`. Columns at or past [`Self::width`] are always
+    /// clear, so a caller may popcount a whole row without masking the tail.
+    #[must_use]
+    pub fn row(&self, y: u32) -> &[u64] {
+        if y >= self.height {
+            return &[];
+        }
+        let start = y as usize * self.stride;
+        &self.words[start..start + self.stride]
     }
 
     /// Number of foreground pixels.
     #[must_use]
     pub fn foreground_count(&self) -> usize {
-        self.bits.iter().filter(|b| **b).count()
+        self.words
+            .iter()
+            .map(|word| word.count_ones() as usize)
+            .sum()
     }
 
     /// The ink inside `area`, as a mask of its own.
@@ -144,20 +183,14 @@ impl BinaryMask {
                 bits.push(self.get(x, y));
             }
         }
-        Self::from_bits(area.width, area.height, bits)
+        Self::from_bits(area.width, area.height, &bits)
     }
 
     /// Foreground pixels per row, the projection line splitting works from.
     #[must_use]
     pub fn row_projection(&self) -> Vec<u32> {
         (0..self.height)
-            .map(|y| {
-                (0..self.width)
-                    .filter(|&x| self.get(x, y))
-                    .count()
-                    .try_into()
-                    .unwrap_or(u32::MAX)
-            })
+            .map(|y| self.row(y).iter().map(|word| word.count_ones()).sum())
             .collect()
     }
 
@@ -168,15 +201,27 @@ impl BinaryMask {
     /// rectangle and delete that copy, which is why it is kept rather than swept.
     #[must_use]
     pub fn column_projection(&self) -> Vec<u32> {
-        (0..self.width)
-            .map(|x| {
-                (0..self.height)
-                    .filter(|&y| self.get(x, y))
-                    .count()
-                    .try_into()
-                    .unwrap_or(u32::MAX)
-            })
-            .collect()
+        self.column_projection_in(Rect::new(0, 0, self.width, self.height))
+    }
+
+    /// Foreground pixels per column of `area`, in that area's own coordinates.
+    ///
+    /// Scoped, because the caller that needs a column profile is `split::cut_columns` looking at
+    /// one component's box — it had computed exactly this by hand while the whole-mask version sat
+    /// here unused. Walks rows rather than columns: a column-major scan over a row-major buffer
+    /// touches a different cache line per pixel.
+    #[must_use]
+    pub fn column_projection_in(&self, area: Rect) -> Vec<u32> {
+        let mut counts = vec![0u32; area.width as usize];
+        for y in area.y..area.bottom().min(self.height) {
+            for (offset, count) in counts.iter_mut().enumerate() {
+                let x = area.x + u32::try_from(offset).unwrap_or(u32::MAX);
+                if self.get(x, y) {
+                    *count += 1;
+                }
+            }
+        }
+        counts
     }
 }
 
@@ -265,10 +310,18 @@ impl Binarizer {
             .map(|i| self.threshold.accepts(&image.palette, i))
             .collect();
 
-        for y in 0..bitmap.height() {
-            for x in 0..bitmap.width() {
-                if let Some(index) = bitmap.get(x, y) {
-                    mask.set(x, y, foreground[index as usize]);
+        // Over rows of the index plane rather than over coordinates. Both planes are the same size
+        // by construction, so the per-pixel bounds check either side of the old loop was checking
+        // something the shapes already guaranteed.
+        let width = bitmap.width() as usize;
+        for (y, row) in bitmap.pixels().chunks_exact(width).enumerate() {
+            for (x, index) in row.iter().enumerate() {
+                if foreground[*index as usize] {
+                    mask.set(
+                        u32::try_from(x).unwrap_or(u32::MAX),
+                        u32::try_from(y).unwrap_or(u32::MAX),
+                        true,
+                    );
                 }
             }
         }
@@ -300,9 +353,12 @@ impl Binarizer {
             })
             .collect();
 
-        let values = (0..bitmap.height())
-            .flat_map(|y| (0..bitmap.width()).map(move |x| (x, y)))
-            .map(|(x, y)| bitmap.get(x, y).map_or(0, |index| ink[index as usize]))
+        // The index plane and the coverage plane are the same shape, so this is a table lookup per
+        // pixel over a slice rather than a bounds-checked read per coordinate.
+        let values = bitmap
+            .pixels()
+            .iter()
+            .map(|index| ink[*index as usize])
             .collect();
 
         CoverageMask { width: bitmap.width(), height: bitmap.height(), values }
@@ -313,10 +369,12 @@ impl Binarizer {
     /// Foreground is index 1, background index 0.
     pub fn mask_as_bitmap(&self, image: &SubtitleImage) -> Result<IndexedBitmap> {
         let mask = self.mask(image);
-        let pixels = (0..mask.height())
-            .flat_map(|y| (0..mask.width()).map(move |x| (x, y)))
-            .map(|(x, y)| u8::from(mask.get(x, y)))
-            .collect();
+        let mut pixels = Vec::with_capacity(mask.width() as usize * mask.height() as usize);
+        for y in 0..mask.height() {
+            for x in 0..mask.width() {
+                pixels.push(u8::from(mask.get(x, y)));
+            }
+        }
         IndexedBitmap::new(mask.width(), mask.height(), pixels)
     }
 }
@@ -421,7 +479,7 @@ mod tests {
     fn out_of_bounds_reads_are_background_so_neighbour_scans_need_no_edge_cases() {
         let mask = BinaryMask::blank(2, 2);
         assert!(!mask.get(99, 99));
-        assert!(BinaryMask::from_bits(2, 2, vec![true; 3]).is_err());
+        assert!(BinaryMask::from_bits(2, 2, &[true; 3]).is_err());
     }
 
     #[test]

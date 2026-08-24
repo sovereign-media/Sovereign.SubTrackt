@@ -69,7 +69,7 @@ fn vector(font: &Font, ch: char, px: f32, ink: u8, which: Box2) -> Option<Featur
         return None;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= ink).collect();
-    let mask = BinaryMask::from_bits(width, height, bits).ok()?;
+    let mask = BinaryMask::from_bits(width, height, &bits).ok()?;
     if mask.foreground_count() == 0 {
         return None;
     }
@@ -111,7 +111,8 @@ struct Measured {
 /// Shape distance plus the weighted metric penalty: what the shipped matcher computes.
 fn combined(a: &Measured, b: &Measured) -> u32 {
     let metric = a.height.abs_diff(b.height) + a.descent.abs_diff(b.descent);
-    a.canonical.distance(&b.canonical) + metric * MatchThresholds::default().metric_weight() / 100
+    a.canonical.distance(&b.canonical)
+        + metric * MatchThresholds::default().weights().metric() / 100
 }
 
 fn measure(font: &Font, which: Box2) -> Vec<Measured> {
@@ -162,7 +163,7 @@ fn part_count(font: &Font, ch: char) -> usize {
         return 0;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= 128).collect();
-    let Ok(mask) = BinaryMask::from_bits(width, height, bits) else {
+    let Ok(mask) = BinaryMask::from_bits(width, height, &bits) else {
         return 0;
     };
     ccl::label(&mask, ComponentFilter::permissive()).map_or(0, |p| p.len())

@@ -242,7 +242,25 @@ fn span_overlap_f64(lo: f64, hi: f64, index: f64) -> f64 {
     (hi.min(index + 1.0) - lo.max(index)).max(0.0)
 }
 
-/// The shared body of both, parameterised by how much ink a source pixel holds.
+/// The shared body of [`vectorize`] and [`vectorize_coverage`], parameterised by how much ink a
+/// source pixel holds.
+///
+/// **Not shared with [`vectorize_sheared`], and #144 row 11 was wrong to read the two as
+/// duplicates.** They are the same area integration over preimages that differ, and a rectangle is
+/// a parallelogram at zero shear — so the merge looks free, and
+/// `a_zero_shear_reproduces_the_ordinary_vectoriser` looks like proof it is. Three things separate
+/// them, and two are behaviour rather than arithmetic:
+///
+/// - **What is letterboxed.** This scales `bounds`; the sheared one scales the *deskewed ink
+///   extent*, which is narrower than the box wherever the ink does not reach both edges.
+/// - **An empty box.** This returns the empty vector; the sheared one refuses, because a glyph with
+///   no ink has no deskewed box and inventing one would be a fabricated measurement.
+/// - **Float width.** `f32` here and `f64` there, and the zero-shear test allows for the gap.
+///
+/// Reconciling those is a change to what the matcher sees, and #154 measured the reason to make it
+/// away: segmentation is 85–90% of a run and a whole feature is 1.2 seconds, so there is no cost
+/// argument for touching this path. It should be merged when something *needs* it, against a bench,
+/// and not for the tidiness.
 fn vectorize_with(
     bounds: Rect,
     policy: AspectPolicy,
@@ -489,11 +507,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     fn full_box(mask: &BinaryMask) -> Rect {
@@ -550,7 +568,7 @@ mod tests {
                 bits[(y * width + x) as usize] = on;
             }
         }
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     fn vector_of(letter: char, width: u32, height: u32) -> FeatureVector {
@@ -758,7 +776,7 @@ mod tests {
             let bits: Vec<bool> = (0..size * size)
                 .map(|i| (if i % size % 3 == 0 { 255 } else { dim }) >= 128u8)
                 .collect();
-            BinaryMask::from_bits(size, size, bits).unwrap()
+            BinaryMask::from_bits(size, size, &bits).unwrap()
         };
 
         let (faint, near) = (20u8, 120u8);

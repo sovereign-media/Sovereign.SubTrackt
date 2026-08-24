@@ -158,7 +158,7 @@ fn raster(font: &Font, ch: char, size: f32, ink: u8, edge: Edge) -> Option<Raste
         .collect();
 
     let bits: Vec<bool> = scaled.iter().map(|c| *c >= CANONICAL_INK).collect();
-    let mask = nudge(&BinaryMask::from_bits(width, height, bits).ok()?, edge);
+    let mask = nudge(&BinaryMask::from_bits(width, height, &bits).ok()?, edge);
     if mask.foreground_count() == 0 {
         return None;
     }
@@ -814,11 +814,11 @@ mod tests {
     fn mask(rows: &[&str]) -> BinaryMask {
         let height = u32::try_from(rows.len()).unwrap();
         let width = u32::try_from(rows[0].len()).unwrap();
-        let bits = rows
+        let bits: Vec<bool> = rows
             .iter()
             .flat_map(|r| r.chars().map(|c| c == '#'))
             .collect();
-        BinaryMask::from_bits(width, height, bits).unwrap()
+        BinaryMask::from_bits(width, height, &bits).unwrap()
     }
 
     /// A raster whose grey plane is the mask, so the ink box and the raster box coincide.

@@ -32,6 +32,7 @@ pub mod metrics;
 pub mod reference;
 pub mod slant;
 pub mod split;
+pub mod weights;
 
 pub use binarize::{Binarizer, BinaryMask, Threshold};
 pub use cache::SessionCache;
@@ -39,3 +40,4 @@ pub use cluster::{Cluster, ClusterRules, Shapes};
 pub use matcher::HammingMatcher;
 pub use metrics::{LineAnchors, MetricRules};
 pub use reference::{ReferenceEntry, ReferenceSet};
+pub use weights::Weights;

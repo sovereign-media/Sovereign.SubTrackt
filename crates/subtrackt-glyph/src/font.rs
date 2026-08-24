@@ -192,7 +192,7 @@ fn render(font: &Font, ch: char, rendering: Rendering, grey: bool) -> Option<Fea
     let width = u32::try_from(metrics.width).ok()?;
     let height = u32::try_from(metrics.height).ok()?;
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= rendering.ink).collect();
-    let mask = BinaryMask::from_bits(width, height, bits).ok()?;
+    let mask = BinaryMask::from_bits(width, height, &bits).ok()?;
     if mask.foreground_count() == 0 {
         return None;
     }
@@ -278,7 +278,7 @@ fn ink_box(font: &Font, ch: char, px: f32) -> Option<Rect> {
         return None;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
-    ink_bounds(&BinaryMask::from_bits(width, height, bits).ok()?)
+    ink_bounds(&BinaryMask::from_bits(width, height, &bits).ok()?)
 }
 
 /// Where a character stands in a line of text, from the font's own metrics.
@@ -324,7 +324,7 @@ pub fn mark_for(font: &Font, ch: char) -> MarkSlope {
         return MarkSlope::NONE;
     }
     let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
-    let Ok(mask) = BinaryMask::from_bits(width, height, bits) else {
+    let Ok(mask) = BinaryMask::from_bits(width, height, &bits) else {
         return MarkSlope::NONE;
     };
     let Ok(parts) = ccl::label(&mask, ComponentFilter::permissive()) else {
@@ -478,7 +478,7 @@ mod tests {
             let width = u32::try_from(metrics.width).unwrap();
             let height = u32::try_from(metrics.height).unwrap();
             let bits: Vec<bool> = coverage.iter().map(|c| *c >= INK).collect();
-            let mask = BinaryMask::from_bits(width, height, bits).unwrap();
+            let mask = BinaryMask::from_bits(width, height, &bits).unwrap();
             let expected =
                 vectorize(&mask, Rect::new(0, 0, width, height), AspectPolicy::Letterbox).unwrap();
 
