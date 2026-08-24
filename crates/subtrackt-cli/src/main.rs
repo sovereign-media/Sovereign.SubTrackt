@@ -116,7 +116,7 @@ fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()
     if let Some(path) = &args.reference {
         let bytes = std::fs::read(path)
             .with_context(|| format!("reading reference set {}", path.display()))?;
-        let set = subtrackt::core::Result::from(ReferenceSet::decode(&bytes))
+        let set = ReferenceSet::decode(&bytes)
             .with_context(|| format!("parsing reference set {}", path.display()))?;
         ui.info(format_args!("reference set: {} ({} glyphs)", set.name(), set.len()));
         pipeline = pipeline.with_reference(set);
@@ -202,7 +202,8 @@ fn fit(args: &FitArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
         );
     }
 
-    let survey = Pipeline::new(args.to_config())
+    let config = args.to_config();
+    let survey = Pipeline::new(config)
         .survey_watched(&args.input, Some(args.limit), bars)
         .with_context(|| format!("surveying glyphs in {}", args.input.display()))?;
     if survey.glyphs.is_empty() {
@@ -212,7 +213,7 @@ fn fit(args: &FitArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
         );
     }
 
-    let thresholds = args.to_config().matching;
+    let thresholds = config.matching;
     let (ranked, unusable) = subtrackt::rank_watched(&survey, candidates, thresholds, bars)?;
     let Some(winner) = ranked.first() else {
         bail!("no candidate could be scored against this title");

@@ -38,7 +38,7 @@
 //! leaning right at the top reports a **negative** shear. On two real discs it reads -0.155 and
 //! -0.160 against Arial Italic's own -0.173.
 
-use subtrackt_core::{Rect, SPAN_TENTHS, UprightSpan};
+use subtrackt_core::{SPAN_TENTHS, UprightSpan};
 
 use crate::ccl::LabelMap;
 use crate::group::GroupedGlyph;
@@ -164,16 +164,6 @@ pub fn upright_span(map: &LabelMap, glyph: &GroupedGlyph, shear: f64, pivot: u32
     UprightSpan::new(round_to_tenths(lo, f64::floor), round_to_tenths(hi, f64::ceil))
 }
 
-/// The span of a glyph standing on a line whose slant could not be measured.
-///
-/// Its own bounding box, which is what the spacing rule used before any of this and what a zero
-/// shear produces. Marked `known` because it *is* the answer under no slant, not because a fallback
-/// has been dressed as a measurement — [`line_shear`] returning `None` is where the unknown lives.
-#[must_use]
-pub const fn box_span(bounds: Rect) -> UprightSpan {
-    UprightSpan::of_box(bounds)
-}
-
 /// A sheared coordinate in tenths of a pixel, rounded the given way.
 #[allow(clippy::cast_possible_truncation)]
 fn round_to_tenths(value: f64, how: fn(f64) -> f64) -> i32 {
@@ -200,6 +190,7 @@ mod tests {
     use super::*;
     use crate::binarize::BinaryMask;
     use crate::ccl::{self, Component, ComponentFilter};
+    use subtrackt_core::Rect;
 
     /// A canvas of `count` stems, each `width` wide and `height` tall, whose top sits `lean`
     /// columns to the right of its foot — an italic stem's geometry, and nothing else.
@@ -303,7 +294,10 @@ mod tests {
         // holds.
         let mask = stems(1, 3, 20, 4, 20, 0);
         let (map, glyphs) = labelled(&mask);
-        assert_eq!(upright_span(&map, &glyphs[0], 0.0, 0), box_span(glyphs[0].bounds()));
+        assert_eq!(
+            upright_span(&map, &glyphs[0], 0.0, 0),
+            UprightSpan::of_box(glyphs[0].bounds())
+        );
     }
 
     #[test]

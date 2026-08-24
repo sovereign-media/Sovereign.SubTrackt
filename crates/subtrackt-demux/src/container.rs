@@ -8,18 +8,21 @@
 //! rather than an unrecognised-extension one. An unsupported container that says which issue tracks
 //! it is a fact a caller can act on; a generic error is not.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use subtrackt_core::{Error, Result};
 
 use crate::{Packet, StreamInfo, SubtitleSource};
 
 /// Placeholder container reader.
+///
+/// Carries no state, and cannot: [`Self::open`] returns `Err` unconditionally until #86, so an
+/// instance has never existed. What the type is for is the dispatch arm in [`crate::open`] — an
+/// unsupported container that names the issue tracking it is a fact a caller can act on, and a
+/// generic unrecognised-extension error is not. The [`SubtitleSource`] impl below is what makes
+/// that arm type-check; its methods are unreachable by construction.
 #[derive(Debug)]
-pub struct ContainerReader {
-    path: PathBuf,
-    streams: Vec<StreamInfo>,
-}
+pub struct ContainerReader;
 
 impl ContainerReader {
     /// Open a container.
@@ -36,17 +39,11 @@ impl ContainerReader {
             86,
         ))
     }
-
-    /// The file this reader was opened on.
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
 }
 
 impl SubtitleSource for ContainerReader {
     fn streams(&self) -> &[StreamInfo] {
-        &self.streams
+        &[]
     }
 
     fn select(&mut self, _index: u32) -> Result<()> {

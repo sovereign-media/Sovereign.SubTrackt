@@ -344,6 +344,11 @@ impl UprightSpan {
     /// Not a fallback dressed as a measurement: it is marked `known` because it *is* the answer
     /// when there is no slant to take out, and `a_zero_shear_span_is_the_glyph_box` pins the two
     /// together. Callers wanting the honest unknown want [`Self::UNKNOWN`].
+    ///
+    /// This is also what a glyph on a line whose slant could not be measured reports — its own
+    /// bounding box, which is what the spacing rule used before #121 existed.
+    /// [`line_shear`](../../subtrackt_glyph/slant/fn.line_shear.html) returning `None` is where
+    /// that unknown lives; it is not this function's to express.
     #[must_use]
     pub const fn of_box(bounds: Rect) -> Self {
         // A subtitle plane is a few thousand pixels across, so a coordinate in tenths is nowhere

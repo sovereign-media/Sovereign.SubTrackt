@@ -40,8 +40,6 @@ pub enum AspectPolicy {
     /// a second feature the matcher would have to weigh.
     #[default]
     Letterbox,
-    /// Stretch to fill, and carry the aspect ratio as a separate matched feature.
-    StretchWithAspect,
 }
 
 /// Normalise the glyph at `bounds` in `mask` onto the fixed grid.
@@ -119,7 +117,7 @@ pub fn vectorize_sheared(
 
     let grid = f64::from(u32::try_from(FEATURE_GRID).unwrap_or(u32::MAX));
     let (inner_x, inner_y, inner_w, inner_h) = match policy {
-        AspectPolicy::Stretch | AspectPolicy::StretchWithAspect => (0.0, 0.0, grid, grid),
+        AspectPolicy::Stretch => (0.0, 0.0, grid, grid),
         AspectPolicy::Letterbox => {
             let scale = (grid / width).min(grid / height);
             let (w, h) = (width * scale, height * scale);
@@ -261,7 +259,7 @@ fn vectorize_with(
     // centred box with the glyph's aspect ratio; otherwise it is the whole grid.
     let grid = FEATURE_GRID as f32;
     let (inner_x, inner_y, inner_w, inner_h) = match policy {
-        AspectPolicy::Stretch | AspectPolicy::StretchWithAspect => (0.0, 0.0, grid, grid),
+        AspectPolicy::Stretch => (0.0, 0.0, grid, grid),
         AspectPolicy::Letterbox => {
             let width = bounds.width as f32;
             let height = bounds.height as f32;
@@ -346,18 +344,6 @@ fn span_overlap(lo: f32, hi: f32, index: u32) -> f32 {
     let pixel_lo = index as f32;
     let pixel_hi = pixel_lo + 1.0;
     (hi.min(pixel_hi) - lo.max(pixel_lo)).max(0.0)
-}
-
-/// The glyph's aspect ratio in hundredths, for [`AspectPolicy::StretchWithAspect`].
-///
-/// Zero-height boxes report `0` rather than dividing by zero; a component with no height should
-/// have been filtered out before reaching here.
-#[must_use]
-pub fn aspect_ratio_centi(bounds: Rect) -> u32 {
-    if bounds.height == 0 {
-        return 0;
-    }
-    bounds.width * 100 / bounds.height
 }
 
 #[cfg(test)]
@@ -691,20 +677,6 @@ mod tests {
         let v = vectorize(&m, full_box(&m), AspectPolicy::Letterbox).unwrap();
         assert!(v.popcount() > 0);
         assert!(v.popcount() < u32::try_from(FEATURE_GRID * FEATURE_GRID).unwrap());
-    }
-
-    #[test]
-    fn aspect_ratio_separates_a_narrow_glyph_from_a_wide_one() {
-        let narrow = aspect_ratio_centi(Rect::new(0, 0, 3, 20));
-        let wide = aspect_ratio_centi(Rect::new(0, 0, 18, 20));
-        assert!(narrow < wide);
-        assert_eq!(narrow, 15);
-        assert_eq!(wide, 90);
-    }
-
-    #[test]
-    fn a_degenerate_box_does_not_divide_by_zero() {
-        assert_eq!(aspect_ratio_centi(Rect::new(0, 0, 5, 0)), 0);
     }
 
     /// Build a coverage plane from rows of digits 0-9, scaled to 0..=255.

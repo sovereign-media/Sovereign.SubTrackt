@@ -23,8 +23,6 @@ pub struct IndexEntry {
 /// The parsed contents of a `.idx` file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Index {
-    /// The 16 palette colours, as packed `0xRRGGBB` values exactly as authored.
-    pub palette: Vec<u32>,
     /// Subtitle plane width.
     pub plane_width: u32,
     /// Subtitle plane height.
@@ -51,12 +49,11 @@ pub fn parse_index(text: &str) -> Index {
         let value = value.trim();
 
         match key.trim() {
-            "palette" => {
-                index.palette = value
-                    .split(',')
-                    .filter_map(|c| u32::from_str_radix(c.trim(), 16).ok())
-                    .collect();
-            }
+            // `palette` is deliberately not read here. The whole `.idx` text goes into
+            // `StreamInfo::codec_private`, and `subtrackt_decode::vobsub::parse_palette` reads the
+            // line from there -- which is the same path a Matroska VOBSUB track takes, where there
+            // is no sidecar at all. A second copy parsed here was never consulted, and two parsers
+            // for one format can only ever disagree.
             "size" => {
                 if let Some((w, h)) = value.split_once('x') {
                     index.plane_width = w.trim().parse().unwrap_or(0);
@@ -106,6 +103,12 @@ fn parse_timestamp_line(value: &str) -> Option<IndexEntry> {
 
 /// Reads subpictures from a `.idx` / `.sub` pair.
 pub struct IdxReader {
+    /// Where each subpicture starts in the `.sub`, and when it appears.
+    ///
+    /// Nothing reads it yet: unpacking the private-stream-1 PES payloads is #3, and it is the
+    /// half of VOBSUB support that has not landed. Kept because it is exactly what that work
+    /// consumes and re-parsing the `.idx` to get it back would be the odd choice.
+    #[allow(dead_code)]
     index: Index,
     sub_path: PathBuf,
     streams: [StreamInfo; 1],
@@ -147,12 +150,6 @@ impl IdxReader {
 
         Ok(Self { index, sub_path, streams })
     }
-
-    /// The parsed index, whose palette the VOBSUB decoder needs.
-    #[must_use]
-    pub fn index(&self) -> &Index {
-        &self.index
-    }
 }
 
 impl SubtitleSource for IdxReader {
@@ -193,8 +190,9 @@ timestamp: 00:01:02:500, filepos: 000001800
     fn parses_the_directives_that_matter_and_ignores_the_rest() {
         let index = parse_index(SAMPLE);
         assert_eq!((index.plane_width, index.plane_height), (720, 480));
-        assert_eq!(index.palette.len(), 4);
-        assert_eq!(index.palette[2], 0x00ff_ffff);
+        // The palette line is deliberately not parsed here -- see `parse_index`. What proves it
+        // survives is that the whole text reaches `codec_private`, which
+        // `a_reader_hands_the_whole_idx_text_to_the_decoder` asserts.
         assert_eq!(index.language.as_deref(), Some("en"));
         assert_eq!(index.entries.len(), 2);
     }
@@ -213,6 +211,26 @@ timestamp: 00:01:02:500, filepos: 000001800
             "size: 720x480\ntimestamp: nonsense\ntimestamp: 00:00:01:000, filepos: 000000010\n",
         );
         assert_eq!(index.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_reader_hands_the_whole_idx_text_to_the_decoder() {
+        // The route the palette actually travels, and the reason `parse_index` does not read the
+        // `palette:` line itself. A Matroska VOBSUB track has no sidecar at all -- its palette
+        // arrives in `CodecPrivate` -- so the decoder reads that text either way, and a copy
+        // parsed here would be a second parser for one format that nothing consults.
+        let dir = std::env::temp_dir();
+        let idx = dir.join("subtrackt_palette.idx");
+        std::fs::write(&idx, SAMPLE).unwrap();
+        std::fs::write(dir.join("subtrackt_palette.sub"), b"").unwrap();
+
+        let reader = IdxReader::open(&idx).unwrap();
+        let carried = String::from_utf8(reader.streams()[0].codec_private.clone()).unwrap();
+        assert!(carried.contains("palette:"), "{carried}");
+        assert_eq!(carried, SAMPLE, "the whole file, not a re-serialised part of it");
+
+        std::fs::remove_file(&idx).ok();
+        std::fs::remove_file(dir.join("subtrackt_palette.sub")).ok();
     }
 
     #[test]

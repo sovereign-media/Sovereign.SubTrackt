@@ -161,7 +161,11 @@ impl BinaryMask {
             .collect()
     }
 
-    /// Foreground pixels per column, the projection word spacing works from.
+    /// Foreground pixels per column.
+    ///
+    /// Unused on the matching path today: `split::cut_columns` computes the same profile by hand,
+    /// scoped to a component's box rather than to the whole mask. #144 row 37 is to give this the
+    /// rectangle and delete that copy, which is why it is kept rather than swept.
     #[must_use]
     pub fn column_projection(&self) -> Vec<u32> {
         (0..self.width)
@@ -228,12 +232,6 @@ impl CoverageMask {
             return 0;
         }
         self.values[y as usize * self.width as usize + x as usize]
-    }
-
-    /// Total ink, as a sum of coverage values.
-    #[must_use]
-    pub fn total_coverage(&self) -> u64 {
-        self.values.iter().map(|v| u64::from(*v)).sum()
     }
 }
 
@@ -499,7 +497,6 @@ mod coverage_tests {
         assert_eq!(mask.get(0, 9), 0);
         assert_eq!(mask.width(), 1);
         assert_eq!(mask.height(), 1);
-        assert_eq!(mask.total_coverage(), 255);
     }
 
     #[test]
