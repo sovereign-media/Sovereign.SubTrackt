@@ -82,7 +82,9 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let mut matcher = HammingMatcher::new(reference.clone(), MatchThresholds::default())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let glyphs: Vec<subtrackt_core::Glyph> = survey.glyphs.iter().map(to_glyph).collect();
-    matcher.prepare(&glyphs).map_err(|e| anyhow::anyhow!("{e}"))?;
+    matcher
+        .prepare(&glyphs)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Every entry for each character. A set carries one per style, and a glyph only has to agree
     // with *one* of them to be an ordinary rendering: comparing against the narrowest instead
@@ -103,7 +105,9 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
     let mut worst: Vec<Wide> = Vec::new();
     let mut unmatched: Vec<u32> = Vec::new();
     for glyph in &glyphs {
-        let answer = matcher.match_glyph(glyph).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let answer = matcher
+            .match_glyph(glyph)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         let (Some(character), true) = (answer.character, glyph.aspect.known) else {
             if glyph.aspect.known {
                 unmatched.push(glyph.aspect.permille);
@@ -124,7 +128,10 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
             continue;
         }
         let excess = (glyph.aspect.permille - entry) * 100 / entry;
-        let band = BANDS.iter().rposition(|floor| excess >= *floor).unwrap_or(0);
+        let band = BANDS
+            .iter()
+            .rposition(|floor| excess >= *floor)
+            .unwrap_or(0);
         bands[band] += 1;
         if excess >= WIDE_ENOUGH_TO_NAME {
             worst.push((excess, character, glyph.aspect.permille, entry));
@@ -163,7 +170,9 @@ fn report(read: u64, bands: &[u64], worst: &[Wide], unmatched: &[u32]) {
     // something else.
     let mut by_character: BTreeMap<char, (u64, u32, u32)> = BTreeMap::new();
     for (excess, character, _, entry) in worst {
-        let row = by_character.entry(*character).or_insert((0, *excess, *entry));
+        let row = by_character
+            .entry(*character)
+            .or_insert((0, *excess, *entry));
         row.0 += 1;
         row.1 = row.1.max(*excess);
     }
