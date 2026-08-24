@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::Instant;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_core::{
@@ -25,7 +26,7 @@ use subtrackt_text::format::writer_with_provenance;
 use subtrackt_text::layout::SpatialAssembler;
 
 use crate::config::{Config, UnmatchedPolicy};
-use crate::report::Report;
+use crate::report::{Cost, Report};
 
 /// The result of a run.
 #[derive(Debug, Clone)]
@@ -55,6 +56,11 @@ pub struct Outcome {
     pub unread: Vec<UnreadGlyph>,
     /// The stream that was read.
     pub stream: StreamInfo,
+    /// What the run cost, phase by phase.
+    ///
+    /// Separate from [`Self::report`] on purpose — see [`Cost`] for why a duration must not live
+    /// beside the numbers that reach a written file.
+    pub cost: Cost,
 }
 
 /// One glyph that matched nothing, and everything known about it that is not its shape.
@@ -199,6 +205,8 @@ impl Pipeline {
 
         // Indeterminate: the source is streamed until it is exhausted, so how many packets there
         // are is not known until there are none left.
+        let mut cost = Cost::default();
+        let started = Instant::now();
         progress.begin(Phase::Decode, None);
         while let Some(packet) = source.next_packet()? {
             report.packets += 1;
@@ -207,7 +215,15 @@ impl Pipeline {
         }
         images.extend(decoder.finish()?);
         progress.end();
+        cost.decode = started.elapsed();
         report.images = images.len().try_into().unwrap_or(u64::MAX);
+        // Every decoded bitmap is resident at once, because nothing is segmented until the last
+        // packet has arrived. Counted rather than estimated: #145 turns on how large this actually
+        // is, and the answer is a property of the material rather than of the code.
+        cost.image_bytes = images
+            .iter()
+            .map(|image| image.bitmap.pixels().len() as u64)
+            .sum();
 
         let mut corrections = Vec::new();
         let mut unread = Vec::new();
@@ -216,14 +232,13 @@ impl Pipeline {
             matcher: &mut matcher,
             assembler: &assembler,
         };
-        let track = self.build_track(
-            &images,
-            &mut stages,
-            &mut report,
-            &mut corrections,
-            &mut unread,
-            progress,
-        )?;
+        let mut tally = Tally {
+            report: &mut report,
+            corrections: &mut corrections,
+            unread: &mut unread,
+            cost: &mut cost,
+        };
+        let track = self.build_track(&images, &mut stages, &mut tally, progress)?;
 
         report.cues = track.cues.len().try_into().unwrap_or(u64::MAX);
         report.cache_hits = stages.matcher.cache_hits();
@@ -239,7 +254,7 @@ impl Pipeline {
             });
         }
 
-        Ok(Outcome { track, report, corrections, unread, stream })
+        Ok(Outcome { track, report, corrections, unread, stream, cost })
     }
 
     /// The corrector this configuration asks for.
@@ -287,9 +302,7 @@ impl Pipeline {
         &self,
         images: &[SubtitleImage],
         stages: &mut Stages<'_>,
-        report: &mut Report,
-        corrections: &mut Vec<CorrectionLog>,
-        unread: &mut Vec<UnreadGlyph>,
+        tally: &mut Tally<'_>,
         progress: &dyn Progress,
     ) -> Result<TextTrack> {
         // Segment everything before matching anything. The matcher groups a stream's own shapes
@@ -301,6 +314,7 @@ impl Pipeline {
         // label would say less than three that each name what is running.
         let total: u64 = images.len().try_into().unwrap_or(u64::MAX);
         let mut done = 0u64;
+        let started = Instant::now();
         progress.begin(Phase::Segment, Some(total));
         for image in images {
             per_image.push(stages.segmenter.segment(image)?);
@@ -308,6 +322,7 @@ impl Pipeline {
             progress.advance(done);
         }
         progress.end();
+        tally.cost.segment = started.elapsed();
 
         let all_glyphs: Vec<subtrackt_core::Glyph> = per_image
             .iter()
@@ -315,12 +330,19 @@ impl Pipeline {
             .collect();
         // One call with no way to see inside it, so a spinner rather than a bar. It still earns
         // its line: on a feature film the grouping pass is seconds of otherwise silent work.
+        let started = Instant::now();
         progress.begin(Phase::Cluster, None);
         stages.matcher.prepare(&all_glyphs)?;
         progress.end();
-        report.distinct_shapes = stages.matcher.distinct_shapes();
-        report.clusters = stages.matcher.clusters();
-        report.glyphs_without_metrics = all_glyphs
+        tally.cost.cluster = started.elapsed();
+        // Both copies, because both are resident at this moment: `per_image` owns every glyph and
+        // `all_glyphs` is a second contiguous copy of the same ones. #144 row 3 is whether the
+        // second is worth its bytes, and a figure counting one copy could not say.
+        tally.cost.glyph_bytes =
+            2 * all_glyphs.len() as u64 * std::mem::size_of::<subtrackt_core::Glyph>() as u64;
+        tally.report.distinct_shapes = stages.matcher.distinct_shapes();
+        tally.report.clusters = stages.matcher.clusters();
+        tally.report.glyphs_without_metrics = all_glyphs
             .iter()
             .filter(|g| !g.metrics.known)
             .count()
@@ -331,8 +353,66 @@ impl Pipeline {
         // track's clear tokens, and a decision needing the whole track cannot be made while
         // answers are already being handed out — the same argument that makes `matcher.prepare` a
         // separate pass. Every image is already resident, so this costs nothing but the ordering.
+        let read_cues = self.read_images(images, per_image, stages, tally, progress)?;
+
+        let mut corrector = self.corrector();
+        corrector.observe(&read_cues);
+
+        let mut cues = Vec::with_capacity(read_cues.len());
+        for (index, read) in read_cues.into_iter().enumerate() {
+            let mut cue = read.cue;
+
+            // Post-correction, before the policy runs. It can only exchange one ambiguous
+            // character for another, so it moves no glyph between the matched and unmatched
+            // tallies and the gate below decides on exactly the same numbers either way. The
+            // cheap pre-check keeps the corrector away from cues that were read cleanly.
+            if subtrackt_text::correct::has_correctable_glyphs(cue.confidence) {
+                corrector.correct(&mut cue, &read.origins, index, tally.corrections);
+            }
+
+            // Per-cue policy. The track-level gate runs afterwards over the accumulated tally,
+            // because "one unread glyph in a feature" and "40% of the track unread" deserve
+            // different answers and only the second is visible at track level.
+            if !cue.confidence.is_complete() && self.config.unmatched == UnmatchedPolicy::Drop {
+                tally.report.cues_dropped += 1;
+                continue;
+            }
+            cues.push(cue);
+        }
+
+        tally.report.corrections = tally.corrections.len().try_into().unwrap_or(u64::MAX);
+        tally.report.vocabulary_corrections = tally
+            .corrections
+            .iter()
+            .filter(|c| {
+                matches!(c.rule, subtrackt_text::correct::CorrectionRule::Vocabulary { .. })
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        tally.report.vocabulary_tokens = corrector.vocabulary_size().try_into().unwrap_or(u64::MAX);
+        tally.report.corrector = corrector.name();
+        Ok(TextTrack::new(cues, None))
+    }
+
+    /// Match, defuse and assemble every image, in the order a whole-stream matcher needs.
+    ///
+    /// Split out of [`Self::build_track`] because the two are different jobs at different
+    /// altitudes: that one sequences the three passes and owns the phase boundaries, this one is
+    /// the innermost loop of the run. #154 is what forced the split — adding a timing to each
+    /// phase put the combined function past the length the lint allows, which is the lint working.
+    fn read_images(
+        &self,
+        images: &[SubtitleImage],
+        per_image: Vec<Vec<subtrackt_core::Glyph>>,
+        stages: &mut Stages<'_>,
+        tally: &mut Tally<'_>,
+        progress: &dyn Progress,
+    ) -> Result<Vec<subtrackt_text::layout::AssembledCue>> {
+        let total: u64 = images.len().try_into().unwrap_or(u64::MAX);
         let mut read_cues = Vec::with_capacity(images.len());
-        done = 0;
+        let mut done = 0u64;
+        let started = Instant::now();
         progress.begin(Phase::Read, Some(total));
         for (cue, (image, mut glyphs)) in images.iter().zip(per_image).enumerate() {
             let mut identified = Vec::with_capacity(glyphs.len());
@@ -354,13 +434,13 @@ impl Pipeline {
                 if let Some((new_glyphs, new_matches)) = recovered {
                     glyphs = new_glyphs;
                     identified = new_matches;
-                    report.defused += 1;
+                    tally.report.defused += 1;
                 }
             }
 
             // Named here rather than counted, because this is the one place a glyph and the answer
             // it did not get are both in hand. See `Outcome::unread`.
-            unread.extend(
+            tally.unread.extend(
                 glyphs
                     .iter()
                     .zip(&identified)
@@ -376,7 +456,7 @@ impl Pipeline {
 
             // How well the matched glyphs fitted, not just how many did. See `Report::distance_sum`
             // for why the second number cannot stand in for the first.
-            report.distance_sum += identified
+            tally.report.distance_sum += identified
                 .iter()
                 .filter(|m| m.character.is_some())
                 .map(|m| u64::from(m.distance))
@@ -385,50 +465,17 @@ impl Pipeline {
             let read = stages
                 .assembler
                 .assemble_annotated(image, &glyphs, &identified)?;
-            report.record(read.cue.confidence);
+            tally.report.record(read.cue.confidence);
             read_cues.push(read);
             done += 1;
             progress.advance(done);
         }
         progress.end();
-
-        let mut corrector = self.corrector();
-        corrector.observe(&read_cues);
-
-        let mut cues = Vec::with_capacity(read_cues.len());
-        for (index, read) in read_cues.into_iter().enumerate() {
-            let mut cue = read.cue;
-
-            // Post-correction, before the policy runs. It can only exchange one ambiguous
-            // character for another, so it moves no glyph between the matched and unmatched
-            // tallies and the gate below decides on exactly the same numbers either way. The
-            // cheap pre-check keeps the corrector away from cues that were read cleanly.
-            if subtrackt_text::correct::has_correctable_glyphs(cue.confidence) {
-                corrector.correct(&mut cue, &read.origins, index, corrections);
-            }
-
-            // Per-cue policy. The track-level gate runs afterwards over the accumulated tally,
-            // because "one unread glyph in a feature" and "40% of the track unread" deserve
-            // different answers and only the second is visible at track level.
-            if !cue.confidence.is_complete() && self.config.unmatched == UnmatchedPolicy::Drop {
-                report.cues_dropped += 1;
-                continue;
-            }
-            cues.push(cue);
-        }
-
-        report.corrections = corrections.len().try_into().unwrap_or(u64::MAX);
-        report.vocabulary_corrections = corrections
-            .iter()
-            .filter(|c| {
-                matches!(c.rule, subtrackt_text::correct::CorrectionRule::Vocabulary { .. })
-            })
-            .count()
-            .try_into()
-            .unwrap_or(u64::MAX);
-        report.vocabulary_tokens = corrector.vocabulary_size().try_into().unwrap_or(u64::MAX);
-        report.corrector = corrector.name();
-        Ok(TextTrack::new(cues, None))
+        // Correction and the per-cue policy run under this phase's heading too: they are the rest
+        // of turning a matched glyph into a written cue, and a timing that stopped at the loop
+        // would hand the remainder to nobody.
+        tally.cost.read = started.elapsed();
+        Ok(read_cues)
     }
 }
 
@@ -656,6 +703,19 @@ fn line_shears(
             slant::line_shear(labels, &members).map(|shear| (line, (shear, pivot)))
         })
         .collect()
+}
+
+/// Everything a run accumulates besides the cues themselves.
+///
+/// Grouped for the same reason [`Stages`] is: these four travel together through every step that
+/// produces a cue, and threading them one by one put `build_track` over the argument limit as soon
+/// as #154 added a fifth thing to fill in. They are also the same *kind* of thing — the outputs of
+/// a run that are not the track.
+struct Tally<'a> {
+    report: &'a mut Report,
+    corrections: &'a mut Vec<CorrectionLog>,
+    unread: &'a mut Vec<UnreadGlyph>,
+    cost: &'a mut Cost,
 }
 
 /// The stage instances one run is assembled from.
