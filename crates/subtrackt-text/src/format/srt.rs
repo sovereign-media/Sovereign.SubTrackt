@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use subtrackt_core::{Error, Provenance, Result, TextTrack, Timestamp, TrackWriter};
+use subtrackt_core::{Provenance, Result, TextTrack, Timestamp, TrackWriter};
 
 /// Writes a track as `SubRip`.
 ///
@@ -18,46 +18,36 @@ pub struct SrtWriter {
     pub provenance: Option<Provenance>,
 }
 
+/// How `SubRip` spells the four things that differ between formats.
+const SPELLING: super::Spelling = super::Spelling {
+    // No header at all: the file starts at cue one.
+    header: |_, _| Ok(()),
+    // No comment syntax either, so a note is leading text. The blank line after it matters more
+    // than the note does: a parser scanning for its next cue resynchronises on it, and without one
+    // a lenient parser folds the note into cue one's dialogue and a viewer reads our version
+    // string as a line of the film.
+    note: |note, out| {
+        for line in &note.lines {
+            writeln!(out, "{line}")?;
+        }
+        writeln!(out)
+    },
+    numbered: true,
+    decimal: ',',
+    // Nothing on the timing line, and no markup in the text.
+    settings: |_, _| Ok(()),
+    escape: |text| std::borrow::Cow::Borrowed(text),
+};
+
 /// Format a timestamp as `HH:MM:SS,mmm`.
 #[must_use]
 pub fn format_timestamp(timestamp: Timestamp) -> String {
-    let (h, m, s, ms) = timestamp.hmsm();
-    format!("{h:02}:{m:02}:{s:02},{ms:03}")
+    super::timestamp(timestamp, ',')
 }
 
 impl TrackWriter for SrtWriter {
     fn write(&self, track: &TextTrack, out: &mut dyn Write) -> Result<()> {
-        let io = |e: std::io::Error| Error::io("<srt output>", e);
-
-        if let Some(note) = self.provenance.as_ref().filter(|n| !n.is_empty()) {
-            for line in &note.lines {
-                writeln!(out, "{line}").map_err(io)?;
-            }
-            // The blank line matters more than the note does. A parser that scans for its next
-            // cue resynchronises on it; without one, a lenient parser can fold the note into the
-            // first cue's text and a viewer reads our version string as dialogue.
-            writeln!(out).map_err(io)?;
-        }
-
-        // Empty cues are skipped rather than written as blank blocks, and the numbering counts
-        // what was written — a gap in SRT indices makes some players stop reading.
-        let mut index = 0;
-        for cue in track.cues.iter().filter(|c| !c.is_empty()) {
-            index += 1;
-            writeln!(out, "{index}").map_err(io)?;
-            writeln!(
-                out,
-                "{} --> {}",
-                format_timestamp(cue.span.start),
-                format_timestamp(cue.span.end)
-            )
-            .map_err(io)?;
-            for (index, line) in cue.lines.iter().enumerate() {
-                writeln!(out, "{}", super::tagged(line, cue.line_is_italic(index))).map_err(io)?;
-            }
-            writeln!(out).map_err(io)?;
-        }
-        Ok(())
+        super::write_track(track, &SPELLING, self.provenance.as_ref(), out, "<srt output>")
     }
 }
 

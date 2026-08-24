@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use subtrackt_core::{Error, Provenance, Result, TextTrack, Timestamp, TrackWriter};
+use subtrackt_core::{Provenance, Result, TextTrack, Timestamp, TrackWriter};
 
 /// Writes a track as `WebVTT`.
 ///
@@ -18,11 +18,42 @@ pub struct VttWriter {
     pub provenance: Option<Provenance>,
 }
 
+/// How `WebVTT` spells the four things that differ between formats.
+const SPELLING: super::Spelling = super::Spelling {
+    header: |track, out| {
+        writeln!(out, "WEBVTT")?;
+        if let Some(language) = &track.language {
+            writeln!(out, "Language: {language}")?;
+        }
+        writeln!(out)
+    },
+    // `NOTE` is part of the format, so this side needs no apology and no flag. The block runs from
+    // the keyword to the next blank line, which is why the note's own lines can carry no `-->` --
+    // `Provenance::new` takes that out.
+    note: |note, out| {
+        writeln!(out, "NOTE")?;
+        for line in &note.lines {
+            writeln!(out, "{line}")?;
+        }
+        writeln!(out)
+    },
+    numbered: false,
+    decimal: '.',
+    // Forced subtitles carry meaning a player can act on, so keep the distinction rather than
+    // flattening every cue into the same track.
+    settings: |cue, out| {
+        if cue.forced {
+            write!(out, " line:-1 align:center")?;
+        }
+        Ok(())
+    },
+    escape: |text| std::borrow::Cow::Owned(escape(text)),
+};
+
 /// Format a timestamp as `HH:MM:SS.mmm`.
 #[must_use]
 pub fn format_timestamp(timestamp: Timestamp) -> String {
-    let (h, m, s, ms) = timestamp.hmsm();
-    format!("{h:02}:{m:02}:{s:02}.{ms:03}")
+    super::timestamp(timestamp, '.')
 }
 
 /// Escape the three characters `WebVTT` treats as cue-text markup.
@@ -45,50 +76,7 @@ pub fn escape(text: &str) -> String {
 
 impl TrackWriter for VttWriter {
     fn write(&self, track: &TextTrack, out: &mut dyn Write) -> Result<()> {
-        let io = |e: std::io::Error| Error::io("<vtt output>", e);
-
-        writeln!(out, "WEBVTT").map_err(io)?;
-        if let Some(language) = &track.language {
-            writeln!(out, "Language: {language}").map_err(io)?;
-        }
-        writeln!(out).map_err(io)?;
-
-        // `NOTE` is part of WebVTT, so this side needs no apology and no flag to be safe. The block
-        // runs from the keyword to the next blank line, which is why the note's own lines can carry
-        // no `-->` — `Provenance::new` takes that out.
-        if let Some(note) = self.provenance.as_ref().filter(|n| !n.is_empty()) {
-            writeln!(out, "NOTE").map_err(io)?;
-            for line in &note.lines {
-                writeln!(out, "{line}").map_err(io)?;
-            }
-            writeln!(out).map_err(io)?;
-        }
-
-        for cue in track.cues.iter().filter(|c| !c.is_empty()) {
-            write!(
-                out,
-                "{} --> {}",
-                format_timestamp(cue.span.start),
-                format_timestamp(cue.span.end)
-            )
-            .map_err(io)?;
-            // Forced subtitles carry meaning a player can act on, so keep the distinction rather
-            // than flattening every cue into the same track.
-            if cue.forced {
-                write!(out, " line:-1 align:center").map_err(io)?;
-            }
-            writeln!(out).map_err(io)?;
-
-            // Escaped first and tagged second, so the tag survives and anything the text itself
-            // held that looks like markup does not become any.
-            for (index, line) in cue.lines.iter().enumerate() {
-                let escaped = escape(line);
-                writeln!(out, "{}", super::tagged(&escaped, cue.line_is_italic(index)))
-                    .map_err(io)?;
-            }
-            writeln!(out).map_err(io)?;
-        }
-        Ok(())
+        super::write_track(track, &SPELLING, self.provenance.as_ref(), out, "<vtt output>")
     }
 }
 
