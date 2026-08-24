@@ -127,6 +127,32 @@ pub enum Defusing {
     Off,
 }
 
+/// Where a line that cannot measure itself gets its scale.
+///
+/// #184. `metrics::anchors` refuses a line whose standing glyphs are all one height, because such a
+/// line cannot say whether that height is cap or x — `NO ONE SAW` and `no one saw` present
+/// identically. On King Kong that refusal is **420 of 451 unmeasured lines** and one glyph in
+/// seven, every one of them then matched with the only term that separates `o` from `O` switched
+/// off.
+///
+/// The line is not short of evidence about where it *sits*: its bottoms agreed on a baseline. It is
+/// short of a **scale**, and a scale is the one thing a subtitle track has in common from end to
+/// end, because a stream is authored once.
+///
+/// An enum rather than a `bool` for [`Defusing`]'s reason: **on** is the default and [`Config`]
+/// keeps its derived one. The default is a measurement — `docs/error-census.md` §"The scale a line
+/// cannot find in itself" has the bench table — and it is a weaker claim than [`Defusing`]'s: this
+/// can change a read rather than only recover an unread one, and it did, 9 times against 75 the
+/// other way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineScale {
+    /// Take the cap height the rest of the track is drawn at, and keep the line's own baseline.
+    #[default]
+    FromTheTrack,
+    /// Report unknown, and match the line's glyphs on shape alone.
+    FromTheLineAlone,
+}
+
 /// Whether an extracted file records what produced it.
 ///
 /// Three-valued rather than a `bool` because the honest answer differs by format, and #129 did not
@@ -183,6 +209,8 @@ pub struct Config {
     pub defuse: Defusing,
     /// How a component is offered up for cutting when [`Config::defuse`] is [`Defusing::On`].
     pub split: SplitRules,
+    /// Where a line whose glyphs are all one height gets the scale it cannot find in itself.
+    pub line_scale: LineScale,
     /// Glyph matching thresholds.
     pub matching: MatchThresholds,
     /// How the stream's own shapes are grouped before any is matched.

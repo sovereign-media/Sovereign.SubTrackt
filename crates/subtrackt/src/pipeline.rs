@@ -7,6 +7,7 @@
 //! testable before the expensive parts exist, and each stage can be dropped in without touching
 //! the others.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
@@ -26,7 +27,7 @@ use subtrackt_text::format::writer_with_provenance;
 use subtrackt_text::layout::SpatialAssembler;
 
 use crate::config::{Config, UnmatchedPolicy};
-use crate::report::{Cost, Report};
+use crate::report::{Cost, LineCensus, Report};
 
 /// The result of a run.
 #[derive(Debug, Clone)]
@@ -335,12 +336,25 @@ impl Pipeline {
         let mut done = 0u64;
         let started = Instant::now();
         progress.begin(Phase::Segment, Some(total));
+        let mut per_image_lines: Vec<Vec<LineResult>> = Vec::with_capacity(images.len());
         for image in images {
-            per_image.push(stages.segmenter.segment(image)?);
+            let (glyphs, lines) = stages.segmenter.segment_lines(image)?;
+            per_image.push(glyphs);
+            per_image_lines.push(lines);
             done += 1;
             progress.advance(done);
         }
         progress.end();
+        // A line that could not say which height its glyphs are, measured against a scale the rest
+        // of the track supplies. #184, and it has to happen here rather than inside segmentation
+        // because the scale is a property of the whole stream — the same reason `matcher.prepare`
+        // is a separate pass.
+        let borrowed = match self.config.line_scale {
+            crate::config::LineScale::FromTheTrack => {
+                borrow_a_track_scale(&mut per_image, &per_image_lines)
+            }
+            crate::config::LineScale::FromTheLineAlone => 0,
+        };
         tally.cost.segment = started.elapsed();
 
         let all_glyphs: Vec<subtrackt_core::Glyph> = per_image
@@ -361,6 +375,8 @@ impl Pipeline {
             2 * all_glyphs.len() as u64 * std::mem::size_of::<subtrackt_core::Glyph>() as u64;
         tally.report.distinct_shapes = stages.matcher.distinct_shapes();
         tally.report.clusters = stages.matcher.clusters();
+        tally.report.lines = stages.segmenter.lines();
+        tally.report.lines.borrowed_a_track_scale = borrowed;
         tally.report.glyphs_without_metrics = all_glyphs
             .iter()
             .filter(|g| !g.metrics.known)
@@ -783,9 +799,84 @@ struct Stages<'a> {
     assembler: &'a SpatialAssembler,
 }
 
+/// Measure the lines that could not measure themselves, against the scale the track is drawn at.
+///
+/// #184. `metrics::anchors` refuses a line whose glyphs are all one height, because such a line
+/// cannot say whether that height is cap or x — `NO ONE SAW` and `no one saw` present identically,
+/// and measuring either would make every glyph on the line read as a capital. On the worst PGS
+/// track of the bench that refusal is **93% of the unmeasured lines** and one glyph in seven, which
+/// is one glyph in seven matched with the only term that separates `o` from `O` switched off.
+///
+/// The ambiguity is real and it is not a property of the *track*. A line short of a scale can
+/// borrow one, and then its own height says which class it is: an all-capitals line comes out at
+/// about 100% of cap height and an all-lowercase line at about 70%, which is exactly the
+/// distinction the line alone could not draw.
+///
+/// Three things make this an approximation rather than a measurement, so `CLAUDE.md` §Failing
+/// applies: it is documented here, the scale is a mode of measured lines rather than a constant,
+/// and every line that takes one is **counted** in
+/// [`LineCensus::borrowed_a_track_scale`](crate::LineCensus::borrowed_a_track_scale) so a reader
+/// can tell a track measured from its own ink from one carrying a borrowed scale.
+///
+/// Only [`NoAnchors::OneHeight`] is reached. The other refusals are not short of a scale — a line
+/// of two glyphs, or one whose bottoms agree on no row, has no baseline either, and inventing one
+/// is the fabrication the guard exists to prevent.
+///
+/// Returns how many lines borrowed.
+fn borrow_a_track_scale(
+    per_image: &mut [Vec<subtrackt_core::Glyph>],
+    per_image_lines: &[Vec<LineResult>],
+) -> u64 {
+    use subtrackt_glyph::metrics::{self, LineAnchors, MetricRules, NoAnchors};
+
+    let measured: Vec<u32> = per_image_lines
+        .iter()
+        .flatten()
+        .filter_map(|line| line.ok())
+        .map(LineAnchors::cap_height)
+        .collect();
+    let Some(cap_height) = metrics::track_cap_height(&measured, MetricRules::default()) else {
+        return 0;
+    };
+
+    let mut borrowed = 0;
+    for (glyphs, lines) in per_image.iter_mut().zip(per_image_lines) {
+        for (index, line) in lines.iter().enumerate() {
+            let Err(NoAnchors::OneHeight { baseline, .. }) = line else {
+                continue;
+            };
+            // The line's own baseline, and only the scale from elsewhere. The baseline is the half
+            // of the estimate this line *did* answer — its bottoms agreed on a row — and taking
+            // that from another line as well would move every glyph on it.
+            let anchors = LineAnchors {
+                baseline: *baseline,
+                cap_top: baseline.saturating_sub(cap_height),
+            };
+            if anchors.cap_height() == 0 {
+                continue;
+            }
+            let mut touched = false;
+            for glyph in glyphs.iter_mut().filter(|g| g.line == index) {
+                glyph.metrics = metrics::measure(glyph.bounds, anchors);
+                touched = true;
+            }
+            if touched {
+                borrowed += 1;
+            }
+        }
+    }
+    borrowed
+}
+
+/// What one line's anchors came out as: found, or the rule that refused them.
+pub(crate) type LineResult =
+    std::result::Result<subtrackt_glyph::metrics::LineAnchors, subtrackt_glyph::metrics::NoAnchors>;
+
 /// Binarize, label, group and vectorize — the [`Segmenter`] side of `subtrackt-glyph`.
 pub(crate) struct ImageSegmenter {
     binarizer: Binarizer,
+    /// What the line-metrics estimate did, accumulated over the pass. #184.
+    lines: Cell<LineCensus>,
     /// Whether the feature vector reads ink coverage rather than the binary mask.
     grey_coverage: bool,
     /// Whether to sample a leaning line's glyphs along its own slant.
@@ -804,7 +895,49 @@ pub(crate) struct ImageSegmenter {
 
 impl ImageSegmenter {
     pub(crate) const fn new(binarizer: Binarizer, grey_coverage: bool, deskew: bool) -> Self {
-        Self { binarizer, grey_coverage, deskew }
+        Self {
+            binarizer,
+            grey_coverage,
+            deskew,
+            lines: Cell::new(LineCensus::EMPTY),
+        }
+    }
+
+    /// What the line-metrics estimate has done so far this pass.
+    pub(crate) fn lines(&self) -> LineCensus {
+        self.lines.get()
+    }
+
+    /// Fold one image's line results into the running census.
+    ///
+    /// A `Cell` rather than a return value because [`Segmenter::segment`] hands back glyphs and
+    /// nothing else, and widening a stage trait to carry a diagnostic would put a counter in the
+    /// contract every implementation has to honour. The pass is sequential — one image at a time,
+    /// in `read_stream` — so there is nothing here to share.
+    fn record_lines(&self, lines: &[LineResult]) {
+        use subtrackt_glyph::metrics::NoAnchors;
+
+        let mut census = self.lines.get();
+        let any_measured = lines.iter().any(Result::is_ok);
+        for line in lines {
+            match line {
+                Ok(_) => census.measured += 1,
+                Err(reason) => {
+                    match reason {
+                        NoAnchors::TooFewGlyphs => census.too_few_glyphs += 1,
+                        NoAnchors::FlatBand => census.flat_band += 1,
+                        NoAnchors::NoBaseline => census.no_baseline += 1,
+                        NoAnchors::NothingOnTheBaseline => census.nothing_on_the_baseline += 1,
+                        NoAnchors::OneHeight { .. } => census.one_height += 1,
+                        NoAnchors::NoCapLine => census.no_cap_line += 1,
+                    }
+                    if any_measured {
+                        census.refused_with_a_measured_sibling += 1;
+                    }
+                }
+            }
+        }
+        self.lines.set(census);
     }
 
     /// The foreground mask for an image.
@@ -833,8 +966,23 @@ impl ImageSegmenter {
         image: &SubtitleImage,
     ) -> Result<(Vec<subtrackt_core::Glyph>, BinaryMask)> {
         let mask = self.mask(image);
-        let glyphs = self.segment_from(image, &mask)?;
+        let (glyphs, _) = self.segment_from(image, &mask)?;
         Ok((glyphs, mask))
+    }
+
+    /// Segment an image, and hand back what each of its lines could be measured against.
+    ///
+    /// Kept off the [`Segmenter`] trait for the reason [`Self::segment_with_mask`] gives: the trait
+    /// is the stage contract, and this is the extra a *whole-stream* caller needs. #184 is why
+    /// there is one — a line that refused for having only one height can be measured after the
+    /// fact, against a scale the rest of the track supplies, and by then the band and the grouping
+    /// that produced it are gone.
+    pub(crate) fn segment_lines(
+        &self,
+        image: &SubtitleImage,
+    ) -> Result<(Vec<subtrackt_core::Glyph>, Vec<LineResult>)> {
+        let mask = self.mask(image);
+        self.segment_from(image, &mask)
     }
 
     /// The body of both entry points, over a mask the caller owns.
@@ -842,7 +990,7 @@ impl ImageSegmenter {
         &self,
         image: &SubtitleImage,
         mask: &BinaryMask,
-    ) -> Result<Vec<subtrackt_core::Glyph>> {
+    ) -> Result<(Vec<subtrackt_core::Glyph>, Vec<LineResult>)> {
         use subtrackt_glyph::ccl::{self, ComponentFilter};
         use subtrackt_glyph::feature::{self, AspectPolicy};
         use subtrackt_glyph::group::{self, GroupingRules};
@@ -865,7 +1013,19 @@ impl ImageSegmenter {
 
         // Where each glyph stands in its line, which the feature vector cannot express and which is
         // the only thing separating `o` from `O`. Measured per line, from that line's own ink.
-        let measured = metrics::measure_all(&bands, &grouped, MetricRules::default());
+        let lines = metrics::measure_lines(&bands, &grouped, MetricRules::default());
+        self.record_lines(&lines);
+        let measured: Vec<subtrackt_core::LineMetrics> = grouped
+            .iter()
+            .map(|glyph| {
+                lines
+                    .get(glyph.line)
+                    .and_then(|line| line.ok())
+                    .map_or(subtrackt_core::LineMetrics::UNKNOWN, |a| {
+                        metrics::measure(glyph.bounds(), a)
+                    })
+            })
+            .collect();
 
         // How far each line leans, and therefore where its glyphs' ink would stand if it did not.
         // Per line rather than per glyph because that is the unit slant belongs to: `A`, `V` and
@@ -956,14 +1116,15 @@ impl ImageSegmenter {
                         }),
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>>>()
+            .map(|glyphs| (glyphs, lines))
     }
 }
 
 impl Segmenter for ImageSegmenter {
     fn segment(&self, image: &SubtitleImage) -> Result<Vec<subtrackt_core::Glyph>> {
         let mask = self.mask(image);
-        self.segment_from(image, &mask)
+        self.segment_from(image, &mask).map(|(glyphs, _)| glyphs)
     }
 
     fn binarize(&self, image: &SubtitleImage) -> Result<subtrackt_core::IndexedBitmap> {

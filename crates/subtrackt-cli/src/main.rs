@@ -149,6 +149,25 @@ fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()
         // different questions, anything parsing the summary is parsing the first line, and #154
         // added this without moving a character of what was already there.
         ui.plain(outcome.cost);
+        // A third line, on the same argument as the second: `unmeasured lines 14%` names a
+        // consequence and nothing named the cause. #184 — six guards in `metrics::anchors` all
+        // reported the same nothing, and they want opposite work, so the counts are what decide
+        // which is worth doing.
+        let lines = outcome.report.lines;
+        if lines.refused() > 0 {
+            let reasons: Vec<String> = lines
+                .reasons()
+                .iter()
+                .map(|(name, count)| format!("{name} {count}"))
+                .collect();
+            ui.plain(format_args!(
+                "lines {} measured / {} refused ({}); {} took the track's scale",
+                lines.measured,
+                lines.refused(),
+                reasons.join(", "),
+                lines.borrowed_a_track_scale,
+            ));
+        }
         for correction in &outcome.corrections {
             ui.plain(format_args!("  {correction}"));
         }

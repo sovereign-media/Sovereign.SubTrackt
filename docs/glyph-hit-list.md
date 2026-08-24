@@ -150,7 +150,14 @@ rest moves: it is transcript divergence rather than misreading, and one title su
    a fifth of Gone Girl's `l` population is glyphs several times too wide. #106's de-fusing fires
    only where the matcher already returned *unmatched*, so a fusion that matches something is
    invisible to it — which is exactly this case, since a fused `l` matches `I`.
-3. **Unmeasured lines on King Kong**, 14%, now visible.
+3. ~~**Unmeasured lines on King Kong**, 14%, now visible.~~ **Named, and 93% of it is one rule.**
+   #184 gave the six refusals names and counted them: 420 of King Kong's 451 unmeasured lines are
+   the height-variety guard, which is the all-capitals SDH line. Such a line has a baseline and no
+   *scale*, and the scale is the one thing a track has from end to end — so it borrows the cap
+   height the rest of the track is drawn at, and the counter reads 0%. `docs/error-census.md`
+   §"The scale a line cannot find in itself" has the table. **The gain did not land here**: King
+   Kong's 21.3% is 2,404 insertions against 147 substitutions, so the disc with the worst counter
+   had the least scored headroom on the bench, and Training Day took 3.1% to 2.8% instead.
 4. **Case pairs, 811 errors**, near their floor.
 
 Two of #118's three total failures are fixed — `:` by [#130] and `"` and `♪` by [#168]. This file is
