@@ -263,7 +263,8 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
 | `--defuse` / `--no-defuse` | on | Retry a component the matcher cannot read as two characters that touched. |
 | `--post-correct` / `--no-post-correct` | off | Resolve ambiguous reads from surrounding characters. |
 | `--track-vocabulary` / `--no-track-vocabulary` | off | Also resolve word-edge glyphs from words the same track read clearly. Needs `--post-correct`. |
-| `--lone-words` / `--no-lone-words` | off | Also read a one-character word of `l` as `I`. Needs `--post-correct`, and assumes English. |
+| `--lone-words` / `--no-lone-words` | off | Also read a one-character word of `l` as `I`. Needs `--post-correct`. Crosses an apostrophe only where the container says the track is English. |
+| `--assume-english` | off | Assert the track is English for the rules that need to know. The container is asked first. |
 | `--vocab-min-occurrences <N>` | library default | How often a word must be read clearly before it counts as evidence. |
 | `--vocab-min-len <N>` | library default | Shortest word the vocabulary arm may correct. |
 | `--vocab-prefix` / `--no-vocab-prefix` | on | Let a candidate match the *start* of a clear word, so `look` is supported by a clear `looking`. |
@@ -513,14 +514,21 @@ which the context rule cannot reach because it needs a clear character on *both*
 another nine characters in twenty-four thousand when #60 measured it; on the three discs today it
 fires **not once**, because the glyphs it fed on are no longer ambiguous.
 
-**A third arm, and the only one that knows a language.** `--lone-words` reads a one-character word
-of `l` as `I`, because four fifths of the largest confusion family left is the English pronoun — a
-position neither other arm can reach, since a one-letter word has no context on either side and no
-track ever reads one *clearly*. It is worth **395 cues across the bench and none made worse**, and
-takes A Fish Called Wanda from 1.7% to 1.1% CER. It is off by default and will stay off: every other
-rule here is checkable against the line it fires on and this one rests on a language, measured
-across 77 release subtitles rather than asserted. [`post-correction.md`](docs/post-correction.md)
-§"The one-character word" has the whole of it.
+**A third arm.** `--lone-words` reads a one-character word of `l` as `I`, because four fifths of the
+largest confusion family left is the English pronoun — a position neither other arm can reach, since
+a one-letter word has no context on either side and no track ever reads one *clearly*. It is worth
+**371 cues across the bench and none made worse**, and takes A Fish Called Wanda from 1.7% to 1.1%
+CER.
+
+It has two halves and they need different things. The bare rule turned out not to be English at all:
+run over French, Italian, Spanish and Portuguese tracks it fires seven times, all seven on Italian,
+and all seven are right — Italian's one-letter article is `i`, and `I` is the letter it wanted.
+Crossing an apostrophe *is* English, and cannot be made safe by any rule about what follows it:
+`l'ai`, `l'ho` and `l'un` are the same one and two letters as `I'm` and `I'd`. So that half runs only
+where the container declares English or names it in the track title — which, it turns out, **is the
+track a muxer most often leaves untagged**. Both halves are off by default.
+[`post-correction.md`](docs/post-correction.md) §"The one-character word" and §"Which language is
+this" have the whole of it.
 
 **Format coverage.** Matroska, MPEG-TS (`.ts`/`.m2ts`/`.mts`), raw `.sup` and VOBSUB `.idx`/`.sub`.
 MP4 returns `Unsupported` naming [#86](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/86) rather

@@ -185,6 +185,10 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "lone_words")]
     pub no_lone_words: bool,
 
+    /// Assert the track is English, for the rules that need to know. The container is asked first.
+    #[arg(long)]
+    pub assume_english: bool,
+
     /// How many times a word must be read clearly before it counts as evidence.
     #[arg(long, default_value_t = VocabularyRules::default().min_occurrences)]
     pub vocab_min_occurrences: usize,
@@ -487,6 +491,7 @@ impl ExtractArgs {
             post_correct: self.post_correct(),
             track_vocabulary: self.track_vocabulary(),
             lone_words: self.lone_words(),
+            assume_english: self.assume_english,
             provenance: self.provenance(),
             vocabulary: VocabularyRules {
                 min_occurrences: self.vocab_min_occurrences,

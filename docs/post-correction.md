@@ -340,7 +340,12 @@ something observed rather than imagined:
 | :--- | :--- |
 | Only `l` and `\|`, never `1` | A lone digit is a legitimate token — `Chapter 1` |
 | A lone twin from the same set anywhere on the line | A shattered word, and a line *about* the letters |
-| An apostrophe carries at most two letters | `l'` before a longer word is a French elision |
+| An apostrophe needs a separate switch | `l'ai` and `l'ho` are ordinary French and Italian |
+
+The last of those was a tail-length rule when #171 landed — an apostrophe could carry at most two
+letters, on the reasoning that `I'm` and `I've` are short and `l'amour` is not. **#180 measured it
+and it does not work**, because `l'a`, `l'ai`, `l'an`, `l'as`, `l'un`, `l'ho` and `l'ha` are all one
+or two letters too. §"Which language is this" has what that cost and what replaced it.
 
 The middle one earned its place twice. `Well,` arrives from segmentation as `We l l ,` on
 10 Cloverfield Lane and each half looks exactly like a pronoun — the same upstream-evidence problem
@@ -351,17 +356,20 @@ of the confusion set standing alone on the line.
 
 ### Result
 
-On the bench, against `--post-correct` rather than against nothing, so the arm is priced on its own:
+On the bench, against `--post-correct` rather than against nothing, so the arm is priced on its own.
+**Read from the containers rather than from the dump cache**, because a `.sup` is a codec dump with
+no container around it and carries neither a language tag nor a title — so the gate described below
+can never see one, and the bench's own cache cannot measure this:
 
-| track | cues improved | **cues worse** | CER |
-| :--- | ---: | ---: | ---: |
-| 10 Cloverfield Lane | 3 | **0** | 0.4% → 0.4% |
-| Gone Girl | 104 | **0** | 1.5% → **1.3%** |
-| A Fish Called Wanda | 269 | **0** | 1.7% → **1.1%** |
-| King Kong | 19 | **0** | 21.3% → 21.2% |
-| The Karate Kid (VOBSUB) | 0 | **0** | 1.8% → 1.8% |
-| Training Day (VOBSUB) | 0 | **0** | 2.2% → 2.2% |
-| **total** | **395** | **0** | |
+| track | what the container says | bare | apostrophe | cues improved | **cues worse** | CER |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| 10 Cloverfield Lane | `eng`, `English` | 2 | 1 | 3 | **0** | 0.4% → 0.4% |
+| Gone Girl | *nothing* | 85 | 0 | 80 | **0** | 1.5% → **1.4%** |
+| A Fish Called Wanda | `English (SDH)` | 185 | 117 | 269 | **0** | 1.7% → **1.1%** |
+| King Kong | `English SDH` | 6 | 16 | 19 | **0** | 21.3% → 21.2% |
+| The Karate Kid (VOBSUB) | *nothing* | 0 | 0 | 0 | **0** | 1.8% → 1.8% |
+| Training Day (VOBSUB) | *nothing* | 0 | 0 | 0 | **0** | 2.2% → 2.2% |
+| **total** | | **278** | **134** | **371** | **0** | |
 
 And nothing at all on the ceiling fixture: 0.0% CER before and after, zero substitutions, zero lines
 moved. The guard is doing its job on the one line that could have gone wrong.
@@ -372,6 +380,89 @@ which is word-*initial* `l` read as `I` inside a longer word. That is what the c
 reaches: switching the whole stage on is worth **228 and 301 cues** on those two, against 11 across
 every PGS track on the bench. The two codecs fail at opposite ends of the same word, and each has an
 arm that reaches one of them.
+
+## Which language is this
+
+#180. The arm above landed asserting English and unable to check, which is the objection this whole
+document raises against a dictionary. Two things came out of checking.
+
+### The apostrophe half is wrong outside English, and the tail length cannot save it
+
+The bench discs carry the counter-case already. The Prestige declares French, Italian, Spanish and
+Portuguese bitmap tracks beside its English one; Airplane! declares French and Italian. Run
+ungated over all six:
+
+| track | bare firings | apostrophe firings |
+| :--- | ---: | ---: |
+| The Prestige, French | 0 | **30** |
+| The Prestige, Italian | 0 | **17** |
+| The Prestige, Spanish | 0 | 0 |
+| The Prestige, Portuguese | 0 | 0 |
+| Airplane!, French | 0 | **2** |
+| Airplane!, Italian | 7 | **2** |
+| **total** | **7** | **51** |
+
+**Every one of the 51 is a defect** — `l'ai` → `I'ai`, `l'an` → `I'an`, `l'ho` → `I'ho`, `l'ha` →
+`I'ha`, `l'un` → `I'un`. The guard that was supposed to prevent this allowed a tail of up to two
+letters, on the reasoning that `I'm`, `I've`, `I'll` and `I'd` are short and an elision is long.
+The measurement says otherwise: French elides onto the whole of *avoir* and Italian onto *avere*,
+so the two languages occupy **exactly** the one and two letters English does. No rule about the
+tail separates them. The half needs the language, and there is nothing to be clever about.
+
+### The bare half needs no language at all, and that is the surprise
+
+**Seven firings across six non-English tracks, and all seven are right.** They are all Italian, and
+all of the same shape:
+
+```
+l piloti sono probabilmente troppo   ->   I piloti sono probabilmente troppo
+- l bambini a letto alle 9,          ->   - I bambini a letto alle 9,
+l giubbotti di salvataggio sono      ->   I giubbotti di salvataggio sono
+```
+
+Italian's masculine plural article *is* a one-letter word, `i`, and it capitalises at the start of a
+sentence — so where a lone letter is a word in one of these four languages, **the letter it is is
+the one this rule produces.** French, Spanish and Portuguese fired not once. So the bare rule is not
+an English rule: it says a lone lowercase `l` is not a word in Latin script, and four more languages
+now say so too.
+
+That is a stronger claim than #171 made and it is the reason the two halves are separate switches
+rather than one.
+
+### What the container will tell you, and what it will not
+
+`StreamInfo` has carried a language tag and a title since the Matroska reader landed, and until now
+**nothing in the pipeline read either**. Over the 50-title corpus sample, on the track this pipeline
+chooses:
+
+| signal | titles | reaching |
+| :--- | ---: | ---: |
+| declares a language tag of `eng` | 21 | 42% |
+| title names English, tag says nothing | 14 | 70% cumulative |
+| untagged, but a sibling track carries a real foreign tag | 11 | 92% cumulative |
+| nothing at all | 4 | |
+
+**The English track is the one the muxer leaves untagged**, which is the opposite of the obvious
+guess and is why the title has to be read. A Fish Called Wanda, King Kong, The Prestige and
+Airplane! all label every foreign track and leave the English one blank; three of the four still say
+`English` or `English (SDH)` in the title, and reading only the tag would have switched the
+contraction rule off for 133 of the 134 apostrophe fixes it makes on the bench.
+
+The four with nothing at all are all single-track files whose title is a format marker rather than a
+language — `SDH`, `PGS`, `SHD`.
+
+**The third signal is measured and deliberately not used.** On a file that tags `chi`, `dan` and
+`est` and leaves one track blank, the blank one is the English one, and on all ten corpus titles
+where only that signal fires the track scores between 1.4% and 26.2% against an English sidecar — so
+it is right every time it was checkable. It stays out of the gate anyway, because the check is
+circular: **the corpus sample was drawn from titles carrying an English sidecar, so it contains no
+foreign track and cannot falsify anything.** And the failure it invites is real rather than
+theoretical — a rip of a French film with its French track untagged and its German one labelled has
+exactly the shape the inference reads as English. Signal three costs Gone Girl 24 cues on the bench;
+that is what declining to guess is worth here.
+
+`--assume-english` is the escape hatch for the 15 titles in 50 that say nothing. It asserts; it does
+not detect, and it is the caller's assertion rather than the tool's.
 
 ### The stage, priced separately
 
@@ -410,13 +501,13 @@ on one film is an existence proof, and the two new failure modes it introduces �
 case-folds onto a common word, and a single clear occurrence that was itself a misread — are both
 unobserved rather than ruled out.
 
-`Config::lone_words` stays `false` for a reason none of the others has. **It knows a language**, and
-every other rule in this pipeline is checkable against the material it fires on. 395 cues improved
-and none made worse is a strong measurement and it is still a measurement of English discs: a track
-in a language where a lone `l` *is* a word, or where `l'` elision is ordinary, would be damaged by
-it and nothing in the tool can tell which language a bitmap is in. That is the argument for keeping
-it behind a flag, not for leaving it unbuilt — the errors it fixes are four fifths of the largest
-confusion family this project has measured.
+`Config::lone_words` stays `false`, and #180 changed why. It was "the arm knows a language and
+cannot check"; the arm now checks, and its bare half turned out not to need a language at all.
+What is left is narrower and still real: 371 cues improved and none made worse is a measurement over
+six tracks of one library, the contraction half rests on a container label that is absent on 30% of
+files, and `--assume-english` is a caller's assertion that nothing verifies. The criterion this
+document has always named — the same table over real tracks with hand-verified ground truth — is
+still the one that would move it.
 
 So `Config::post_correct` stays `false` and `subtrackt extract` defaults to off. Both flags work —
 `--post-correct` and `--no-post-correct`, last one on the line wins — so pinning either behaviour

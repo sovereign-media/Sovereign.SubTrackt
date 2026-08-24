@@ -216,6 +216,17 @@ pub struct Config {
     /// `docs/post-correction.md` §"The one-character word" has the rest, including what a French
     /// track would do to it.
     pub lone_words: bool,
+    /// Assert that the track is English, whatever the container says.
+    ///
+    /// Only [`Self::lone_words`]'s contraction half reads this, and only because the container so
+    /// often says nothing: 15 of the 50 corpus titles carry neither a language tag nor a title
+    /// naming one. Without an override those tracks lose a third of what the arm can do, on the
+    /// absence of a label rather than on any evidence about the text.
+    ///
+    /// A blunt flag rather than a language tag because [`Config`] is `Copy` and a `String` would
+    /// end that, and because one consumer does not justify a vocabulary of tags. It asserts; it
+    /// does not detect.
+    pub assume_english: bool,
     /// How that vocabulary is built and consulted.
     pub vocabulary: VocabularyRules,
     /// Whether a survey keeps each glyph's un-normalised ink alongside its feature vector.
