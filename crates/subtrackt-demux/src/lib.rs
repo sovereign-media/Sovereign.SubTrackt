@@ -12,6 +12,7 @@
 pub mod container;
 pub mod idx;
 pub mod matroska;
+pub mod mpegts;
 pub mod sup;
 
 use std::path::{Path, PathBuf};
@@ -106,9 +107,8 @@ pub fn open(path: impl AsRef<Path>) -> Result<Box<dyn SubtitleSource>> {
         "sup" => Ok(Box::new(sup::SupReader::open(path)?)),
         "idx" | "sub" => Ok(Box::new(idx::IdxReader::open(path)?)),
         "mkv" | "mka" | "webm" => Ok(Box::new(matroska::MatroskaReader::open(path)?)),
-        "mp4" | "m4v" | "ts" | "m2ts" | "mts" => {
-            Ok(Box::new(container::ContainerReader::open(path)?))
-        }
+        "ts" | "m2ts" | "mts" => Ok(Box::new(mpegts::MpegTsReader::open(path)?)),
+        "mp4" | "m4v" => Ok(Box::new(container::ContainerReader::open(path)?)),
         "" => Err(Error::Demux(format!(
             "{} has no extension to dispatch on",
             path.display()

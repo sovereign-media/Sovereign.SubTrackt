@@ -35,7 +35,7 @@ fan with `subtrackt-core` at the hub. That is what lets an unimplemented stage b
 | Crate | Contains |
 | :--- | :--- |
 | `subtrackt-core` | Types every stage speaks: `Timestamp`, `IndexedBitmap`, `Palette`, `FeatureVector`, `Cue`, `Confidence`, `Error`, and the stage traits |
-| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, native Matroska reader; MP4 and MPEG-TS are stubs |
+| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, native Matroska reader, native MPEG-TS reader; MP4 is a stub |
 | `subtrackt-decode` | PGS and VOBSUB packet decoders |
 | `subtrackt-glyph` | Binarization, connected components, diacritic grouping, feature vectoring, the reference set, the matcher and the session cache |
 | `subtrackt-text` | Layout reconstruction, post-correction, SRT and WebVTT writers |
@@ -123,7 +123,7 @@ Complete and tested:
   the moment the set carries an italic cut. [italic-slant.md](italic-slant.md).
 - Colour, a spinner and a progress bar on stderr, all off when stderr is not a terminal.
 
-Stubbed, returning `Error::Unsupported` naming its issue: MP4 and MPEG-TS demuxing (#86, and see
+Stubbed, returning `Error::Unsupported` naming its issue: MP4 demuxing (#86 landed MPEG-TS, and see
 below). Nothing else is a stub — the empty reference set is a decision, not a placeholder.
 
 ### What the library actually contains
@@ -132,7 +132,7 @@ A survey of the 1,328 titles carrying bitmap subtitles, which settled several op
 
 | Question | Answer |
 | :--- | :--- |
-| Container | **1,326 Matroska**, one `.m2ts`, one `.iso`. A native parser covers 99.8%; `ffmpeg-next` would buy 0.2% |
+| Container | **1,326 Matroska**, one `.m2ts`, one `.iso`. Native parsers now read both of the first two, 99.92%; `ffmpeg-next` would have bought 0.08% |
 | Codec | 1,268 titles PGS, 60 VOBSUB (4%). PGS was the right thing to build first |
 | Compression | **83% of PGS tracks are zlib-compressed** inside Matroska. Not a corner case |
 | Worst-case track count | **70 tracks** in one file, not the 37 #1 assumed. 11 files exceed 37; 6,044 bitmap tracks in total |
