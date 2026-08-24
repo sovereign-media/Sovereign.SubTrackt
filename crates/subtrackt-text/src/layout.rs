@@ -106,8 +106,9 @@ pub struct LayoutRules {
     /// median of the gaps *below* the cut asks the same question of a population that word gaps
     /// cannot contaminate.
     ///
-    /// A line failing either test gets **no spaces**, not a guess — the same choice
-    /// `LineMetrics::UNKNOWN` makes, and for the same reason.
+    /// A line where **no** candidate clears both tests gets no spaces, not a guess — the same choice
+    /// `LineMetrics::UNKNOWN` makes, and for the same reason. See [`split_threshold`] for why that
+    /// is now a statement about the whole ranking rather than about its first entry.
     pub split_min_cluster_percent: u32,
     /// A gap wider than this multiple of the line's median inter-glyph gap, in percent, is a space.
     pub space_gap_percent: u32,
@@ -411,6 +412,30 @@ fn repeated_mark_gaps(line: &[(&Glyph, GlyphMatch)]) -> Vec<bool> {
 /// splitting criterion will still find *a* split in it, and reporting one would insert a space into
 /// the middle of a word. Saying nothing leaves the word intact.
 ///
+/// **Every candidate cut is tried, best-separated first, and the first decisive one wins.** #143
+/// settled that against the opposite reading, which this function used to state: that the failure
+/// of the best candidate is the strongest evidence available that there is nothing on the line.
+///
+/// It is not, and the reason is that **the bar does not move**. The argument for stopping was that
+/// the second-best jump is by construction a worse-separated one, so walking would offer
+/// progressively weaker evidence until something cleared the bar. True about separation, and the
+/// two decisiveness tests are not about separation — they are absolute ratios, against the line's
+/// median glyph width and against the low cluster's median gap. A cut either clears them or it does
+/// not. Ranking decides the *order* candidates are tried in; the guards decide *admission*, and
+/// they are unchanged. So a less-well-separated cut that still clears both yardsticks is a real
+/// word gap that the best-separated cut happened to sit beside.
+///
+/// #134's line is that case exactly. Its widest jump lands under an ellipsis and clears neither
+/// yardstick, and the line came back as `Hewasoneofthosemenwho...` — every one of its six real word
+/// gaps thrown away because the *first* candidate was the wrong one. The next candidate is 15, and
+/// all six are above it.
+///
+/// Measured on the seven-track bench: **16 cues better, 2 worse**. Both of the two are Airplane!'s
+/// SDH track reading `MAN ON INTERCOM:` where the release sidecar writes `MAN:` — the extraction
+/// became *more* correct and scored worse against a sidecar of a different convention, which is the
+/// hazard `CLAUDE.md` records against The Prestige. No line anywhere on the bench gained a space it
+/// should not have; the improvements are lines that previously came back with no spaces at all.
+///
 /// **`gaps` and `glyph_width` must be in the same unit**, and the function does not care which one.
 /// Both decisiveness tests are ratios between two quantities the caller supplies, so pixels work
 /// and so do the tenths of a pixel [`SpatialAssembler`] hands it — which is the resolution #121
@@ -428,59 +453,46 @@ pub fn split_threshold(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Op
     let mut sorted = gaps.to_vec();
     sorted.sort_unstable();
 
-    let cut = match rules.spacing {
-        SpacingRule::OtsuSplit => otsu_cut(&sorted),
-        _ => widest_jump_cut(&sorted),
-    }?;
-    let threshold = sorted[cut + 1];
-
-    // Both decisiveness tests, against two different yardsticks. Either one alone admits a split
-    // that is not there; see the field documentation for which case each of them catches.
-    //
-    // A failure here still means no spaces on the line, and that is deliberate. #134 tried walking
-    // on to the next-widest candidate instead, and it invented spaces -- `18th-century` became
-    // `1 8th-century` -- because a line that holds no word break still has jumps in it, and the
-    // second-best jump is by construction a worse-separated one. The failure of the best candidate
-    // is the strongest evidence available that there is nothing there.
-    let cluster = median_of_sorted(&sorted[..=cut]).max(1);
-    let decisive = threshold * 100 >= rules.split_min_width_percent * glyph_width
-        && threshold * 100 >= rules.split_min_cluster_percent * cluster;
-    decisive.then_some(threshold)
-}
-
-/// The cut with the widest jump between consecutive sorted gaps, ties going to the **lower** cut.
-///
-/// One cut rather than a ranking, and the difference is the whole of #134. This used to build and
-/// sort every candidate so the caller could take the first, which reads as a ranking someone might
-/// walk down — and #134 tried exactly that. It invented spaces: `18th-century` became
-/// `1 8th-century`, because a line that holds no word break still has jumps in it and the
-/// second-best jump is by construction a worse-separated one. The failure of the best candidate is
-/// the strongest evidence available that there is nothing there, so the ranking was never a
-/// feature waiting to be used. Equal neighbouring values are skipped, as they are in [`otsu_cut`]:
-/// a boundary drawn through two identical gaps would put the same measurement on both sides of it.
-fn widest_jump_cut(sorted: &[u32]) -> Option<usize> {
-    let mut best: Option<(u32, usize)> = None;
-    for index in 0..sorted.len() - 1 {
-        if sorted[index + 1] <= sorted[index] {
-            continue;
-        }
-        let jump = sorted[index + 1] - sorted[index];
-        // Strictly wider, so an equal jump leaves the earlier cut standing -- which is what puts
-        // `fox jumps` on the far side of the boundary on the fixture's longest line.
-        if best.is_none_or(|(widest, _)| jump > widest) {
-            best = Some((jump, index));
+    for cut in ranked_cuts(&sorted, rules.spacing) {
+        let threshold = sorted[cut + 1];
+        let cluster = median_of_sorted(&sorted[..=cut]).max(1);
+        if threshold * 100 >= rules.split_min_width_percent * glyph_width
+            && threshold * 100 >= rules.split_min_cluster_percent * cluster
+        {
+            return Some(threshold);
         }
     }
-    best.map(|(_, index)| index)
+    None
 }
 
-/// The cut maximising Otsu's between-class variance, ties going to the lower cut.
-fn otsu_cut(sorted: &[u32]) -> Option<usize> {
+/// Every cut worth trying, best separated first, ties going to the **lower** cut.
+///
+/// Equal neighbouring values never make a cut: a boundary drawn through two identical gaps would
+/// put the same measurement on both sides of it.
+fn ranked_cuts(sorted: &[u32], rule: SpacingRule) -> Vec<usize> {
+    let mut scored: Vec<(f64, usize)> = match rule {
+        SpacingRule::OtsuSplit => otsu_scores(sorted),
+        _ => jump_scores(sorted),
+    };
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    scored.into_iter().map(|(_, index)| index).collect()
+}
+
+/// Each cut scored by the width of the jump across it.
+fn jump_scores(sorted: &[u32]) -> Vec<(f64, usize)> {
+    (0..sorted.len() - 1)
+        .filter(|index| sorted[index + 1] > sorted[*index])
+        .map(|index| (f64::from(sorted[index + 1] - sorted[index]), index))
+        .collect()
+}
+
+/// Each cut scored by Otsu's between-class variance.
+fn otsu_scores(sorted: &[u32]) -> Vec<(f64, usize)> {
     let total: f64 = sorted.iter().map(|gap| f64::from(*gap)).sum();
     #[allow(clippy::cast_precision_loss)]
     let count = sorted.len() as f64;
     let mut low_sum = 0.0;
-    let mut best: Option<(f64, usize)> = None;
+    let mut scored = Vec::new();
     for index in 0..sorted.len() - 1 {
         low_sum += f64::from(sorted[index]);
         if sorted[index] == sorted[index + 1] {
@@ -490,12 +502,9 @@ fn otsu_cut(sorted: &[u32]) -> Option<usize> {
         let low_count = (index + 1) as f64;
         let high_count = count - low_count;
         let separation = low_sum / low_count - (total - low_sum) / high_count;
-        let variance = low_count * high_count * separation * separation;
-        if best.is_none_or(|(highest, _)| variance > highest) {
-            best = Some((variance, index));
-        }
+        scored.push((low_count * high_count * separation * separation, index));
     }
-    best.map(|(_, index)| index)
+    scored
 }
 
 impl TextAssembler for SpatialAssembler {
@@ -784,11 +793,30 @@ mod tests {
             );
         }
 
-        // Without the exclusion the line loses every space, which is the bug as it shipped.
+        // Without the exclusion the line *used* to lose every space, which was the bug as it
+        // shipped. It does not any more, and that is #143 rather than a weakening of this test:
+        // the candidate walk reaches the same six gaps from the other side. The best cut is still
+        // the one under the ellipsis and still fails both yardsticks; the walk then tries the next
+        // and finds 15, which is the cut the exclusion arrives at by removing the ellipsis from
+        // the distribution instead.
+        //
+        // Two independent fixes for one failure, which is worth having: the exclusion is right
+        // about what the gaps *are* -- three full stops are one token, and their spacing is a
+        // property of the typeface -- and the walk is right about what a failed candidate means.
+        // Neither makes the other unnecessary, because the exclusion also moves the threshold and
+        // the low cluster's median that the guards are measured against.
         let none = vec![false; ELLIPSIS_LINE.len()];
         let breaks =
             word_breaks(&ELLIPSIS_LINE, &none, ELLIPSIS_LINE_WIDTH, LayoutRules::default());
-        assert!(!breaks.iter().any(|b| *b), "the shipped bug is what this pins against");
+        assert_eq!(
+            breaks.iter().filter(|b| **b).count(),
+            6,
+            "the walk reaches the six word gaps even with the ellipsis left in"
+        );
+        assert!(
+            !breaks[breaks.len() - 1] && !breaks[breaks.len() - 2],
+            "and still puts no space inside the ellipsis"
+        );
     }
 
     #[test]
