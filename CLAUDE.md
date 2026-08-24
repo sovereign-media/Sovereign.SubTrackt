@@ -125,7 +125,7 @@ has made things worse.
 ### The bench
 
 The fixture is the ceiling. **`scripts/bench/` is the floor**, and it is what prices a change on real
-material. `roster.json` names seven tracks and says what each one covers; `run.py` extracts and
+material. `roster.json` names nine tracks and says what each one covers; `run.py` extracts and
 scores all of them and diffs two runs.
 
 ```console
@@ -152,6 +152,17 @@ Two rules the roster exists to hold, both learned by breaking them:
   four sidecars are all from one disc, and the two cut from the Blu-ray read 3.1% and 5.0% where the
   two cut from the WEB release read 79.7% and 80.7%. A CER quoted without naming its sidecar means
   nothing. `docs/vobsub.md` has the table.
+
+  **The rule was then applied to the bench itself, and two of nine entries were wrong.** #175 scored
+  every track against every English sidecar in its own folder — the first time anything had checked
+  the roster's own choices. A Fish Called Wanda is an SDH track carrying 85 bracketed sound cues,
+  `(Door opens)`, `(Ken gasps)`, and was scored against a sidecar carrying none: **more than half of
+  its measured error was the missing cues**, and it reads 1.7% rather than 4.2%. Airplane! is worse
+  than a mismatch — the disc renders its sound cues as 72 bracketed lines and the disc's own SDH
+  sidecar renders them as 197 musical notes and one bracket, two SDH conventions sharing almost no
+  characters, so neither of its sidecars matches and it is a `smoke` entry now. **Check a new
+  entry's sidecar against its extraction's shape before trusting the number**, and the check is one
+  command: score against every candidate and read the spread.
 - **A track with no scoreable sidecar still earns a place.** `smoke` entries claim no accuracy and
   assert only that the track survives its own shape — which is the whole point of the 106-cue forced
   track, where every per-line median has no population to work from.

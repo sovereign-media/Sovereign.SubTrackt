@@ -38,8 +38,8 @@
       "folder": "A Fish Called Wanda (1988) [tmdbid-623]",
       "stream": 0,
       "kind": "scored",
-      "sidecar": "A Fish Called Wanda (1988) [imdbid-tt0095159] - [Bluray-1080p][AC3 5.1][x264]-VietHD.eng.srt",
-      "covers": "material where l and I are both five pixels wide, so the pair is undecidable",
+      "sidecar": "A Fish Called Wanda (1988) [imdbid-tt0095159] - [Bluray-1080p][AC3 5.1][x264]-VietHD.eng.SDH.srt",
+      "covers": "the third Arial title, and the one whose italic act #123 gains least on. Scored against the SDH sidecar since #175: the track carries 85 bracketed sound cues -- (Door opens), (Ken gasps) -- and the plain sidecar carries none, which was more than half of its measured error. 1,396 cues on both sides exactly.",
       "glyphs": 31000
     },
     {
@@ -65,9 +65,9 @@
       "key": "airplane",
       "folder": "Airplane! (1980) [tmdbid-813]",
       "stream": 1,
-      "kind": "scored",
-      "sidecar": "Airplane! (1980) [imdbid-tt0080339] - [Bluray-1080p Proper][DV HDR10][FLAC 2.0][x265]-WiLF.eng.SDH.srt",
-      "covers": "an SDH track against an SDH sidecar, so speaker labels exist on both sides; also the all-caps spacing failure of #134",
+      "kind": "smoke",
+      "sidecar": null,
+      "covers": "the all-caps disc, where #134's spacing failure was found. `smoke` since #175 for The Prestige's reason: the track is SDH and renders its sound cues as 72 bracketed lines, and the disc's SDH sidecar renders them as 197 musical notes and one bracket -- two SDH conventions that share almost no characters. Neither sidecar matches, so neither yields a number, and a track that puts false entries in the `worse` column poisons the one figure the bench is read for.",
       "glyphs": 30000
     },
     {
