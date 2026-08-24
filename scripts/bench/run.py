@@ -30,11 +30,13 @@ discs were scored.
 """
 
 import argparse
+import ctypes
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROSTER = os.path.join(HERE, "roster.json")
@@ -43,6 +45,13 @@ CER = re.compile(r"^\s+all\s+\S+\s+\S+\s+(\S+)%\s+\S+%\s+\S+\s+(\S+)%", re.M)
 REPORT = re.compile(
     r"(\d+) cues from (\d+) images .*?glyphs (\d+) matched / (\d+) unmatched / (\d+) ambiguous"
     r" \(([\d.]+)% read\); fit ([\d.]+)"
+)
+# The second line `--report` prints. Separate from REPORT because it is a separate question: one
+# line says what the run read, the other what it cost, and nothing should have to parse both to
+# learn either.
+COST = re.compile(
+    r"decode ([\d.]+)s; segment ([\d.]+)s; cluster ([\d.]+)s; read ([\d.]+)s; total ([\d.]+)s;"
+    r" resident ([\d.]+) MiB images / ([\d.]+) MiB glyphs"
 )
 COMPARE = re.compile(
     r"cues improved : (\d+).*?cues worse\s+: (\d+).*?CER before\s+:\s*([\d.]+)%"
@@ -69,8 +78,58 @@ def sup_path(cache, track):
     return os.path.join(cache, f"{track['key']}.sup")
 
 
+class Measured:
+    """A finished command, with what it cost as well as what it said."""
+
+    def __init__(self, proc, stdout, stderr, seconds, peak_bytes):
+        self.returncode = proc.returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.seconds = seconds
+        self.peak_bytes = peak_bytes
+
+
+class _MemoryCounters(ctypes.Structure):
+    _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32),
+                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+
+def peak_working_set(proc):
+    """Peak resident bytes of a finished child, or None where that cannot be measured.
+
+    `None` rather than a zero or a guess. A cost table with a blank in it says the harness could
+    not measure that platform; a zero would read as a process that used no memory, which is the
+    invented-data failure `CLAUDE.md` forbids.
+
+    Windows keeps the counters queryable after exit as long as a handle is open, and `Popen` holds
+    one until it is collected -- so this must be called before the object goes out of scope.
+    """
+    if sys.platform != "win32":
+        return None
+    counters = _MemoryCounters()
+    counters.cb = ctypes.sizeof(_MemoryCounters)
+    ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+        int(proc._handle), ctypes.byref(counters), counters.cb)
+    return counters.PeakWorkingSetSize if ok else None
+
+
 def run(cmd, timeout=3600):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace")
+    """Run a command to completion, measuring wall clock and peak resident bytes.
+
+    `Popen` rather than `subprocess.run` only because the memory counters need the handle, which
+    `run` closes before returning.
+    """
+    started = time.perf_counter()
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, errors="replace")
+    stdout, stderr = proc.communicate(timeout=timeout)
+    seconds = time.perf_counter() - started
+    return Measured(proc, stdout, stderr, seconds, peak_working_set(proc))
 
 
 def do_dump(args, roster):
@@ -115,7 +174,20 @@ def do_score(args, roster):
         cmd += args.extra
 
         result = run(cmd)
-        entry = {"kind": track["kind"], "covers": track["covers"]}
+        entry = {"kind": track["kind"], "covers": track["covers"],
+                 "seconds": round(result.seconds, 2)}
+        if result.peak_bytes is not None:
+            entry["peak_mib"] = round(result.peak_bytes / 1048576, 1)
+        cost = COST.search(result.stderr or "")
+        if cost:
+            entry.update(
+                decode_s=float(cost.group(1)),
+                segment_s=float(cost.group(2)),
+                cluster_s=float(cost.group(3)),
+                read_s=float(cost.group(4)),
+                image_mib=float(cost.group(6)),
+                glyph_mib=float(cost.group(7)),
+            )
         report = REPORT.search(result.stderr or "")
         if report:
             entry.update(
@@ -201,6 +273,26 @@ def do_compare(args, roster):
     print("  Read that column, not the CER. #110 gained character error on one disc while making")
     print("  232 cues worse on another, and #113 found it only because two more discs were scored.")
 
+    # Cost second, and visibly second. #154 added it so that a refactor justified by cost has
+    # something to be judged against -- but a change that is faster and reads worse has still made
+    # things worse, so this table must never be the one read first.
+    print(f"\n{'track':16s} {'sec before':>10s} {'sec after':>10s} {'delta':>7s} "
+          f"{'MiB before':>10s} {'MiB after':>10s}")
+    for track in roster["tracks"]:
+        key = track["key"]
+        old_entry, new_entry = before["tracks"].get(key, {}), after["tracks"].get(key, {})
+        if "seconds" not in old_entry or "seconds" not in new_entry:
+            # A results file written before #154 carries no cost at all, which is a measurement
+            # that was never taken rather than a cost of zero.
+            print(f"{key:16s} {'not measured':>10s}")
+            continue
+        was, now = old_entry["seconds"], new_entry["seconds"]
+        old_peak, new_peak = old_entry.get("peak_mib"), new_entry.get("peak_mib")
+        peak = (f"{old_peak:>10.1f} {new_peak:>10.1f}"
+                if old_peak is not None and new_peak is not None
+                else f"{'--':>10s} {'--':>10s}")
+        print(f"{key:16s} {was:>10.2f} {now:>10.2f} {now - was:+7.2f} {peak}")
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -212,8 +304,12 @@ def main():
     ap.add_argument("--cache", default="bench-cache", help="where the .sup dumps live")
     ap.add_argument("--reference", help="the .subtref to match against")
     ap.add_argument("--out", help="score: where to write the results file")
-    ap.add_argument("--binary", default="target/release/subtrackt.exe")
-    ap.add_argument("--xtask", default="target/release/xtask.exe")
+    # `normpath` because Windows `CreateProcess` refuses a *relative* executable spelled with
+    # forward slashes -- `FileNotFoundError` before the first track dumps, on the platform this is
+    # developed on. Applied to whatever the caller passes as well as to the defaults, so a path
+    # copied out of the documentation works too.
+    ap.add_argument("--binary", default="target/release/subtrackt.exe", type=os.path.normpath)
+    ap.add_argument("--xtask", default="target/release/xtask.exe", type=os.path.normpath)
     # Anything argparse does not recognise is passed straight through to `extract`, so pricing a
     # flag is `run.py score ... --post-correct` rather than a wrapper that has to learn every flag
     # the CLI grows.

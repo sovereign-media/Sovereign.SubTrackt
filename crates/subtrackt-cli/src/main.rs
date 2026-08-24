@@ -145,6 +145,10 @@ fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()
         // Uncoloured: these are measurements rather than severities, and a coloured number invites
         // a reading that is not there.
         ui.plain(&outcome.report);
+        // A second line rather than a longer first one. What a run *read* and what it *cost* are
+        // different questions, anything parsing the summary is parsing the first line, and #154
+        // added this without moving a character of what was already there.
+        ui.plain(outcome.cost);
         for correction in &outcome.corrections {
             ui.plain(format_args!("  {correction}"));
         }

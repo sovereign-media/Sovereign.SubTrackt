@@ -5,6 +5,7 @@
 //! produce the numbers before anything can store them.
 
 use std::fmt;
+use std::time::Duration;
 
 use subtrackt_core::Confidence;
 
@@ -183,6 +184,74 @@ impl fmt::Display for Report {
             // ran and changed nothing" are different facts about a track and a summary that
             // printed `0` for both would hide the difference.
             self.corrector,
+        )
+    }
+}
+
+/// What one run cost, as opposed to what it read.
+///
+/// Deliberately **not** part of [`Report`], and the separation is load-bearing rather than tidy.
+/// `Report` is the tally of what came out of a track, and [`crate::provenance::note`] writes parts
+/// of it into the extracted file — so a duration anywhere near it is one careless change away from
+/// making an artefact's bytes depend on how fast the machine was that produced it. A cost is a
+/// property of the *run*; a tally is a property of the *track*. Only one of those belongs in a
+/// subtitle file.
+///
+/// **Nothing here is a process measurement.** `unsafe_code` is forbidden across the workspace and
+/// no OS memory API is called; the byte counts are the pipeline's own accounting of what it is
+/// holding. That is the decomposition worth having anyway — knowing a run peaked at 900 MB says
+/// less than knowing 870 MB of it was decoded bitmaps. True process peak is the bench harness's
+/// job, measured from outside.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Cost {
+    /// Streaming packets out of the container and decoding them into bitmaps.
+    pub decode: Duration,
+    /// Cutting every decoded bitmap into glyphs.
+    pub segment: Duration,
+    /// Grouping the stream's own shapes, before any of them is matched.
+    pub cluster: Duration,
+    /// Matching glyphs and assembling them into cues.
+    pub read: Duration,
+    /// Decoded bitmap bytes held at once.
+    ///
+    /// The pipeline segments nothing until every packet has been decoded, so this is the whole
+    /// track's pixel data resident simultaneously rather than a running figure. It is the number
+    /// that decides whether that is worth changing.
+    pub image_bytes: u64,
+    /// Glyph bytes held at once, counting each glyph where it is stored.
+    ///
+    /// Larger than one copy of the glyphs: they are held per image *and* flattened into a second
+    /// contiguous list for the grouping pass, so this counts both.
+    pub glyph_bytes: u64,
+}
+
+impl Cost {
+    /// Wall clock across every phase.
+    #[must_use]
+    pub fn total(&self) -> Duration {
+        self.decode + self.segment + self.cluster + self.read
+    }
+}
+
+impl fmt::Display for Cost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mib = |bytes: u64| {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                bytes as f64 / (1024.0 * 1024.0)
+            }
+        };
+        write!(
+            f,
+            "decode {:.1}s; segment {:.1}s; cluster {:.1}s; read {:.1}s; total {:.1}s; \
+             resident {:.1} MiB images / {:.1} MiB glyphs",
+            self.decode.as_secs_f64(),
+            self.segment.as_secs_f64(),
+            self.cluster.as_secs_f64(),
+            self.read.as_secs_f64(),
+            self.total().as_secs_f64(),
+            mib(self.image_bytes),
+            mib(self.glyph_bytes),
         )
     }
 }
