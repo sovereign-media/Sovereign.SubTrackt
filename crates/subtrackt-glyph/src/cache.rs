@@ -11,52 +11,38 @@ use std::collections::HashMap;
 
 use subtrackt_core::{FeatureVector, GlyphMatch, InkAspect, LineMetrics, MarkSlope};
 
-/// What identifies a glyph for caching: its shape, where it sits in its line, and which way its
-/// mark leans.
+/// What identifies a glyph for caching: its shape, where it sits in its line, which way its mark
+/// leans, and how wide its ink stands.
 ///
-/// Shape alone is not enough and stopped being enough in #37. An `o` and an `O` can normalise to
-/// the same vector — that is the whole reason line metrics exist — so keying on the vector would
-/// hand the second one the first one's answer and make the new feature invisible. #48 adds a second
-/// case of exactly that: an `à` and an `á` normalise to nearly the same vector *and* stand at the
-/// same height, so the mark has to be in the key or the term that separates them never gets asked.
+/// Exactly the tuple [`crate::cluster::Shape`] is, and deliberately the same one: the clusterer and
+/// the cache have to agree about when two glyphs are the same glyph, or one of them groups what the
+/// other separates.
+///
+/// **Exact, not hashed, since #148.** This used to be an FNV hash of the same four fields, stored
+/// as the map's key with nothing checked on the way out — so a collision returned a different
+/// glyph's character. `FeatureVector::cache_key`'s "collisions only cost a re-match" was true where
+/// it is written and was not true here. The probability was negligible: a track carries a few
+/// thousand distinct shapes against 2^64, which `--report` prints and anyone can divide. The reason
+/// to fix it is not the probability, it is that an exact key was already sitting one module away,
+/// and a confident wrong answer is the failure mode this project exists to avoid rather than one to
+/// price.
+pub type Key = crate::cluster::Shape;
+
+/// The key a glyph's measurements make.
 #[must_use]
 pub fn cache_key(
     features: &FeatureVector,
     metrics: LineMetrics,
     mark: MarkSlope,
     aspect: InkAspect,
-) -> u64 {
-    let mut key = features.cache_key();
-    // Mix each measured field in with the same FNV step the vector key uses. An unmeasured field
-    // contributes nothing, so a glyph that has no mark keys the same way it did before there was
-    // one to have.
-    let mut mix = |bytes: [u8; 4]| {
-        for byte in bytes {
-            key ^= u64::from(byte);
-            key = key.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    };
-    if metrics.known {
-        mix(u32::to_le_bytes(metrics.height_percent));
-        mix(i32::to_le_bytes(metrics.descent_percent));
-    }
-    if mark.known {
-        mix(i32::to_le_bytes(mark.percent));
-    }
-    // #109 adds the third case, and it is the sharpest of them: an `l` and an `I` on one line share
-    // a vector, a height and a descent, and carry no mark. Every field of the key before this one is
-    // identical for the two, so without this the first of them scanned would answer for both and the
-    // width term would never be reached.
-    if aspect.known {
-        mix(u32::to_le_bytes(aspect.permille));
-    }
-    key
+) -> Key {
+    (*features, metrics, mark, aspect)
 }
 
 /// Maps a feature vector to the match it produced.
 #[derive(Debug, Clone, Default)]
 pub struct SessionCache {
-    entries: HashMap<u64, GlyphMatch>,
+    entries: HashMap<Key, GlyphMatch>,
     hits: u64,
     misses: u64,
 }
