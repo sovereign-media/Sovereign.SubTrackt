@@ -107,10 +107,12 @@ pub fn score_set(
     let name = reference.name().to_owned();
     let matcher = HammingMatcher::new(reference, thresholds)?;
 
-    // Occurrences per distinct shape. The key has to carry metrics and the mark as well as the
-    // vector, for the reason `cache::cache_key` gives: an `o` and an `O` normalise alike, and so do
-    // an `à` and an `á`, so keying on shape alone would collapse glyphs the matcher separates.
-    let mut counts: HashMap<u64, (usize, u64)> = HashMap::new();
+    // Occurrences per distinct shape. The key carries the metrics, the mark and the width as well
+    // as the vector, for the reason `cache::cache_key` gives: an `o` and an `O` normalise alike,
+    // and so do an `à` and an `á`, so keying on the vector alone would collapse glyphs the matcher
+    // separates -- and would report a `distinct` count for a set that the extraction it predicts
+    // does not agree with.
+    let mut counts: HashMap<subtrackt_glyph::cache::Key, (usize, u64)> = HashMap::new();
     for (index, glyph) in survey.glyphs.iter().enumerate() {
         let key = subtrackt_glyph::cache::cache_key(
             &glyph.features,

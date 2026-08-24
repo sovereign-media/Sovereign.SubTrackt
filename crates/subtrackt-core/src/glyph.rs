@@ -81,10 +81,16 @@ impl FeatureVector {
             .sum()
     }
 
-    /// A stable 64-bit key for the session cache described in the architecture document.
+    /// A stable 64-bit digest of the vector.
+    ///
+    /// **Not the session cache's key**, and the distinction cost a paragraph in `cache.rs` to
+    /// state. That map is keyed on the whole shape, exactly, because it stored a hash with nothing
+    /// checked on the way out — so a collision handed back a different glyph's character rather
+    /// than costing a re-match. What is left here is a digest for anything that wants one number
+    /// per vector and can tolerate a collision meaning "these might be the same".
     #[must_use]
     pub fn cache_key(&self) -> u64 {
-        // FNV-1a over the raw words: cheap, and collisions only cost a re-match.
+        // FNV-1a over the raw words.
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for word in self.words {
             for byte in word.to_le_bytes() {
@@ -93,6 +99,37 @@ impl FeatureVector {
             }
         }
         hash
+    }
+}
+
+/// A quantity that was either measured or was not.
+///
+/// Five types here carry a `known` flag, and four of them implement the same contract in their own
+/// words: **a difference exists only where both sides were measured.** Each of their doc comments
+/// says so by pointing at the others as precedent, which is four statements of one rule held
+/// together by cross-reference.
+///
+/// The rule is not a convenience. It is `CLAUDE.md`'s "never invent data to avoid an error" with a
+/// type signature: a glyph whose line was too short to find a baseline, or whose accent never
+/// reached its body, is compared on what is left rather than scored against a height or a
+/// direction that was never taken. It is also what lets a reference set generated before a field
+/// existed keep working — its entries report that field unknown, and the term is not applied to
+/// them at all rather than applied to a default standing in for a measurement.
+///
+/// [`Slant`] deliberately does **not** implement this. Its `known` means *shown to lean* rather
+/// than *measured*, which is a collapse `docs/italic-slant.md` argues for at length, and nothing
+/// asks it for a difference. Making it fit would smooth away the distinction the type exists to
+/// draw.
+pub trait Measured: Copy {
+    /// Whether this quantity was measured at all.
+    fn known(self) -> bool;
+
+    /// The pair, or nothing if either side is unmeasured.
+    ///
+    /// The whole of the contract, in one place. A caller writes its own arithmetic and gets the
+    /// refusal for free.
+    fn paired(self, other: Self) -> Option<(Self, Self)> {
+        (self.known() && other.known()).then_some((self, other))
     }
 }
 
@@ -106,7 +143,7 @@ impl FeatureVector {
 ///
 /// Both figures are percentages of the line's cap height rather than pixel counts, so they survive
 /// a resolution change the way the rest of the pipeline's thresholds do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct LineMetrics {
     /// Glyph height as a percentage of the line's cap height.
     ///
@@ -127,6 +164,30 @@ pub struct LineMetrics {
     pub known: bool,
 }
 
+impl Measured for LineMetrics {
+    fn known(self) -> bool {
+        self.known
+    }
+}
+
+impl Measured for MarkSlope {
+    fn known(self) -> bool {
+        self.known
+    }
+}
+
+impl Measured for InkAspect {
+    fn known(self) -> bool {
+        self.known
+    }
+}
+
+impl Measured for UprightSpan {
+    fn known(self) -> bool {
+        self.known
+    }
+}
+
 impl LineMetrics {
     /// Metrics that could not be measured.
     pub const UNKNOWN: Self = Self { height_percent: 0, descent_percent: 0, known: false };
@@ -143,12 +204,10 @@ impl LineMetrics {
     /// A glyph whose line was unmeasurable must fall back to shape alone, not be penalised for it.
     #[must_use]
     pub fn difference(self, other: Self) -> Option<u32> {
-        if !self.known || !other.known {
-            return None;
-        }
+        let (this, other) = self.paired(other)?;
         Some(
-            self.height_percent.abs_diff(other.height_percent)
-                + self.descent_percent.abs_diff(other.descent_percent),
+            this.height_percent.abs_diff(other.height_percent)
+                + this.descent_percent.abs_diff(other.descent_percent),
         )
     }
 }
@@ -165,7 +224,7 @@ impl LineMetrics {
 /// One signed number, because #48 measured the alternatives: the mark's own feature vector
 /// separates the same sixteen pairs but clears its own rendering noise by a factor of 1.6, where
 /// this clears it by ten to twenty. See `docs/glyph-stability.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct MarkSlope {
     /// The normalised second moment cross term of the mark's ink, as a percentage.
     ///
@@ -206,11 +265,9 @@ impl MarkSlope {
     /// resembles. Falling back to shape alone is worse than the full comparison and much better
     /// than scoring against a mark that was never delivered.
     #[must_use]
-    pub const fn difference(self, other: Self) -> Option<u32> {
-        if !self.known || !other.known {
-            return None;
-        }
-        Some(self.percent.abs_diff(other.percent))
+    pub fn difference(self, other: Self) -> Option<u32> {
+        let (this, other) = self.paired(other)?;
+        Some(this.percent.abs_diff(other.percent))
     }
 }
 
@@ -238,7 +295,7 @@ impl MarkSlope {
 /// **Tenths of a percent, not percent.** The gap between an `l` and an `I` is eight tenths of one
 /// percent; in whole percent it is a difference of zero or one, and one point priced at #37's
 /// weight rounds to nothing at all. The unit is the finding as much as the number is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct InkAspect {
     /// Ink width as tenths of a percent of ink height.
     ///
@@ -280,11 +337,9 @@ impl InkAspect {
     /// [`MarkSlope::difference`] both keep: a reference set generated before this field existed
     /// contributes nothing rather than being scored against a ratio it never carried.
     #[must_use]
-    pub const fn difference(self, other: Self) -> Option<u32> {
-        if !self.known || !other.known {
-            return None;
-        }
-        Some(self.permille.abs_diff(other.permille))
+    pub fn difference(self, other: Self) -> Option<u32> {
+        let (this, other) = self.paired(other)?;
+        Some(this.permille.abs_diff(other.permille))
     }
 }
 
@@ -311,7 +366,7 @@ impl InkAspect {
 /// **Comparable only within one line.** The shear is applied about the line's own pivot, so two
 /// spans from different lines are offset by different constants. That offset cancels in a
 /// difference between neighbours, which is the only thing anything asks of it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct UprightSpan {
     /// Left edge of the deskewed ink, in tenths of a pixel.
     pub left: i32,
@@ -376,11 +431,9 @@ impl UprightSpan {
     /// `None` unless both sides carry a measurement, the contract [`LineMetrics::difference`],
     /// [`MarkSlope::difference`] and [`InkAspect::difference`] all keep.
     #[must_use]
-    pub const fn gap_to(self, next: Self) -> Option<i32> {
-        if !self.known || !next.known {
-            return None;
-        }
-        Some(next.left - self.right)
+    pub fn gap_to(self, next: Self) -> Option<i32> {
+        let (this, next) = self.paired(next)?;
+        Some(next.left - this.right)
     }
 }
 

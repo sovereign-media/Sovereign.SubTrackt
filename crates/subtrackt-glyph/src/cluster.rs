@@ -23,9 +23,7 @@
 
 use std::collections::HashMap;
 
-use subtrackt_core::{
-    FEATURE_BITS, FEATURE_WORDS, FeatureVector, InkAspect, LineMetrics, MarkSlope,
-};
+use subtrackt_core::{FEATURE_BITS, FeatureVector, InkAspect, LineMetrics, MarkSlope};
 
 /// A shape, where it sat in its line, and which way its mark leans — what identifies a glyph for
 /// grouping.
@@ -35,13 +33,13 @@ use subtrackt_core::{
 /// mark for the same reason — an `à` and an `á` agree on both the vector and the height.
 pub type Shape = (FeatureVector, LineMetrics, MarkSlope, InkAspect);
 
-/// What a shape is stored under. None of `LineMetrics`, `MarkSlope` or `InkAspect` is `Hash`, so
-/// their fields are unpacked.
-type Key = ([u64; FEATURE_WORDS], u32, i32, bool, i32, bool, u32, bool);
-
-fn key_of(shape: &Shape) -> Key {
+/// The measurements of a shape, in an order two of them can be compared by.
+///
+/// Only for breaking a tie in [`Shapes::by_frequency`], where the order has to be total so that a
+/// matcher's answers do not move between runs of the same file. The vector is compared first and
+/// decides almost every case.
+fn ordering_of(shape: &Shape) -> (u32, i32, bool, i32, bool, u32, bool) {
     (
-        *shape.0.words(),
         shape.1.height_percent,
         shape.1.descent_percent,
         shape.1.known,
@@ -166,7 +164,7 @@ impl ClusterRules {
 /// looks.
 #[derive(Debug, Default, Clone)]
 pub struct Shapes {
-    counts: HashMap<Key, (Shape, u64)>,
+    counts: HashMap<Shape, u64>,
     total: u64,
 }
 
@@ -186,7 +184,7 @@ impl Shapes {
         aspect: InkAspect,
     ) {
         let shape = (*features, metrics, mark, aspect);
-        self.counts.entry(key_of(&shape)).or_insert((shape, 0)).1 += 1;
+        *self.counts.entry(shape).or_insert(0) += 1;
         self.total += 1;
     }
 
@@ -215,8 +213,18 @@ impl Shapes {
     /// be untestable.
     #[must_use]
     pub fn by_frequency(&self) -> Vec<(Shape, u64)> {
-        let mut out: Vec<(Shape, u64)> = self.counts.values().copied().collect();
-        out.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| key_of(&a.0).cmp(&key_of(&b.0))));
+        let mut out: Vec<(Shape, u64)> = self
+            .counts
+            .iter()
+            .map(|(shape, count)| (*shape, *count))
+            .collect();
+        // Ties break on the raw words and then on the measurements, so the order is total. It used
+        // to rebuild a packed key inside the comparator, once per comparison.
+        out.sort_unstable_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.0.0.words().cmp(b.0.0.words()))
+                .then_with(|| ordering_of(&a.0).cmp(&ordering_of(&b.0)))
+        });
         out
     }
 }

@@ -75,16 +75,29 @@ pub struct GlyphSurvey {
 }
 
 impl GlyphSurvey {
-    /// Distinct glyph shapes, by cache key.
+    /// Distinct glyph shapes.
     ///
     /// Subtitle text repeats heavily, so this is far smaller than [`Self::glyphs`] and is the
     /// number that actually characterises a typeface.
+    ///
+    /// Counted over the **same key the matcher separates glyphs by** — vector, line metrics, mark
+    /// and ink width. Until #148 it counted the vector alone, which made this and `Fit::distinct`
+    /// two different quantities under near-identical names: an `o` and an `O` normalise to one
+    /// vector and are two shapes to everything downstream, so the old figure was systematically
+    /// low and disagreed with the `distinct shapes` a run reports.
     #[must_use]
     pub fn distinct_shapes(&self) -> usize {
-        let mut keys: Vec<u64> = self.glyphs.iter().map(|g| g.features.cache_key()).collect();
-        keys.sort_unstable();
-        keys.dedup();
-        keys.len()
+        let mut seen: std::collections::HashSet<subtrackt_glyph::cache::Key> =
+            std::collections::HashSet::with_capacity(self.glyphs.len());
+        for glyph in &self.glyphs {
+            seen.insert(subtrackt_glyph::cache::cache_key(
+                &glyph.features,
+                glyph.metrics,
+                glyph.mark,
+                glyph.aspect,
+            ));
+        }
+        seen.len()
     }
 }
 
