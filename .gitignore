@@ -48,3 +48,9 @@ truth-cache/
 
 # Python bytecode from the measurement scripts.
 __pycache__/
+
+# The #131 alternatives bench. `scripts/alternatives/bench.py` writes a corpus of dumped `.sup`
+# tracks, one result directory per (engine, item, repeat), and every SRT nine engines produced.
+# None of it belongs in the tree -- the corpus is copyrighted media and the rest is reproducible
+# from `corpus.json` and the image. The figures that do belong are in `docs/alternatives.md`.
+bench/

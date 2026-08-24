@@ -1,0 +1,17 @@
+# The bench image's build context is the repository root, because its first stage builds subtrackt
+# from the tree being measured. Only the workspace sources are wanted; `target/` alone is several
+# gigabytes and would be copied across the Docker Desktop VM boundary on every build.
+target
+bench
+bench-*
+truth-check
+truth-cache
+docs
+scripts
+
+.git
+.github
+*.sup
+*.srt
+*.subtref
+__pycache__

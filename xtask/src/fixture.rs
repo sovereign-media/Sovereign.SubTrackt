@@ -18,8 +18,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use fontdue::{Font, FontSettings};
-use subtrackt_core::{Palette, PaletteEntry};
+use subtrackt_core::{
+    Confidence, Cue, Palette, PaletteEntry, TextTrack, TimeSpan, Timestamp, TrackWriter as _,
+};
 use subtrackt_decode::pgs::rle;
+use subtrackt_text::format::SrtWriter;
 
 /// Palette indices, matching how subtitles are conventionally authored.
 const TRANSPARENT: u8 = 0;
@@ -184,6 +187,34 @@ fn composition(plane: (u32, u32), at: Option<(u32, u32)>) -> Vec<u8> {
     b
 }
 
+/// A window definition: one window, bounding the object where the composition places it.
+///
+/// Every real authoring tool writes one and this fixture did not, which nothing in this project
+/// could see: `subtrackt-decode` validates a window segment and drops it, because a window says
+/// where the decoder may paint and the object already says where the ink is.
+///
+/// #131 is what found it. `pgsrip` reads a display set's window with `wds[0]`, so a set carrying
+/// none raised `IndexError` and the fixture -- the only corpus item with true ground truth -- was
+/// unreadable to a tool that reads every real disc here without complaint. That is a gap in the
+/// fixture rather than in the tool: this module's own doc says the rendering imitates how a real
+/// subtitle is authored, and a missing WDS is a way in which it did not.
+///
+/// Inert for every figure this project publishes, and that is checked rather than assumed: the
+/// decoder's window arm parses and discards, so the decoded bitmaps, their timings and the ceiling
+/// CER measured from them cannot move. Only the `.sup` grows by one segment per cue.
+fn window(at: (u32, u32), size: (u32, u32)) -> Vec<u8> {
+    let mut b = vec![1, WINDOW_ID];
+    b.extend_from_slice(&u16::try_from(at.0).unwrap_or(0).to_be_bytes());
+    b.extend_from_slice(&u16::try_from(at.1).unwrap_or(0).to_be_bytes());
+    b.extend_from_slice(&u16::try_from(size.0).unwrap_or(0).to_be_bytes());
+    b.extend_from_slice(&u16::try_from(size.1).unwrap_or(0).to_be_bytes());
+    b
+}
+
+/// Window id used throughout; the composition and the window definition must agree on it, exactly
+/// as they must on [`OBJECT_ID`].
+const WINDOW_ID: u8 = 0;
+
 /// A palette: opaque white fill, opaque near-black outline.
 fn palette() -> Vec<u8> {
     let mut b = vec![0, 0];
@@ -230,6 +261,20 @@ fn object(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
 /// multiples reproduce that: same font, same everything else, a few percent of size either way.
 const VARIED_SCALES: [f32; 5] = [1.0, 0.94, 1.06, 0.97, 1.03];
 
+/// When cue `index` appears and clears, in 90 kHz ticks.
+///
+/// One second of lead-in, then a cue every three seconds, on screen for two of them. The gap is
+/// what keeps the fixture legible as a *stream*: a decoder that mistimes a clear produces
+/// overlapping cues rather than a silently longer one.
+///
+/// Factored out because two things now read it — [`build_sup`], which stamps the segments, and
+/// [`truth_srt`], which times the ground truth. A second copy of this arithmetic would be a way for
+/// the reference to disagree with the material it is the reference for, and nothing would notice.
+pub(crate) fn cue_span(index: usize) -> (u32, u32) {
+    let start = 90_000 * (1 + index as u32 * 3);
+    (start, start + 90_000 * 2)
+}
+
 /// Build a `.sup` from cues, each a list of text lines rendered at its own size.
 pub(crate) fn build_sup(
     font: &Font,
@@ -246,12 +291,16 @@ pub(crate) fn build_sup(
             .collect::<anyhow::Result<_>>()?;
         let image = stack(&rendered, px as u32 / 4);
 
-        let start = 90_000 * (1 + index as u32 * 3);
-        let end = start + 90_000 * 2;
+        let (start, end) = cue_span(index);
         let x = (plane.0.saturating_sub(image.width)) / 2;
         let y = plane.1.saturating_sub(image.height + 60);
 
         file.extend_from_slice(&sup_segment(0x16, start, &composition(plane, Some((x, y)))));
+        file.extend_from_slice(&sup_segment(
+            0x17,
+            start,
+            &window((x, y), (image.width, image.height)),
+        ));
         file.extend_from_slice(&sup_segment(0x14, start, &palette()));
         file.extend_from_slice(&sup_segment(
             0x15,
@@ -261,6 +310,11 @@ pub(crate) fn build_sup(
         file.extend_from_slice(&sup_segment(0x80, start, &[]));
 
         file.extend_from_slice(&sup_segment(0x16, end, &composition(plane, None)));
+        file.extend_from_slice(&sup_segment(
+            0x17,
+            end,
+            &window((x, y), (image.width, image.height)),
+        ));
         file.extend_from_slice(&sup_segment(0x80, end, &[]));
     }
     Ok(file)
@@ -319,6 +373,45 @@ fn default_cues() -> Vec<Vec<String>> {
     .collect()
 }
 
+/// The ground truth as `SubRip`, timed where the `.sup` shows each cue.
+///
+/// `synthetic.txt` is one line per rendered line with no cue boundaries in it, which is everything
+/// `subtrackt::score` needs and nothing `xtask srt-score` can read. That was fine while the fixture
+/// was only ever scored by our own pipeline; #131 scores other people's tools on it, and a
+/// comparison whose rows come from two different instruments is not a comparison.
+///
+/// This is arithmetic on data [`build_sup`] already had, not a second measurement -- the timings
+/// come from [`cue_span`] and the text from the same cue list -- so it is additive and no published
+/// figure moves. `xtask accuracy` still reads `synthetic.txt`, and the two paths agreeing is a free
+/// cross-check rather than a thing that had to be arranged.
+///
+/// # Errors
+/// Propagates a writer failure, which for an in-memory target cannot happen.
+pub(crate) fn truth_srt(cues: &[(Vec<String>, f32)]) -> anyhow::Result<String> {
+    let track = TextTrack::new(
+        cues.iter()
+            .enumerate()
+            .map(|(index, (lines, _))| {
+                let (start, end) = cue_span(index);
+                Cue {
+                    span: TimeSpan::new(
+                        Timestamp::from_ticks(u64::from(start)),
+                        Timestamp::from_ticks(u64::from(end)),
+                    ),
+                    lines: lines.clone(),
+                    italic: Vec::new(),
+                    confidence: Confidence::default(),
+                    forced: false,
+                }
+            })
+            .collect(),
+        None,
+    );
+    // Through the shipping writer rather than a `write!` here, so the fixture's reference side is
+    // spelled by the same code as every other SRT the project emits.
+    Ok(SrtWriter::default().to_string(&track)?)
+}
+
 /// Generate a fixture: a `.sup` and the ground truth beside it.
 ///
 /// # Errors
@@ -365,6 +458,7 @@ pub fn make(args: &[String]) -> anyhow::Result<()> {
 
     let sup_path = out_dir.join("synthetic.sup");
     let truth_path = out_dir.join("synthetic.txt");
+    let srt_path = out_dir.join("synthetic.srt");
     let truth: String = cues
         .iter()
         .map(|(lines, _)| lines.join("\n"))
@@ -375,13 +469,16 @@ pub fn make(args: &[String]) -> anyhow::Result<()> {
     std::fs::write(&sup_path, &sup).with_context(|| format!("writing {}", sup_path.display()))?;
     std::fs::write(&truth_path, &truth)
         .with_context(|| format!("writing {}", truth_path.display()))?;
+    std::fs::write(&srt_path, truth_srt(&cues)?)
+        .with_context(|| format!("writing {}", srt_path.display()))?;
 
     eprintln!(
-        "{} cues, {} bytes -> {}\nground truth -> {}",
+        "{} cues, {} bytes -> {}\nground truth -> {}\n              -> {}",
         cues.len(),
         sup.len(),
         sup_path.display(),
-        truth_path.display()
+        truth_path.display(),
+        srt_path.display()
     );
     Ok(())
 }
@@ -389,6 +486,7 @@ pub fn make(args: &[String]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use subtrackt_text::format::srt::format_timestamp as srt_timestamp;
 
     #[test]
     fn stacking_centres_lines_and_leaves_a_gap() {
@@ -427,6 +525,77 @@ mod tests {
         assert_eq!(p[3], 235, "fill is bright");
         assert_eq!(p[7], OUTLINE);
         assert_eq!(p[8], 16, "outline is dark, so luma thresholding separates them");
+    }
+
+    #[test]
+    fn every_display_set_defines_the_window_it_paints_into() {
+        // Not a decoder requirement here -- `subtrackt-decode` drops window segments -- but a
+        // requirement of the format as every real tool implements it. #131 found `pgsrip` refusing
+        // the fixture with `IndexError` on `wds[0]` while reading every disc in the corpus, so the
+        // fixture was the thing that was wrong. Pinned so it cannot quietly go missing again.
+        let w = window((10, 20), (30, 40));
+        assert_eq!(w[0], 1, "one window in the set");
+        assert_eq!(w[1], WINDOW_ID);
+        assert_eq!(u16::from_be_bytes([w[2], w[3]]), 10);
+        assert_eq!(u16::from_be_bytes([w[6], w[7]]), 30);
+
+        let c = composition((1920, 1080), Some((0, 0)));
+        assert_eq!(c[13], WINDOW_ID, "the composition paints into the window just defined");
+    }
+
+    #[test]
+    fn the_generated_srt_times_every_cue_where_the_sup_shows_it() {
+        // The reference side and the material side are derived from one arithmetic, and this is
+        // what says so. #131 scores other people's tools against this SRT, so a cue timed anywhere
+        // but where the `.sup` shows it would charge every engine for the fixture's own error.
+        let cues: Vec<(Vec<String>, f32)> = default_cues()
+            .into_iter()
+            .map(|lines| (lines, 42.0))
+            .collect();
+        let srt = truth_srt(&cues).unwrap();
+
+        let timings: Vec<&str> = srt.lines().filter(|l| l.contains("-->")).collect();
+        assert_eq!(timings.len(), cues.len(), "one timing line per cue");
+
+        for (index, line) in timings.iter().enumerate() {
+            let (start, end) = cue_span(index);
+            let want = format!(
+                "{} --> {}",
+                srt_timestamp(Timestamp::from_ticks(u64::from(start))),
+                srt_timestamp(Timestamp::from_ticks(u64::from(end)))
+            );
+            assert_eq!(*line, want, "cue {index}");
+        }
+
+        // And the arithmetic itself, stated once rather than only reflected: a second of lead-in,
+        // one cue every three seconds, two seconds on screen.
+        assert_eq!(cue_span(0), (90_000, 270_000));
+        assert_eq!(cue_span(1), (360_000, 540_000));
+    }
+
+    #[test]
+    fn the_srt_and_the_line_per_line_truth_carry_the_same_text() {
+        // The two ground-truth files are read by two different scorers -- `subtrackt::score` reads
+        // `synthetic.txt` and `xtask srt-score` reads this -- and #131's whole method rests on one
+        // instrument scoring every row. If these ever disagreed, the fixture's published ceiling
+        // and the competitors' figures would be measured against different text.
+        let cues: Vec<(Vec<String>, f32)> = default_cues()
+            .into_iter()
+            .map(|lines| (lines, 42.0))
+            .collect();
+
+        let flat: Vec<String> = cues
+            .iter()
+            .flat_map(|(lines, _)| lines.iter().cloned())
+            .collect();
+        let from_srt: Vec<String> = truth_srt(&cues)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.is_empty() && !l.contains("-->") && l.parse::<u32>().is_err())
+            .map(str::to_owned)
+            .collect();
+
+        assert_eq!(from_srt, flat);
     }
 
     #[test]
