@@ -1006,3 +1006,102 @@ weaker guarantee, so both flags exist and last-one-on-the-line wins:
   cluster at distance zero is how `weights.rs` is specified to behave, and it means the answer for a
   shape can depend on how many *other* shapes went unmeasured. That is a strange property for a
   matcher to have and nothing has ever measured its size.
+
+## The fusion that reads, and why it stays unread
+
+[#183](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/183). #106 above is offered
+**only** components the matcher returned `unmatched` for, and that trigger is the whole of its safety
+argument: a wrong cut costs nothing, because its parts fail to match and the glyph stays exactly as it
+was. The cost of the rule is a fusion that *matches something*, which the pass can never see.
+
+[`glyph-hit-list.md`](glyph-hit-list.md) put a size on that: about a fifth of Gone Girl's `l`
+population is ink several times too wide to be an `l`, standard deviation 3.92 pixels against a
+median of 5, and it named the mechanism as a fused `l` matching `I`.
+
+**The population is empty, the mechanism is not the one named, and the obvious fix is worse than
+nothing.** All three were measured.
+
+### The census: nothing matched is grossly too wide for what it matched
+
+`xtask overwide` asks the question per glyph after the answer is known. A component **disagrees with
+its own answer** when its ink stands wider, against its own height, than the nearest reference entry
+for the character it matched — `InkAspect` is carried on both sides already, so nothing new is
+measured, and the excess is a percentage of the entry's own aspect rather than a pixel count.
+
+| excess over the entry it matched | Gone Girl | A Fish Called Wanda | King Kong |
+| :--- | ---: | ---: | ---: |
+| 0-25% | **100.00%** | **100.00%** | **100.00%** |
+| 25% and over | 0 | 0 | 0 |
+
+Not one matched component in 140,284 stands 25% wider than the character it was read as, on any of
+the three. The widest matched glyph on Gone Girl is 3,400 permille — three times as wide as it is
+tall — and it matched something legitimately that wide.
+
+**#110 is why**, and this is the second thing that issue turns out to have settled. The ink aspect is
+priced into the match itself, so a component too wide for a narrow character does not match it: it
+comes back `unmatched`, which is where #106 already reaches. Gone Girl has 342 such components, the
+widest at 4,032 permille.
+
+So the wide tail in #171's `l` population is real and is *not* a set of glyphs matching `I`. It is
+components read as something else, or read as nothing.
+
+### Where the remaining fusions actually are
+
+They are **deletions**, not substitutions. Gone Girl, against its release sidecar:
+
+| release characters never read | count |
+| :--- | ---: |
+| space | 81 |
+| `r` | **66** |
+| `.` | 31 |
+| `f` | **13** |
+
+`r` and `f` are the two letters whose arms reach over the letter after them — the same pair #106
+recovered 79 of on Cloverfield. These are fusions the matcher **read**, as one character it fits, and
+the release is the only thing that knows a letter is missing. Nothing in the image says so, which is
+what the census above establishes: the component is not too wide for what it matched, because what it
+matched is a character of that width.
+
+### The one acceptance rule that could work, measured three times
+
+The unmatched case's rule cannot be reused: the whole matched too, so "every part matches" is no bar
+at all. What replaces it has to be a *comparison* — **every part must fit its own entry better than
+the whole fitted its own** — and a component that really is one character should have no cut whose
+halves both beat it.
+
+It should, and it does not. Each row below adds a guard to the row above it, on Gone Girl's 2,442
+cues except where stated:
+
+| rule | cues better | cues worse | what it cut |
+| :--- | ---: | ---: | :--- |
+| every part fits better than the whole | **0** | 90 | `"` into two `'` |
+| …and only a single-component glyph | **0** | 11 | `n` into `I1` |
+| …and only into unambiguous parts | **0** | 4 (whole bench) | `H` into `f1` |
+
+**The `better` column is zero on every row.** Three progressively tighter guards, 9,000 scored cues,
+and the rule never once recovered a fusion — while each guard revealed a different way for it to
+destroy a character that was already right:
+
+- **`"` into `''`** is #168 in reverse. The grouper assembles a quotation mark from two components
+  deliberately, and a splitter that cuts a glyph the grouper *joined* is undoing correct work. Fixed
+  by refusing anything the segmenter built from more than one component — a fusion is two characters
+  inside **one** component, which is the opposite operation.
+- **`n` into `I1`** is the deeper problem and the one that closes the direction. A cut through an `n`
+  leaves two stems, and a stem fits `I`, `l`, `1` and `|` at the distance #37 measured between them,
+  which is **zero**. So "fits better than the whole" is satisfied by every vertical stroke on the
+  disc: the comparison the rule rests on is exactly the comparison a sub-stroke wins.
+- **`H` into `f1`** survives even the ambiguity flag, which was the principled guard — refuse a part
+  the matcher could not call. `f` and `1` are each called confidently. A piece of a letter is still a
+  letter.
+
+### What this settles
+
+**The trigger cannot be geometric and the acceptance cannot be a fit comparison.** Those were the two
+halves of the proposal, and each is closed by its own measurement rather than by a threshold that
+might be re-tuned. The code was written, priced on the bench, and removed; `xtask overwide` stays,
+because the census is the part worth keeping.
+
+What is left is what [`post-correction.md`](post-correction.md) already said about `rn`/`m` and
+`cl`/`d`, now with a population attached: **resolving these means inventing or destroying a
+character**, and the only evidence that one is missing lives outside the image. A pass that cuts on
+image evidence alone will cut `H` before it cuts `rt`, because a stroke always fits something.
