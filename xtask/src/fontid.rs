@@ -326,18 +326,21 @@ fn style_of_box(ink: &InkBox, aspect: f32) -> Option<StyleVector> {
 /// negative and cannot exceed `len - 1`, and the `min` holds even if a caller ever passes more.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn index_at(len: usize, fraction: f32) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    (((len - 1) as f32 * fraction.clamp(0.0, 1.0)).round() as usize).min(len - 1)
+    // The index `crate::util::percentile_index` computes, reached with a fraction rather than a
+    // whole percentage because this module's call sites are written that way. #165 is why there is
+    // one formula behind both spellings.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let percent = (fraction.clamp(0.0, 1.0) * 100.0).round() as u32;
+    crate::util::percentile_index(len, percent).unwrap_or(0)
 }
 
 /// The value at `fraction` through an already-sorted slice.
+#[allow(clippy::cast_precision_loss)]
 fn percentile(sorted: &[usize], fraction: f32) -> f32 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    sorted[index_at(sorted.len(), fraction)] as f32
+    sorted
+        .get(index_at(sorted.len(), fraction))
+        .copied()
+        .unwrap_or(0) as f32
 }
 
 /// Pool per-glyph style into one descriptor: per axis, a median and an interquartile spread.

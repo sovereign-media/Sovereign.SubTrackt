@@ -154,7 +154,10 @@ asked only that the number move below 9.8%.
 
 - **1. The reference-to-material distance is ≥20 cells at 21px and never below ~10.** *Narrowly
   wrong on both bounds, in the same direction.* 19 at 21px, falling to 9 at 50px. Directionally
-  right, and the median understates it — p95 is 46 at 21px.
+  right, and the median understates it — p95 is 44 at 21px. (46 as first published: #165
+  unified the four percentile spellings this tree had, and the one this table was cut with
+  over-reported an upper tail by a single index. The p95 column of `xtask reference-render` is the
+  only published figure that moved.)
 - **2. Dominated by the edge treatment, not by size.** *Wrong, and both halves were wrong.* Neither
   matters. Moving the threshold from 128 to 160 at a fixed box costs nothing; moving the size from
   96px to 21px at a fixed box costs nothing. What the prediction called "edge treatment" turned out

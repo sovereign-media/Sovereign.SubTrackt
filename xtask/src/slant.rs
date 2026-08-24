@@ -331,10 +331,9 @@ fn ink_of(mask: &BinaryMask, bounds: Rect) -> usize {
 /// list and not a measurement — rounding one through `f64` is a cast this project has no reason to
 /// make and clippy has every reason to object to.
 fn percentile(sorted: &[f64], at: usize) -> f64 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    sorted[(sorted.len() - 1) * at.min(100) / 100]
+    // See `crate::util::percentile` for the index and #165 for why it is that one. Zero for an
+    // empty sample, which is what every caller here already treated it as.
+    crate::util::percentile(sorted, u32::try_from(at).unwrap_or(100)).unwrap_or(0.0)
 }
 
 /// A fractional gap as the runtime's own integer subtraction would have reported it.

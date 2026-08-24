@@ -136,7 +136,8 @@ fn percentiles(values: &mut [u32]) -> Option<[u32; 3]> {
         return None;
     }
     values.sort_unstable();
-    let at = |q: usize| values[(values.len() * q / 100).min(values.len() - 1)];
+    // See `crate::util::percentile` for the index and #165 for why it is that one.
+    let at = |q: u32| crate::util::percentile(values, q).unwrap_or(0);
     Some([at(50), at(95), values[values.len() - 1]])
 }
 
