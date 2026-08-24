@@ -17,6 +17,14 @@ glyph set embedded** — on purpose, and the reasoning is in
 [`docs/reference-set.md`](docs/reference-set.md). You generate a set from fonts you already have and
 let `subtrackt fit` pick between them. Until you do, every glyph honestly comes back unmatched.
 
+**[sovereign-media.github.io/Sovereign.SubTrackt](https://sovereign-media.github.io/Sovereign.SubTrackt/)**
+is the same material with a way in. It carries a plain-language `How it works` written for somebody
+who has not read this file — what an image-based subtitle is, why an unmatched glyph is better news
+than a guessed one, and what the three commands do in the order you would run them — and the
+`docs/` corpus below, grouped and cross-linked rather than served as a directory listing. The
+research half is generated from `docs/*.md`, which stays canonical: every link on this page still
+resolves, and a document is still edited where it lives.
+
 ---
 
 ## Install
@@ -585,6 +593,9 @@ yet frozen.
 Nothing here was assumed. Each write-up was measured — against a real 1,328-title library, or
 against ground truth the tool renders itself — and each one changed the design, usually by killing
 the plan it was meant to confirm.
+
+Each links to the file in `docs/`; the same documents are grouped and browsable on
+[the site](https://sovereign-media.github.io/Sovereign.SubTrackt/research/architecture).
 
 | Document | What it settled |
 | :--- | :--- |

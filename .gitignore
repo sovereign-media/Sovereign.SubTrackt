@@ -54,3 +54,16 @@ __pycache__/
 # None of it belongs in the tree -- the corpus is copyrighted media and the rest is reproducible
 # from `corpus.json` and the image. The figures that do belong are in `docs/alternatives.md`.
 bench/
+
+# The documentation site. A Node toolchain is deliberately not a prerequisite for `cargo build`, so
+# `site/` sits outside the Cargo workspace and nothing here is checked in: `node_modules/` and the
+# two build outputs, plus `src/content/`, which `site/scripts/build-content.mjs` generates from
+# `docs/` and `site/content/guide/`. `docs/*.md` stays canonical -- see #190 for why the site is
+# generated from it rather than swallowing it -- and `src/routes/(prestige)/` and `routeTree.gen.ts`
+# are written by the two frameworks from that content.
+site/node_modules/
+site/dist/
+site/.output/
+site/src/content/
+site/src/routes/(prestige)/
+site/src/routeTree.gen.ts

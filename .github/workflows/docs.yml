@@ -1,0 +1,83 @@
+name: Docs
+
+# Gated on the paths that can change the site, so a Rust-only pull request does not pay for a Node
+# build. `docs/**` is in the list because the research half of the site is generated from it: a
+# document edited there changes the site without anything under `site/` being touched. The two
+# lists are written out twice because GitHub Actions does not resolve YAML anchors.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'site/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# One deployment at a time, and never cancel one in flight -- a half-uploaded Pages artifact is
+# worse than a queued run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: site
+
+jobs:
+  # Pull requests build without deploying, so a broken docs build is caught before `main` rather
+  # than after. The build is the check: `scripts/content.mjs` refuses to rewrite a cross-link it
+  # cannot resolve, and `scripts/check-links.mjs` then follows every link through the rendered HTML.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Runs the content generator, Vite, and the link check over the prerendered output.
+      - name: Build
+        run: npm run build
+
+      - name: Upload the Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          # TanStack Start's prerenderer writes static HTML here. Not `.output/public`, which is
+          # what a server build would have produced.
+          path: site/dist/client
+
+  deploy:
+    name: deploy
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # `pages: write` and `id-token: write` are what `deploy-pages` needs to claim the deployment.
+    # The repository's Pages source has to be set to GitHub Actions for this to have anywhere to go.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
