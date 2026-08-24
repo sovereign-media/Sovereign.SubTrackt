@@ -221,8 +221,7 @@ fn media(path: &Path, font: &Path) -> anyhow::Result<()> {
         "--name".to_owned(),
         "spacing-margin".to_owned(),
     ])?;
-    let reference = subtrackt_glyph::ReferenceSet::decode(&std::fs::read(&reference_path)?)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&reference_path)?;
 
     let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
     let survey = Pipeline::new(config)

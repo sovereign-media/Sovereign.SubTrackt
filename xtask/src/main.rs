@@ -29,6 +29,7 @@ mod spacing;
 mod stability;
 mod sweep;
 mod unread;
+mod util;
 mod voting;
 mod widthsweep;
 

@@ -439,8 +439,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         }
         crate::gen_reference(&gen_args)?;
 
-        let reference =
-            ReferenceSet::decode(&std::fs::read(&path)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let reference = crate::util::load_reference(&path)?;
         // Post-correction off here on purpose: this comparison is about the feature
         // representation, and a stage that rewrites the output afterwards would confound it.
         let (text, outcome) = extract(&sup, reference.clone(), grey, false)?;

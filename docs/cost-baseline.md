@@ -80,10 +80,18 @@ not big enough for it to matter.
 performance work is worth doing on the extraction path it is there — the binarizer's per-pixel
 bounds checks, the mask's byte-per-pixel storage, the labelling passes.
 
-**`xtask srt-score` costs more than an extraction does.** Scoring one film against its release
-sidecar takes **7.4 s**, against 1.1 s to produce the extraction being scored. It is the largest
-single measured cost anywhere in the tree, and it is on the bench path — which is to say it is paid
-by whoever is doing the measuring, repeatedly, all day.
+**`xtask srt-score` used to cost more than an extraction does.** Scoring one film against its
+release sidecar took **7.4 s**, against 1.1 s to produce the extraction being scored — the largest
+single measured cost anywhere in the tree, and on the bench path, which is to say paid twice per
+change per disc by the standing rule to bench before and after.
+
+Nearly all of it was one call: the track-level figure compares two hundred-thousand-character
+transcripts as flat sequences, deliberately ignoring cue boundaries, and the obvious recurrence is
+O(n·m) over that. Replacing it with the bit-parallel formulation — sixty-four dynamic-programming
+cells per machine word, exact rather than approximate — takes the same command to **0.36 s**, a
+factor of twenty, with every published figure unchanged. The rolling-row implementation stays in the
+tree as the oracle it is tested against, because a subtle bug there would move every accuracy number
+this project has published.
 
 ## The rule this suggests
 

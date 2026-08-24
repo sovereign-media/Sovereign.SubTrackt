@@ -20,7 +20,6 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use subtrackt::{Config, Pipeline, UnmatchedPolicy, UnreadGlyph};
-use subtrackt_glyph::ReferenceSet;
 
 /// Distance past which an unread component is not a character this typeface draws.
 ///
@@ -196,8 +195,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         .into();
     let set: PathBuf = args.get(1).context("missing the reference set")?.into();
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&set)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&set)?;
     // Placeholder rather than the default gate, for the same reason `xtask accuracy` uses it: a
     // policy that refuses the track would leave nothing to census.
     let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };

@@ -25,7 +25,6 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use subtrackt::{Config, Pipeline};
 use subtrackt_core::{FeatureVector, InkAspect, LineMetrics, MarkSlope};
-use subtrackt_glyph::ReferenceSet;
 use subtrackt_glyph::matcher::{HammingMatcher, MatchThresholds};
 
 /// One distinct (shape, metrics, mark) key and what it was answered with.
@@ -49,8 +48,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         .into();
     let set: PathBuf = args.get(1).context("missing the reference set")?.into();
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&set)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&set)?;
     // The survey rather than an extraction, because what is wanted is every glyph's *inputs* —
     // shape, metrics and mark — and the pipeline only carries out its answers.
     let survey = Pipeline::new(Config::default())

@@ -99,8 +99,7 @@ fn fixture_at(
         "--name".to_owned(),
         "sweep".to_owned(),
     ])?;
-    let reference = ReferenceSet::decode(&std::fs::read(&reference_path)?)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&reference_path)?;
 
     let truth = std::fs::read_to_string(dir.join("synthetic.txt"))?;
     Ok((dir.join("synthetic.sup"), truth, reference))

@@ -22,7 +22,6 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use subtrackt::{Config, Pipeline, UnmatchedPolicy};
-use subtrackt_glyph::ReferenceSet;
 
 use crate::disc;
 
@@ -67,8 +66,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         None => WEIGHTS.to_vec(),
     };
 
-    let reference =
-        ReferenceSet::decode(&std::fs::read(&set)?).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let reference = crate::util::load_reference(&set)?;
     let want = disc::read(release)?;
 
     println!(

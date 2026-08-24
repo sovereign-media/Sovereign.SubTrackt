@@ -362,15 +362,6 @@ struct Spread {
     renderings: usize,
 }
 
-/// The median of a list, taking the upper of the two middles on an even count.
-fn median(values: &mut [u32]) -> u32 {
-    if values.is_empty() {
-        return 0;
-    }
-    values.sort_unstable();
-    values[values.len() / 2]
-}
-
 /// Measure one character's spread across the sizes and ink thresholds real material varies over.
 ///
 /// This is the noise floor every separation claim below is checked against. Measured pairwise
@@ -398,7 +389,7 @@ fn spread(font: &Font, character: char, neighbour: char) -> Option<Spread> {
                 distances.push(a.distance(b, *candidate));
             }
         }
-        noise[slot] = median(&mut distances);
+        noise[slot] = crate::util::median(&mut distances);
     }
 
     let mut signs: BTreeMap<i32, usize> = BTreeMap::new();
@@ -662,7 +653,7 @@ fn report_accent_pairs(marked: &[Marked]) {
         return;
     }
     let mean_gap = shape_gaps.iter().sum::<u32>() / (shape_gaps.len() as u32);
-    let median_noise = median(&mut shape_noise);
+    let median_noise = crate::util::median(&mut shape_noise);
     let bits = FEATURE_BITS as u64;
     println!("\n  candidate B, in cells of a {FEATURE_BITS}-bit vector:");
     println!(
@@ -724,7 +715,7 @@ fn report_slope_stability(marked: &[Marked]) {
     let mut spreads: Vec<u32> = marked.iter().map(|m| m.spread.noise[2]).collect();
     println!(
         "  median spread of a mark's slope across renderings, all marks: {}",
-        median(&mut spreads)
+        crate::util::median(&mut spreads)
     );
 }
 
@@ -866,12 +857,11 @@ pub fn report(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn the_median_of_an_even_count_takes_the_upper_middle() {
-        assert_eq!(median(&mut [4, 1, 3, 2]), 3);
-        assert_eq!(median(&mut [5, 1, 3]), 3);
-        assert_eq!(median(&mut []), 0);
+        assert_eq!(crate::util::median(&mut [4, 1, 3, 2]), 3);
+        assert_eq!(crate::util::median(&mut [5, 1, 3]), 3);
+        assert_eq!(crate::util::median(&mut []), 0);
     }
 }
