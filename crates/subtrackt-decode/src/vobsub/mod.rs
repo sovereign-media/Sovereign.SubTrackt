@@ -26,7 +26,7 @@ const DELAY_TO_TICKS: u64 = 1024;
 /// How long a subpicture is held when its control chain never says to stop.
 ///
 /// Real streams do usually carry a stop command; when one does not, the alternative to a fallback
-/// is dropping the cue entirely. [`VobSubDecoder::unterminated_cues`] counts how often this was
+/// is dropping the cue entirely. [`BitmapDecoder::unterminated_cues`] counts how often this was
 /// needed, so the approximation stays auditable.
 pub const UNTERMINATED_CUE_TICKS: u64 = 5 * subtrackt_core::PTS_HZ;
 
@@ -103,12 +103,6 @@ impl VobSubDecoder {
     #[must_use]
     pub const fn subpictures(&self) -> u64 {
         self.subpictures
-    }
-
-    /// Cues emitted with [`UNTERMINATED_CUE_TICKS`] because the chain never said to stop.
-    #[must_use]
-    pub const fn unterminated_cues(&self) -> u64 {
-        self.unterminated_cues
     }
 
     /// Build the four-entry palette a subpicture actually draws with.
@@ -237,6 +231,10 @@ fn read_control(data: &[u8], first: usize, pts: u64) -> Result<Display> {
 impl BitmapDecoder for VobSubDecoder {
     fn codec(&self) -> &'static str {
         "vobsub"
+    }
+
+    fn unterminated_cues(&self) -> u64 {
+        self.unterminated_cues
     }
 
     fn configure(&mut self, codec_private: &[u8]) -> Result<()> {

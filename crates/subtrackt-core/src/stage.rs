@@ -37,6 +37,22 @@ pub trait BitmapDecoder {
     fn configure(&mut self, _codec_private: &[u8]) -> Result<()> {
         Ok(())
     }
+
+    /// How many cues this decoder had to invent an end time for.
+    ///
+    /// `CLAUDE.md` allows an approximation where it is the lesser evil, on the condition that it is
+    /// *counted so it can be audited* — and the trailing cue of a stream that never clears is the
+    /// example the rule is written around. Both decoders counted it from the day they made the
+    /// approximation. Neither count could be read: they were inherent methods, and
+    /// `subtrackt_decode::decoder_for` hands back a `Box<dyn BitmapDecoder>`, so the pipeline held
+    /// the number and had no way to ask for it. A run that guessed the end of forty cues reported
+    /// exactly what a run that guessed none did.
+    ///
+    /// Defaulted to zero on the same argument as [`GlyphMatcher::cache_hits`]: a decoder that never
+    /// approximates has nothing to declare, and should not have to say so.
+    fn unterminated_cues(&self) -> u64 {
+        0
+    }
 }
 
 /// Binarizes a subtitle image and cuts it into glyphs.

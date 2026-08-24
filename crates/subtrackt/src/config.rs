@@ -103,11 +103,6 @@ impl UnmatchedPolicy {
     }
 }
 
-/// Everything the pipeline needs beyond an input path.
-///
-/// The bool count is what a configuration is. Each one is an independent switch a caller sets on
-/// its own — `grey_coverage` is a vectoriser decision, `post_correct` a text-stage one,
-/// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
 /// Whether an unreadable component is retried as two characters that touched.
 ///
 /// #106. 8-connected labelling fuses characters that touch at a corner — an `r`'s arm reaches over
@@ -162,6 +157,11 @@ impl ProvenancePolicy {
     }
 }
 
+/// Everything the pipeline needs beyond an input path.
+///
+/// The bool count is what a configuration is. Each one is an independent switch a caller sets on
+/// its own — `grey_coverage` is a vectoriser decision, `post_correct` a text-stage one,
+/// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
 /// combinations that do not exist and hide the ones that do.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, Default)]

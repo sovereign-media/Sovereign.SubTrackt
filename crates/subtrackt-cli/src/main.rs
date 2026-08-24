@@ -156,7 +156,6 @@ fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()
     Ok(())
 }
 
-/// Dump glyph shapes as tab-separated rows.
 /// Every `.subtref` in a directory, loaded and named after its file.
 ///
 /// A candidate that will not decode is skipped with a count rather than failing the run. A
@@ -292,6 +291,7 @@ fn fit(args: &FitArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Dump glyph shapes as tab-separated rows.
 fn glyphs(args: &GlyphsArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
     let survey = Pipeline::new(args.to_config())
         .survey_watched(&args.input, args.limit, bars)

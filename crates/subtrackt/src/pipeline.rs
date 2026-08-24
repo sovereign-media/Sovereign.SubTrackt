@@ -215,6 +215,10 @@ impl Pipeline {
         }
         images.extend(decoder.finish()?);
         progress.end();
+        // Read after `finish`, which is where the trailing cue is invented, and before the decoder
+        // is dropped. See `BitmapDecoder::unterminated_cues` for why this was unreachable until
+        // #147: the count existed on both decoders and `decoder_for` erases the type that had it.
+        report.unterminated_cues = decoder.unterminated_cues();
         cost.decode = started.elapsed();
         report.images = images.len().try_into().unwrap_or(u64::MAX);
         // Every decoded bitmap is resident at once, because nothing is segmented until the last
