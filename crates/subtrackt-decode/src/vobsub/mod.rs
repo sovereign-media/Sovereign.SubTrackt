@@ -88,11 +88,6 @@ impl VobSubDecoder {
         Self { palette: None, unterminated_cues: 0, subpictures: 0 }
     }
 
-    /// Supply the 16-colour palette.
-    pub fn set_palette(&mut self, palette: Palette) {
-        self.palette = Some(palette);
-    }
-
     /// Whether a palette has been supplied.
     #[must_use]
     pub const fn has_palette(&self) -> bool {

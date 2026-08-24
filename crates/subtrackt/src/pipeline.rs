@@ -877,7 +877,7 @@ impl ImageSegmenter {
                     // any of this — never a fabricated zero shear.
                     upright: {
                         let span = shears.get(&glyph.line).map_or_else(
-                            || slant::box_span(bounds),
+                            || subtrackt_core::UprightSpan::of_box(bounds),
                             |(shear, pivot)| slant::upright_span(&labels, glyph, *shear, *pivot),
                         );
                         aspect = upright_aspect(shear.map(|_| span), bounds);

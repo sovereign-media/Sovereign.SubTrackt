@@ -128,26 +128,6 @@ impl SessionCache {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
-
-    /// Hit rate in `0.0..=1.0`, or `0.0` before any lookup.
-    #[must_use]
-    pub fn hit_rate(&self) -> f32 {
-        let total = self.hits + self.misses;
-        if total == 0 {
-            return 0.0;
-        }
-        #[allow(clippy::cast_precision_loss)]
-        {
-            self.hits as f32 / total as f32
-        }
-    }
-
-    /// Drop everything, for reuse across streams.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.hits = 0;
-        self.misses = 0;
-    }
 }
 
 #[cfg(test)]
@@ -198,7 +178,6 @@ mod tests {
 
         assert_eq!(cache.hits(), 2);
         assert_eq!(cache.misses(), 1);
-        assert!((cache.hit_rate() - 2.0 / 3.0).abs() < 1e-6);
     }
 
     #[test]
@@ -262,22 +241,5 @@ mod tests {
             .unwrap();
         assert!(hit.character.is_none());
         assert_eq!(hit.distance, 140);
-    }
-
-    #[test]
-    fn clearing_resets_counters_as_well_as_entries() {
-        let mut cache = SessionCache::new();
-        cache.insert(
-            &vector(1),
-            LineMetrics::UNKNOWN,
-            MarkSlope::NONE,
-            InkAspect::UNKNOWN,
-            matched('a'),
-        );
-        cache.get(&vector(1), LineMetrics::UNKNOWN, MarkSlope::NONE, InkAspect::UNKNOWN);
-        cache.clear();
-        assert!(cache.is_empty());
-        assert_eq!(cache.hits(), 0);
-        assert!((cache.hit_rate() - 0.0).abs() < f32::EPSILON);
     }
 }

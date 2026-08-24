@@ -426,11 +426,9 @@ pub fn split_threshold(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Op
     sorted.sort_unstable();
 
     let cut = match rules.spacing {
-        SpacingRule::OtsuSplit => ranked_otsu_cuts(&sorted),
-        _ => ranked_jump_cuts(&sorted),
-    }
-    .into_iter()
-    .next()?;
+        SpacingRule::OtsuSplit => otsu_cut(&sorted),
+        _ => widest_jump_cut(&sorted),
+    }?;
     let threshold = sorted[cut + 1];
 
     // Both decisiveness tests, against two different yardsticks. Either one alone admits a split
@@ -447,29 +445,39 @@ pub fn split_threshold(gaps: &[u32], glyph_width: u32, rules: LayoutRules) -> Op
     decisive.then_some(threshold)
 }
 
-/// Cut indices by descending jump width, ties going to the **lower** cut.
+/// The cut with the widest jump between consecutive sorted gaps, ties going to the **lower** cut.
 ///
-/// The ordering the old `widest_jump_cut` expressed by returning only its first element. Equal
-/// neighbouring values are skipped, as they are in [`ranked_otsu_cuts`]: a boundary drawn through
-/// two identical gaps would put the same measurement on both sides of it.
-fn ranked_jump_cuts(sorted: &[u32]) -> Vec<usize> {
-    let mut cuts: Vec<(u32, usize)> = (0..sorted.len() - 1)
-        .filter(|index| sorted[index + 1] > sorted[*index])
-        .map(|index| (sorted[index + 1] - sorted[index], index))
-        .collect();
-    // Descending by jump, then ascending by index, so a tie still goes to the lower cut -- which
-    // is what puts `fox jumps` on the far side of the boundary on the fixture's longest line.
-    cuts.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    cuts.into_iter().map(|(_, index)| index).collect()
+/// One cut rather than a ranking, and the difference is the whole of #134. This used to build and
+/// sort every candidate so the caller could take the first, which reads as a ranking someone might
+/// walk down — and #134 tried exactly that. It invented spaces: `18th-century` became
+/// `1 8th-century`, because a line that holds no word break still has jumps in it and the
+/// second-best jump is by construction a worse-separated one. The failure of the best candidate is
+/// the strongest evidence available that there is nothing there, so the ranking was never a
+/// feature waiting to be used. Equal neighbouring values are skipped, as they are in [`otsu_cut`]:
+/// a boundary drawn through two identical gaps would put the same measurement on both sides of it.
+fn widest_jump_cut(sorted: &[u32]) -> Option<usize> {
+    let mut best: Option<(u32, usize)> = None;
+    for index in 0..sorted.len() - 1 {
+        if sorted[index + 1] <= sorted[index] {
+            continue;
+        }
+        let jump = sorted[index + 1] - sorted[index];
+        // Strictly wider, so an equal jump leaves the earlier cut standing -- which is what puts
+        // `fox jumps` on the far side of the boundary on the fixture's longest line.
+        if best.is_none_or(|(widest, _)| jump > widest) {
+            best = Some((jump, index));
+        }
+    }
+    best.map(|(_, index)| index)
 }
 
-/// Cut indices by descending Otsu between-class variance.
-fn ranked_otsu_cuts(sorted: &[u32]) -> Vec<usize> {
-    let mut scored: Vec<(f64, usize)> = Vec::new();
+/// The cut maximising Otsu's between-class variance, ties going to the lower cut.
+fn otsu_cut(sorted: &[u32]) -> Option<usize> {
     let total: f64 = sorted.iter().map(|gap| f64::from(*gap)).sum();
     #[allow(clippy::cast_precision_loss)]
     let count = sorted.len() as f64;
     let mut low_sum = 0.0;
+    let mut best: Option<(f64, usize)> = None;
     for index in 0..sorted.len() - 1 {
         low_sum += f64::from(sorted[index]);
         if sorted[index] == sorted[index + 1] {
@@ -479,10 +487,12 @@ fn ranked_otsu_cuts(sorted: &[u32]) -> Vec<usize> {
         let low_count = (index + 1) as f64;
         let high_count = count - low_count;
         let separation = low_sum / low_count - (total - low_sum) / high_count;
-        scored.push((low_count * high_count * separation * separation, index));
+        let variance = low_count * high_count * separation * separation;
+        if best.is_none_or(|(highest, _)| variance > highest) {
+            best = Some((variance, index));
+        }
     }
-    scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-    scored.into_iter().map(|(_, index)| index).collect()
+    best.map(|(_, index)| index)
 }
 
 impl TextAssembler for SpatialAssembler {

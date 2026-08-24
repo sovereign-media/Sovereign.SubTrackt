@@ -59,7 +59,7 @@ pub fn charset() -> Vec<char> {
 /// every distance it produced would be meaningless.
 ///
 /// **One** vector, at [`RENDER_PX`] under the ink threshold, on the rasteriser's box. A generated set carries
-/// [`RENDERINGS`] instead — see [`vectors_for`] — because #99 measured that one box cannot cover
+/// [`RENDERINGS`] instead — see [`vectors_under`] — because #99 measured that one box cannot cover
 /// what the material does. This stays because the instruments that compare *typefaces* against each
 /// other need one canonical vector per character rather than a set, and because holding it at the
 /// rendering it has always had keeps every figure they have already recorded comparable.
@@ -149,7 +149,7 @@ pub fn vectors_for(font: &Font, ch: char, grey: bool) -> Vec<FeatureVector> {
     vectors_under(font, ch, grey, &RENDERINGS)
 }
 
-/// As [`vectors_for`], with the renderings chosen rather than defaulted.
+/// Every vector a generated set carries for one character, under the renderings given.
 ///
 /// Exists for `xtask render-sweep`, which is what chose [`RENDERINGS`]. #45 is the reason it is a
 /// parameter at all: a change to what a reference vector *is* silently re-prices every threshold

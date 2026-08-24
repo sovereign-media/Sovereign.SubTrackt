@@ -54,7 +54,6 @@ struct OpenImage {
 pub struct PgsDecoder {
     palettes: BTreeMap<u8, Palette>,
     objects: BTreeMap<u16, StoredObject>,
-    windows: BTreeMap<u8, Rect>,
     /// The composition of the display set currently being read.
     composition: Option<Composition>,
     open: Option<OpenImage>,
@@ -70,7 +69,6 @@ impl PgsDecoder {
         Self {
             palettes: BTreeMap::new(),
             objects: BTreeMap::new(),
-            windows: BTreeMap::new(),
             composition: None,
             open: None,
             segments_seen: 0,
@@ -108,9 +106,11 @@ impl PgsDecoder {
                 self.composition = Some(body::composition(segment.body, pts)?);
             }
             SegmentKind::WindowDefinition => {
-                for (id, rect) in body::windows(segment.body, pts)? {
-                    self.windows.insert(id, rect);
-                }
+                // Parsed and dropped. A window definition has to be *validated* -- a malformed one
+                // is a malformed stream and should be rejected here rather than downstream -- but
+                // the rectangles themselves were only ever stored. Nothing composited against
+                // them: `compose` places objects at their own coordinates and unions the result.
+                body::windows(segment.body, pts)?;
             }
             SegmentKind::PaletteDefinition => {
                 let update = body::palette(segment.body, pts)?;
