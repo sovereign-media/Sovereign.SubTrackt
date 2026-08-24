@@ -96,11 +96,35 @@ pub(crate) fn extract_with_vocabulary(
     reference: ReferenceSet,
     grey: bool,
 ) -> anyhow::Result<(String, subtrackt::Outcome)> {
+    extract_corrected(sup, reference, grey, false)
+}
+
+/// Extract with every arm of post-correction on, the lone-word one included.
+///
+/// #171. That arm is the only one in the stage that knows a language, and this fixture is the only
+/// instrument here with ground truth rather than another transcript — so it is where the arm has to
+/// be watched. It is also where the arm was first caught being wrong: `- Is it 1 or l?` is a line
+/// *about* the characters, its lone `l` is correct, and an earlier draft rewrote it.
+pub(crate) fn extract_with_lone_words(
+    sup: &Path,
+    reference: ReferenceSet,
+    grey: bool,
+) -> anyhow::Result<(String, subtrackt::Outcome)> {
+    extract_corrected(sup, reference, grey, true)
+}
+
+fn extract_corrected(
+    sup: &Path,
+    reference: ReferenceSet,
+    grey: bool,
+    lone_words: bool,
+) -> anyhow::Result<(String, subtrackt::Outcome)> {
     let config = Config {
         unmatched: UnmatchedPolicy::Placeholder,
         grey_coverage: grey,
         post_correct: true,
         track_vocabulary: true,
+        lone_words,
         ..Config::default()
     };
     let outcome = Pipeline::new(config)
@@ -159,15 +183,18 @@ fn post_correction(
     let (off, _) = extract(sup, reference.clone(), grey, false)?;
     let (on, outcome) = extract(sup, reference.clone(), grey, true)?;
     let (vocab, vocab_outcome) = extract_with_vocabulary(sup, reference.clone(), grey)?;
+    let (lone, lone_outcome) = extract_with_lone_words(sup, reference.clone(), grey)?;
 
     let (better, worse) = lines_moved(truth, &off, &on);
     let (vocab_better, vocab_worse) = lines_moved(truth, &off, &vocab);
+    let (lone_better, lone_worse) = lines_moved(truth, &off, &lone);
 
     let score_off = score_text(truth, off.trim());
     let score_on = score_text(truth, on.trim());
     let score_vocab = score_text(truth, vocab.trim());
+    let score_lone = score_text(truth, lone.trim());
 
-    println!("\n--- post-correction (#12, #60) ---");
+    println!("\n--- post-correction (#12, #60, #171) ---");
     println!(
         "  candidates  : {} glyphs the matcher would not call outright",
         outcome.report.ambiguous
@@ -183,10 +210,13 @@ fn post_correction(
     row("off", &score_off, 0, 0);
     row("context", &score_on, better, worse);
     row("context + vocabulary", &score_vocab, vocab_better, vocab_worse);
+    row("+ lone word", &score_lone, lone_better, lone_worse);
 
     println!(
-        "\n  substitutions: {} by context, {} by vocabulary",
-        outcome.report.corrections, vocab_outcome.report.vocabulary_corrections
+        "\n  substitutions: {} by context, {} by vocabulary, {} in total with lone words",
+        outcome.report.corrections,
+        vocab_outcome.report.vocabulary_corrections,
+        lone_outcome.report.corrections
     );
     // How often the evidence existed at all. A rule that never fires because nothing supports it
     // is a different result from one that fires and gains nothing, and #60 asks for both.

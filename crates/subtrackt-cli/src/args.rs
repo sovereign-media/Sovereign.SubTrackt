@@ -177,6 +177,14 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "track_vocabulary")]
     pub no_track_vocabulary: bool,
 
+    /// Also read a one-character word of `l` as `I`. Needs --post-correct, and assumes English.
+    #[arg(long, overrides_with = "no_lone_words")]
+    pub lone_words: bool,
+
+    /// Leave a one-character word exactly as the matcher read it.
+    #[arg(long, overrides_with = "lone_words")]
+    pub no_lone_words: bool,
+
     /// How many times a word must be read clearly before it counts as evidence.
     #[arg(long, default_value_t = VocabularyRules::default().min_occurrences)]
     pub vocab_min_occurrences: usize,
@@ -422,6 +430,18 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether the lone-word arm runs, resolved the same way.
+    #[must_use]
+    pub fn lone_words(&self) -> bool {
+        if self.lone_words {
+            true
+        } else if self.no_lone_words {
+            false
+        } else {
+            Config::default().lone_words
+        }
+    }
+
     /// Whether the vocabulary arm may match the start of a clear word, resolved the same way.
     ///
     /// This one is a pair rather than a bare flag because a bare flag *is* a decision: a plain
@@ -466,6 +486,7 @@ impl ExtractArgs {
             defuse: self.defuse(),
             post_correct: self.post_correct(),
             track_vocabulary: self.track_vocabulary(),
+            lone_words: self.lone_words(),
             provenance: self.provenance(),
             vocabulary: VocabularyRules {
                 min_occurrences: self.vocab_min_occurrences,

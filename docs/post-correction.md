@@ -277,6 +277,121 @@ the CLI silently inverts is a bug even in the year it changes nothing, because t
 it harmless is a *different* change that could be revisited. What this does retire is the idea that
 the vocabulary arm is a lever: on current material it is a backstop that never fires.
 
+## The one-character word
+
+#171 asked which lever was left for `l`/`I`, the largest confusion family this project has, and
+supposed it was the ambiguity flag: *the corrector can only reach glyphs the matcher was unsure
+about, and the worst failures are the ones it was sure about*. **That premise is wrong, and finding
+out is most of what this section is.**
+
+### What the errors actually are
+
+On A Fish Called Wanda the extraction holds **343 lone lowercase `l`s and three lone `I`s**, against
+353 in the sidecar. On Gone Girl it is 126 against 564. The arithmetic closes on both: essentially
+every standalone `I` on the disc is accounted for, and the ones that are wrong are wrong at exactly
+one position. **Four fifths of the family is the English pronoun `I`.**
+
+That position is unreachable by either existing arm, and not because of a flag:
+
+- **the context arm** needs a character on each side, and a one-character word has neither;
+- **the vocabulary arm** needs the track to have read the same token *clearly* somewhere. After #37
+  exactly one zero-distance pair survives in the reference set, so every `l` and `I` in a track is
+  ambiguous by construction and **no clear one-character token ever folds onto `i` or `l`**. The
+  only candidate left with support is the digit. Running the arm at `--vocab-min-len 1` measures
+  that directly: 515 corrections on Gone Girl, **every one of them a correct pronoun rewritten to
+  `1`** — `When l think of my wife` became `When 1 think of my wife`. It is exactly the failure the
+  `min_len: 2` default was guessing at, and it is now observed rather than guessed.
+
+That experiment also settles #171's premise, from the other side. The vocabulary arm only ever fires
+on glyphs the matcher flagged, and it fired on 515 of them — so **these glyphs are already
+ambiguous**. The corrector can reach them. What it lacks is evidence, not permission, and widening
+the trigger past the flag would buy nothing while giving up the stage's outer guard.
+
+Nor is there evidence in the ink. [`glyph-hit-list.md`](glyph-hit-list.md) measured the pair's width
+on all three Arial discs and Wanda draws them identically at p25, p50 and p75 alike. Height offers
+nothing either, and that is a property of the typeface rather than of the disc: Arial's ascender and
+its cap height are the same to within a unit, so a lone `l` and a capital `I` are **both 42 px tall**
+at 1080p on 10 Cloverfield Lane. The aspect ratio the matcher already uses is `5/42` against `6/42`
+there, and `5/42` against `5/42` on Wanda.
+
+### What is left is a language, and it was measured rather than asserted
+
+The remaining lever is the assertion that a lone `l` is not a word. This document rules out a
+dictionary, on the grounds that it is unverifiable and guesses hardest at names — so a rule resting
+on one has to answer that, and the answer is that this one was *measured*:
+
+**Across 77 English release subtitles from 47 titles, a lone lowercase `l` occurs 641 times.** Every
+one of them is itself a misread `I`, in transcripts this project did not produce:
+
+```
+The Blair Witch Project   287   "-Okay, l got you."
+Fantastic Mr. Fox         218   "l told you"
+U.S. Marshals              69   "As long as l live, if I never see Gerard"
+```
+
+The third line carries both forms in one sentence, which is what a misread looks like and what a
+word does not. The apostrophe cases say the same thing: 271 occurrences of `l'` followed by letters,
+and the suffix is `m`, `ve`, `ll` or `d` every single time.
+
+So `--lone-words` promotes a one-character word of `l` or `|` to `I`. Three refusals, each against
+something observed rather than imagined:
+
+| Refusal | What it prevents |
+| :--- | :--- |
+| Only `l` and `\|`, never `1` | A lone digit is a legitimate token — `Chapter 1` |
+| A lone twin from the same set anywhere on the line | A shattered word, and a line *about* the letters |
+| An apostrophe carries at most two letters | `l'` before a longer word is a French elision |
+
+The middle one earned its place twice. `Well,` arrives from segmentation as `We l l ,` on
+10 Cloverfield Lane and each half looks exactly like a pronoun — the same upstream-evidence problem
+`naïve` and `0123456789 O o I l 1` record above. And the accuracy fixture carries `- Is it 1 or l?`,
+a line *about* the characters, whose lone `l` is correct and is the only correct one this project
+has ever observed. An earlier draft rewrote it. What refuses both is the same thing: another member
+of the confusion set standing alone on the line.
+
+### Result
+
+On the bench, against `--post-correct` rather than against nothing, so the arm is priced on its own:
+
+| track | cues improved | **cues worse** | CER |
+| :--- | ---: | ---: | ---: |
+| 10 Cloverfield Lane | 3 | **0** | 0.4% → 0.4% |
+| Gone Girl | 104 | **0** | 1.5% → **1.3%** |
+| A Fish Called Wanda | 269 | **0** | 1.7% → **1.1%** |
+| King Kong | 19 | **0** | 21.3% → 21.2% |
+| The Karate Kid (VOBSUB) | 0 | **0** | 1.8% → 1.8% |
+| Training Day (VOBSUB) | 0 | **0** | 2.2% → 2.2% |
+| **total** | **395** | **0** | |
+
+And nothing at all on the ceiling fixture: 0.0% CER before and after, zero substitutions, zero lines
+moved. The guard is doing its job on the one line that could have gone wrong.
+
+**The two VOBSUB tracks gain nothing, and that is the result rather than a gap.** They read the
+pronoun correctly and fail in the opposite direction — `Iike`, `Iet`, `Is` for `like`, `let`, `is` —
+which is word-*initial* `l` read as `I` inside a longer word. That is what the context arm already
+reaches: switching the whole stage on is worth **228 and 301 cues** on those two, against 11 across
+every PGS track on the bench. The two codecs fail at opposite ends of the same word, and each has an
+arm that reaches one of them.
+
+### The stage, priced separately
+
+The table above starts from `--post-correct`, so here is what that costs against the shipped default
+of nothing:
+
+| track | cues improved | cues worse | CER |
+| :--- | ---: | ---: | ---: |
+| A Fish Called Wanda | 8 | 0 | 1.7% → 1.7% |
+| King Kong | 3 | 0 | 21.3% → 21.3% |
+| The Karate Kid | 228 | 0 | 2.3% → **1.8%** |
+| Training Day | 301 | **1** | 3.1% → **2.2%** |
+
+**One cue worse, and it is instructive.** On Training Day, an all-caps SDH line reads
+`[<?>UsIc PLAYs]` for `[MUSIC PLAYS]`: the matcher had already lost `S`→`s` and `C`→`c` to scale
+invariance, so the context arm saw lowercase on both sides of a correct `I` and rewrote it to `l`.
+The rule fired correctly on evidence that was wrong before it arrived — the same lesson `naïve`
+taught, on a disc where §"`C`/`c` is the cost of scale invariance" in
+[`library-accuracy.md`](library-accuracy.md) is doing the damage.
+
 ## Why the default is still off
 
 The measurement is positive and the guards are structural. What is missing is not confidence in the
@@ -294,6 +409,14 @@ rule, it is a corpus:
 on one film is an existence proof, and the two new failure modes it introduces — a proper noun that
 case-folds onto a common word, and a single clear occurrence that was itself a misread — are both
 unobserved rather than ruled out.
+
+`Config::lone_words` stays `false` for a reason none of the others has. **It knows a language**, and
+every other rule in this pipeline is checkable against the material it fires on. 395 cues improved
+and none made worse is a strong measurement and it is still a measurement of English discs: a track
+in a language where a lone `l` *is* a word, or where `l'` elision is ordinary, would be damaged by
+it and nothing in the tool can tell which language a bitmap is in. That is the argument for keeping
+it behind a flag, not for leaving it unbuilt — the errors it fixes are four fifths of the largest
+confusion family this project has measured.
 
 So `Config::post_correct` stays `false` and `subtrackt extract` defaults to off. Both flags work —
 `--post-correct` and `--no-post-correct`, last one on the line wins — so pinning either behaviour
@@ -376,6 +499,10 @@ had stopped refusing.
 - **The confusion table is the blast radius.** `5`/`S`, `8`/`B` and `2`/`Z` are the obvious
   additions and are deliberately absent. Each one wants its own row in the table above before it
   goes in.
+- **The word-initial position, on VOBSUB.** `Iike` and `Iet` are what the other codec produces, and
+  the context arm reaches them only because a longer word has a second side. What it cannot reach
+  is `lt` and `lf` for `It` and `If` — two characters, one of them ambiguous, no evidence either
+  way. The lone-word arm stops at one character deliberately; two is a different measurement.
 
 [#8]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/8
 [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12

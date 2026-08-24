@@ -206,6 +206,16 @@ pub struct Config {
     /// for the reason that is off: the only comparison available for a real track is another
     /// release's subtitle, which is evidence rather than hand-verified ground truth.
     pub track_vocabulary: bool,
+    /// Whether post-correction may promote a one-character word to `I`.
+    ///
+    /// The third arm, and the only one that knows a language: `l` is not a word and `I` is. Off,
+    /// and off for a reason of its own on top of the one that keeps the stage off — every other
+    /// rule in this pipeline is checkable against the material it fires on, and this one is not.
+    /// What stands behind it is a measurement rather than an assertion: across 77 English release
+    /// subtitles, a lone lowercase `l` occurs 641 times and every one is a misread `I`.
+    /// `docs/post-correction.md` §"The one-character word" has the rest, including what a French
+    /// track would do to it.
+    pub lone_words: bool,
     /// How that vocabulary is built and consulted.
     pub vocabulary: VocabularyRules,
     /// Whether a survey keeps each glyph's un-normalised ink alongside its feature vector.
