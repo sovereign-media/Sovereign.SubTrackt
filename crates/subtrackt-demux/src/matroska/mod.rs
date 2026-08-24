@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use subtrackt_core::{Error, PTS_HZ, Result};
 
 use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
-use ebml::{EbmlReader, ElementHeader, UNKNOWN_SIZE};
+use ebml::{EbmlReader, ElementHeader, UNKNOWN_SIZE, Walk};
 
 // Element IDs, as the specification quotes them.
 const SEGMENT: u32 = 0x1853_8067;
@@ -152,34 +152,27 @@ impl<R: Read + Seek> MatroskaReader<R> {
 
         // Walk the segment's children until the first cluster. Everything the reader needs is
         // declared before playback data begins.
-        let mut cursor = segment.body_start;
-        while cursor < segment_end {
-            reader.seek_to(cursor)?;
-            let Some(header) = reader.read_header()? else {
-                break;
-            };
-
+        reader.children_until(segment.body_start, segment_end, |reader, header| {
             match header.id {
-                INFO => timestamp_scale = read_timestamp_scale(&mut reader, &header)?,
+                INFO => timestamp_scale = read_timestamp_scale(reader, header)?,
                 TRACKS => {
-                    let (found, video_plane) = read_tracks(&mut reader, &header)?;
+                    let (found, video_plane) = read_tracks(reader, header)?;
                     tracks = found;
                     if video_plane != (0, 0) {
                         plane = video_plane;
                     }
                 }
                 CLUSTER => {
-                    clusters_start = Some(cursor);
-                    break;
+                    // Where the *header* begins, not its body: `select` rewinds to here and has to
+                    // read the cluster from its first byte. Everything the reader needs is
+                    // declared before playback data starts, so this is also where the walk ends.
+                    clusters_start = Some(header.start);
+                    return Ok(Walk::Stop);
                 }
                 _ => {}
             }
-
-            match header.body_end() {
-                Some(end) => cursor = end,
-                None => break,
-            }
-        }
+            Ok(Walk::Continue)
+        })?;
 
         // The subtitle plane matches the video frame for PGS, and the track headers do not carry
         // it, so it is taken from the video track.
@@ -358,17 +351,13 @@ impl<R: Read + Seek> MatroskaReader<R> {
 }
 
 /// Read the track number a block belongs to, and how many bytes it took.
+///
+/// The same variable-length integer [`EbmlReader::read_vint`] reads, over a slice rather than over
+/// the reader — a block's track number is already in the peeked bytes and seeking back to read it
+/// would undo the whole point of peeking. Both spellings now share the arithmetic; only where the
+/// bytes come from differs.
 fn read_block_track(body: &[u8]) -> Option<(u64, usize)> {
-    let first = *body.first()?;
-    if first == 0 {
-        return None;
-    }
-    let width = usize::try_from(first.leading_zeros()).unwrap_or(0) + 1;
-    let mut value = u64::from(first & !(1u8 << (8 - width)));
-    for byte in body.get(1..width)? {
-        value = (value << 8) | u64::from(*byte);
-    }
-    Some((value, width))
+    ebml::vint_from_slice(body, false)
 }
 
 /// Find the `Segment` element, checking the file really is Matroska on the way.
@@ -408,28 +397,19 @@ fn read_timestamp_scale<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     info: &ElementHeader,
 ) -> Result<u64> {
-    let end = info.body_end().unwrap_or(info.body_start);
-    let mut cursor = info.body_start;
-
-    while cursor < end {
-        reader.seek_to(cursor)?;
-        let Some(child) = reader.read_header()? else {
-            break;
-        };
-        if child.id == TIMESTAMP_SCALE {
-            let scale = reader.read_uint(&child)?;
-            return Ok(if scale == 0 {
-                DEFAULT_TIMESTAMP_SCALE
-            } else {
-                scale
-            });
+    let mut scale = DEFAULT_TIMESTAMP_SCALE;
+    reader.children(info, |reader, child| {
+        if child.id != TIMESTAMP_SCALE {
+            return Ok(Walk::Continue);
         }
-        match child.body_end() {
-            Some(next) => cursor = next,
-            None => break,
+        // Zero is not a scale. Treating it as one would make every timestamp in the file zero.
+        let declared = reader.read_uint(child)?;
+        if declared != 0 {
+            scale = declared;
         }
-    }
-    Ok(DEFAULT_TIMESTAMP_SCALE)
+        Ok(Walk::Stop)
+    })?;
+    Ok(scale)
 }
 
 /// Read every bitmap subtitle track, and the video dimensions the subtitle plane matches.
@@ -437,28 +417,20 @@ fn read_tracks<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     tracks: &ElementHeader,
 ) -> Result<(Vec<Track>, (u32, u32))> {
-    let end = tracks.body_end().unwrap_or(tracks.body_start);
-    let mut cursor = tracks.body_start;
     let mut found = Vec::new();
     let mut plane = (0u32, 0u32);
     let mut index = 0u32;
 
-    while cursor < end {
-        reader.seek_to(cursor)?;
-        let Some(entry) = reader.read_header()? else {
-            break;
-        };
-        let Some(next) = entry.body_end() else { break };
-
+    reader.children(tracks, |reader, entry| {
         if entry.id == TRACK_ENTRY {
-            if let Some(track) = read_track_entry(reader, &entry, &mut index)? {
+            if let Some(track) = read_track_entry(reader, entry, &mut index)? {
                 found.push(track);
-            } else if let Some(video) = video_plane(reader, &entry)? {
+            } else if let Some(video) = video_plane(reader, entry)? {
                 plane = video;
             }
         }
-        cursor = next;
-    }
+        Ok(Walk::Continue)
+    })?;
     Ok((found, plane))
 }
 
@@ -468,9 +440,6 @@ fn read_track_entry<R: Read + Seek>(
     entry: &ElementHeader,
     index: &mut u32,
 ) -> Result<Option<Track>> {
-    let end = entry.body_end().unwrap_or(entry.body_start);
-    let mut cursor = entry.body_start;
-
     let mut number = 0u64;
     let mut track_type = 0u64;
     let mut codec_id = String::new();
@@ -479,28 +448,21 @@ fn read_track_entry<R: Read + Seek>(
     let mut compression = Compression::None;
     let mut codec_private = Vec::new();
 
-    while cursor < end {
-        reader.seek_to(cursor)?;
-        let Some(child) = reader.read_header()? else {
-            break;
-        };
+    reader.children(entry, |reader, child| {
         match child.id {
-            TRACK_NUMBER => number = reader.read_uint(&child)?,
-            TRACK_TYPE => track_type = reader.read_uint(&child)?,
-            CODEC_ID => codec_id = reader.read_string(&child)?,
-            LANGUAGE => language = Some(reader.read_string(&child)?),
-            NAME => name = Some(reader.read_string(&child)?),
-            CONTENT_ENCODINGS => compression = read_compression(reader, &child)?,
+            TRACK_NUMBER => number = reader.read_uint(child)?,
+            TRACK_TYPE => track_type = reader.read_uint(child)?,
+            CODEC_ID => codec_id = reader.read_string(child)?,
+            LANGUAGE => language = Some(reader.read_string(child)?),
+            NAME => name = Some(reader.read_string(child)?),
+            CONTENT_ENCODINGS => compression = read_compression(reader, child)?,
             CODEC_PRIVATE => {
                 codec_private = reader.read_exact(usize::try_from(child.size).unwrap_or(0))?;
             }
             _ => {}
         }
-        match child.body_end() {
-            Some(next) => cursor = next,
-            None => break,
-        }
-    }
+        Ok(Walk::Continue)
+    })?;
 
     if track_type != TRACK_TYPE_SUBTITLE {
         return Ok(None);
@@ -548,14 +510,8 @@ fn read_compression<R: Read + Seek>(
         if depth > 4 {
             return Ok(());
         }
-        let mut cursor = start;
-        while cursor < end {
-            reader.seek_to(cursor)?;
-            let Some(child) = reader.read_header()? else {
-                break;
-            };
-            let Some(next) = child.body_end() else { break };
-
+        reader.children_until(start, end, |reader, child| {
+            let next = child.body_end().unwrap_or(child.body_start);
             match child.id {
                 CONTENT_ENCODING => walk(reader, child.body_start, next, found, depth + 1)?,
                 CONTENT_COMPRESSION => {
@@ -566,7 +522,7 @@ fn read_compression<R: Read + Seek>(
                     walk(reader, child.body_start, next, found, depth + 1)?;
                 }
                 CONTENT_COMP_ALGO => {
-                    *found = match reader.read_uint(&child)? {
+                    *found = match reader.read_uint(child)? {
                         0 => Compression::Zlib,
                         3 => Compression::HeaderStrip(Vec::new()),
                         other => {
@@ -583,9 +539,8 @@ fn read_compression<R: Read + Seek>(
                 }
                 _ => {}
             }
-            cursor = next;
-        }
-        Ok(())
+            Ok(Walk::Continue)
+        })
     }
 
     let mut found = Compression::None;
@@ -599,26 +554,17 @@ fn video_plane<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     entry: &ElementHeader,
 ) -> Result<Option<(u32, u32)>> {
-    let end = entry.body_end().unwrap_or(entry.body_start);
-    let mut cursor = entry.body_start;
     let mut is_video = false;
     let mut plane = None;
 
-    while cursor < end {
-        reader.seek_to(cursor)?;
-        let Some(child) = reader.read_header()? else {
-            break;
-        };
+    reader.children(entry, |reader, child| {
         if child.id == TRACK_TYPE {
-            is_video = reader.read_uint(&child)? == TRACK_TYPE_VIDEO;
+            is_video = reader.read_uint(child)? == TRACK_TYPE_VIDEO;
         } else if child.id == VIDEO {
-            plane = read_video_dimensions(reader, &child)?;
+            plane = read_video_dimensions(reader, child)?;
         }
-        match child.body_end() {
-            Some(next) => cursor = next,
-            None => break,
-        }
-    }
+        Ok(Walk::Continue)
+    })?;
     Ok(if is_video { plane } else { None })
 }
 
@@ -627,25 +573,16 @@ fn read_video_dimensions<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     video: &ElementHeader,
 ) -> Result<Option<(u32, u32)>> {
-    let end = video.body_end().unwrap_or(video.body_start);
-    let mut cursor = video.body_start;
     let (mut width, mut height) = (0u32, 0u32);
 
-    while cursor < end {
-        reader.seek_to(cursor)?;
-        let Some(child) = reader.read_header()? else {
-            break;
-        };
+    reader.children(video, |reader, child| {
         match child.id {
-            PIXEL_WIDTH => width = u32::try_from(reader.read_uint(&child)?).unwrap_or(0),
-            PIXEL_HEIGHT => height = u32::try_from(reader.read_uint(&child)?).unwrap_or(0),
+            PIXEL_WIDTH => width = u32::try_from(reader.read_uint(child)?).unwrap_or(0),
+            PIXEL_HEIGHT => height = u32::try_from(reader.read_uint(child)?).unwrap_or(0),
             _ => {}
         }
-        match child.body_end() {
-            Some(next) => cursor = next,
-            None => break,
-        }
-    }
+        Ok(Walk::Continue)
+    })?;
     Ok((width != 0 && height != 0).then_some((width, height)))
 }
 

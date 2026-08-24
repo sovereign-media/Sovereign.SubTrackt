@@ -27,6 +27,12 @@ pub struct ElementHeader {
     pub size: u64,
     /// Absolute offset of the first payload byte.
     pub body_start: u64,
+    /// Absolute offset of the element itself, header included.
+    ///
+    /// Not the same as [`Self::body_start`] and the difference is what a caller resuming a walk
+    /// needs: a cluster is recorded by where its *header* begins, because that is where reading it
+    /// has to start again.
+    pub start: u64,
 }
 
 impl ElementHeader {
@@ -35,6 +41,42 @@ impl ElementHeader {
     pub fn body_end(&self) -> Option<u64> {
         (self.size != UNKNOWN_SIZE).then(|| self.body_start + self.size)
     }
+}
+
+/// Decode a variable-length integer from the front of a slice, returning it and its width.
+///
+/// The arithmetic half of [`EbmlReader::read_vint`], split out because a Matroska block carries its
+/// track number in bytes the reader has already peeked — seeking back to re-read them through the
+/// reader would undo the point of peeking. Two spellings of one rule is how they drift.
+///
+/// `None` for an empty slice, for a leading zero byte (which encodes a width of more than eight
+/// and cannot occur in a valid file), or for a slice too short for the width it declares.
+#[must_use]
+pub fn vint_from_slice(bytes: &[u8], keep_marker: bool) -> Option<(u64, usize)> {
+    let first = *bytes.first()?;
+    if first == 0 {
+        return None;
+    }
+    let width = usize::try_from(first.leading_zeros()).unwrap_or(0) + 1;
+    let mut value = if keep_marker {
+        u64::from(first)
+    } else {
+        // Clear the marker bit, which sits at position 8 - width.
+        u64::from(first & !(1u8 << (8 - width)))
+    };
+    for byte in bytes.get(1..width)? {
+        value = (value << 8) | u64::from(*byte);
+    }
+    Some((value, width))
+}
+
+/// Whether a walk over an element's children carries on past this one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Walk {
+    /// Read the next sibling.
+    Continue,
+    /// Stop; what was being looked for has been found, or cannot be here.
+    Stop,
 }
 
 /// A seekable EBML reader that keeps the file path for error messages.
@@ -190,6 +232,7 @@ impl<R: Read + Seek> EbmlReader<R> {
     /// # Errors
     /// Propagates read failures and malformed variable-length integers.
     pub fn read_header(&mut self) -> Result<Option<ElementHeader>> {
+        let start = self.pos;
         let Some((id, _)) = self.read_vint(true)? else {
             return Ok(None);
         };
@@ -205,7 +248,69 @@ impl<R: Read + Seek> EbmlReader<R> {
             id: u32::try_from(id).unwrap_or(u32::MAX),
             size: if unknown { UNKNOWN_SIZE } else { size },
             body_start,
+            start,
         }))
+    }
+
+    /// Walk an element's children, calling `visit` for each.
+    ///
+    /// Six copies of this loop existed before #146, one per thing the reader looks for, and each
+    /// re-implemented the same two hazards: an unknown-size child, which cannot be skipped past and
+    /// must end the walk, and the resume offset, which is the child's `body_end` rather than
+    /// `cursor + size` — the module's own doc records a hand-rolled version that got the second
+    /// wrong, landed mid-element and descended forever, so the file never finished opening.
+    ///
+    /// `visit` receives the reader, so it can read the child's payload, and returns whether to
+    /// carry on. Stopping early is not an error: most of these walks are looking for one element
+    /// and everything after it is bytes to seek past.
+    ///
+    /// # Errors
+    /// Propagates seek and read failures, and anything `visit` returns.
+    pub fn children(
+        &mut self,
+        parent: &ElementHeader,
+        visit: impl FnMut(&mut Self, &ElementHeader) -> Result<Walk>,
+    ) -> Result<()> {
+        // An unknown-size parent walks nothing, which is what every caller of this did before it
+        // existed. It is the right answer for the elements looked for here — all of them declare a
+        // length — and the wrong one for a Segment, which live muxers routinely leave unsized. That
+        // case knows a better end than this can work out and passes it to `children_until`.
+        let end = parent.body_end().unwrap_or(parent.body_start);
+        self.children_until(parent.body_start, end, visit)
+    }
+
+    /// [`Self::children`] over an explicit range, for a parent whose size the file does not give.
+    ///
+    /// The Segment of a live-muxed file is the case: `UNKNOWN_SIZE` there means "to the end of the
+    /// file", which the caller knows and the header does not.
+    ///
+    /// # Errors
+    /// As [`Self::children`].
+    pub fn children_until(
+        &mut self,
+        start: u64,
+        end: u64,
+        mut visit: impl FnMut(&mut Self, &ElementHeader) -> Result<Walk>,
+    ) -> Result<()> {
+        let mut cursor = start;
+        while cursor < end {
+            self.seek_to(cursor)?;
+            let Some(child) = self.read_header()? else {
+                break;
+            };
+            // Taken before `visit`, which moves the reader by reading the payload.
+            let next = child.body_end();
+            if visit(self, &child)? == Walk::Stop {
+                return Ok(());
+            }
+            match next {
+                Some(after) => cursor = after,
+                // An unknown-size child runs to whatever comes next, which cannot be found without
+                // descending into it. Nothing this reader looks for is stored that way.
+                None => break,
+            }
+        }
+        Ok(())
     }
 
     /// Skip past an element's payload.

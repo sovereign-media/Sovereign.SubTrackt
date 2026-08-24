@@ -66,8 +66,18 @@ until you time the file itself:
 | effective throughput | 255 MB/s |
 
 The reader is keeping up with the disk to within a percent. The per-block allocation [#144] row 2
-objects to is real, and it is spending its time waiting on the network. **No allocation change to
-this path can buy more than about a second of fourteen**, and only on a file that is already cached.
+objects to is real, and it is spending its time waiting on the network.
+
+Reading the same file a second time, with the operating system's cache warm, settles it:
+
+| | |
+| :--- | ---: |
+| decode phase, cold | 13.6 s |
+| decode phase, warm | **0.6 s** |
+
+So the reader's own cost over 3,440 MiB is about six tenths of a second, and the other thirteen were
+the network. **No allocation change to this path can buy anything measurable**, which is why #146
+kept its duplication argument and dropped its allocation one.
 
 **The vocabulary arm's quadratic is invisible.** Gone Girl carries 7,046 ambiguous glyphs, which is
 the worst case that argument was built on. Extraction takes 1.1 s with post-correction off, 1.1 s
