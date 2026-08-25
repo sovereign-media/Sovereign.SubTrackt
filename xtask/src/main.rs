@@ -35,6 +35,7 @@ mod unread;
 mod util;
 mod voting;
 mod widthsweep;
+mod wordgap;
 
 use std::path::PathBuf;
 
@@ -176,6 +177,7 @@ fn main() -> anyhow::Result<()> {
         Some("shape-votes") => return voting::run(&args[1..]),
         Some("slant") => return slant::run(&args[1..]),
         Some("width-sweep") => return widthsweep::run(&args[1..]),
+        Some("word-gap") => return wordgap::run(&args[1..]),
         _ => {}
     }
     eprintln!("usage:");
@@ -204,5 +206,6 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask shape-votes <media> <reference.subtref>");
     eprintln!("  xtask slant <media> <reference.subtref> <release.srt>");
     eprintln!("  xtask width-sweep <media> <reference.subtref> <release.srt> [--post-correct]");
+    eprintln!("  xtask word-gap [font.ttf] [--px N]");
     std::process::exit(2);
 }
