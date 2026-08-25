@@ -185,6 +185,38 @@ this project had published was PGS, and the other codec had shipped unmeasured. 
 from their containers rather than from the dump cache, because a `.sup` holds PGS and nothing else,
 which takes a pass from about five seconds to fifty-four.
 
+### The reader
+
+The bench and the fixture are both English, and #189 measured what that hid: the library is **50
+language tags over 1,316 files**, and two thirds of its tagged tracks are in a language
+`charset()` cannot spell. `docs/language-coverage.md` has it.
+
+Three instruments, and the reason there are three is that a sidecar is unavailable for almost every
+non-English track in the library, so a CER is not on offer:
+
+- `scripts/language/survey.py` — which languages the library carries.
+- `xtask language-coverage` — what each orthography requires, whether the set has it, and, for the
+  ones it lacks, whether the matcher **rejects** the character or finds a **confident wrong home**.
+  150 of 213 absent characters rehome silently, and a rehoming is the one error class no coverage
+  figure, gate or census downstream can see.
+- `scripts/language/census.py` — reads an extraction as its declared language and counts what that
+  orthography cannot spell. No sidecar, no alignment, no dictionary.
+
+Two rules came out of it, both the hard way:
+
+- **A census figure is a floor, never a rate.** It cannot see a real word read as a different real
+  word. Quoting one as an error rate is the invented-data failure this document opens with.
+- **The orthography table errs towards including a character**, because the two mistakes cost
+  different things: one character too many understates a gap by one, one too few makes the census
+  call a real word impossible — a false entry in the only column it prints, which is the sidecar
+  lesson `scripts/bench/roster.json` records at length. Swedish `é` was left out on the first pass
+  and the Norwegian census flagged `én` nine times.
+
+And one finding worth carrying into unrelated work: **a non-English track is a better test of an
+English defect.** The lost word gap before a tall narrow letter is 6 instances in Gone Girl's English
+and 142 across its Swedish and Norwegian — same disc, same bug, and only one of the three can rank a
+change.
+
 ## Scope
 
 Stages are traits in `subtrackt-core::stage`. No stage crate depends on another stage crate; the

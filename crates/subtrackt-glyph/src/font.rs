@@ -360,7 +360,7 @@ pub struct Face<'a> {
 pub struct Generated {
     /// The reference set, ready to encode.
     pub set: ReferenceSet,
-    /// Characters the regular face could not render, in charset order.
+    /// Characters the regular face could not render, in the order they were asked for.
     pub missing: Vec<char>,
     /// Faces whose capital `H` did not rasterise, so their entries carry no line metrics.
     pub without_cap_height: Vec<Style>,
@@ -386,6 +386,28 @@ pub fn generate_under(
     grey: bool,
     renderings: &[Rendering],
 ) -> Result<Generated> {
+    generate_over(name, faces, grey, renderings, &charset())
+}
+
+/// As [`generate_under`], over characters the caller names rather than [`charset()`].
+///
+/// This exists for #189, and the thing it buys is a set built through the *same* normalisation over
+/// characters the shipped one deliberately omits. A character absent from [`charset()`] cannot be
+/// rendered by any other path here without a second copy of that normalisation, and a second copy
+/// is exactly what the module docs say must not exist — a probe compared through a slightly
+/// different transform would answer a question about the copy rather than about the matcher.
+///
+/// Nothing should write the result to disk. It is a set to compare *against* the real one.
+///
+/// # Errors
+/// As [`generate`].
+pub fn generate_over(
+    name: impl Into<String>,
+    faces: &[Face<'_>],
+    grey: bool,
+    renderings: &[Rendering],
+    characters: &[char],
+) -> Result<Generated> {
     let mut entries = Vec::new();
     let mut missing = Vec::new();
     let mut without_cap_height = Vec::new();
@@ -402,7 +424,7 @@ pub fn generate_under(
             without_cap_height.push(face.style);
         }
 
-        for ch in charset() {
+        for &ch in characters {
             let vectors = vectors_under(&font, ch, grey, renderings);
             if vectors.is_empty() {
                 if face.style == Style::Regular {
@@ -562,6 +584,54 @@ mod tests {
         let error = generate("nothing", &[], false);
         assert!(matches!(error, Err(Error::Config(_))), "got {error:?}");
     }
+
+    #[test]
+    fn a_probed_character_normalises_exactly_as_the_shipped_set_normalises_it() {
+        // What #189's probe rests on. It asks what the matcher does with a character `charset()`
+        // omits, and the answer is only about the matcher if the probe went through the *same*
+        // transform the real set did. Asked on a character both sets contain, because that is the
+        // only place the two can be compared at all -- and if they agree there, the transform is
+        // shared rather than merely similar.
+        let bytes = a_font();
+        let faces = [Face { bytes: &bytes, style: Style::Regular }];
+        let shipped = generate("shipped", &faces, false).unwrap();
+        let probe = generate_over("probe", &faces, false, &RENDERINGS, &['A', 'e']).unwrap();
+
+        for character in ['A', 'e'] {
+            let mine: Vec<_> = probe
+                .set
+                .entries()
+                .iter()
+                .filter(|e| e.character == character)
+                .collect();
+            let theirs: Vec<_> = shipped
+                .set
+                .entries()
+                .iter()
+                .filter(|e| e.character == character)
+                .collect();
+            assert_eq!(
+                mine, theirs,
+                "{character:?} normalises differently through generate_over than through charset()"
+            );
+        }
+    }
+
+    #[test]
+    fn a_probe_set_holds_the_characters_it_was_asked_for_and_nothing_else() {
+        // The other half: a probe over characters outside `charset()` must not quietly pick up the
+        // charset as well. A set that held both would match every probe character against itself
+        // at distance zero and report that nothing is missing.
+        let bytes = a_font();
+        let faces = [Face { bytes: &bytes, style: Style::Regular }];
+        let wanted = ['\u{e5}', '\u{f8}'];
+        let probe = generate_over("probe", &faces, false, &RENDERINGS, &wanted).unwrap();
+
+        let held: std::collections::BTreeSet<char> =
+            probe.set.entries().iter().map(|e| e.character).collect();
+        assert_eq!(held, wanted.into_iter().collect());
+    }
+
     #[test]
     fn the_crop_box_costs_a_small_glyph_far_more_than_a_large_one() {
         // The mechanism behind #99, pinned, because the whole of `RENDERINGS` rests on it and
