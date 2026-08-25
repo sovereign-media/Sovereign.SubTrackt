@@ -10,7 +10,8 @@ Five other tools read the same three Blu-rays: Subtitle Edit's command-line conv
 Tesseract, the same converter in two of its other modes, pgsrip, and PgsToSrt. Same subtitle
 streams, same scoring program, one run at a time on the same machine.
 
-Three discs, 4,660 subtitles.
+Three discs, 4,660 subtitles. **The accuracy column is a judgement rather than a measurement**,
+for reasons worth having in hand before quoting any figure in it.
 
 | tool | characters wrong | worst of the three discs | CPU for all three |
 | :--- | ---: | ---: | ---: |
@@ -25,18 +26,29 @@ shape database that's downloaded separately and trained by hand, and with the st
 characters in every 100 came back wrong. Not a fair test of Subtitle Edit, but a fair warning about
 what "supports this format" can mean.
 
-## Don't read too much into the accuracy column
+## The accuracy column is a judgement, not a measurement
 
-There's no ground truth for a real Blu-ray. What exists is subtitle files other people made from
-the same discs, and they disagree with the disc and with each other. Scoring one tool against a
-different file from the same folder moved its result by up to 14 points on two of these three
-discs.
+**Whether a subtitle is right is something a person decides by reading it.** There's no ground
+truth for a real Blu-ray. What exists is subtitle files other people typed from the same discs, and
+those carry one human's choices — where a line breaks, whether a sound cue reads `[DOOR OPENS]` or
+a musical note, whether the speaker label is there at all. They disagree with the disc and with
+each other. Scoring one tool against a different file from the same folder moved its result by up
+to 14 points on two of these three discs.
 
-Every gap in that column is a fraction of a point, so all of them sit inside the noise. Four of
-these tools read a clean Blu-ray about equally well, and no ranking between them survives the
-measurement.
+So a figure in that column isn't "how much this tool got wrong". It's "how far this tool's reading
+sat from one particular person's reading", and choosing a different person moves it.
 
-Two things do.
+**Every tool here was scored against the same transcript, which makes the comparison fair — not
+objective.** All five are being measured against a judgement call, so the ranking inherits the
+judgement. Where a tool and the transcript disagree about a convention rather than about a
+character, the tool is charged for it just the same.
+
+Every gap in the column is a fraction of a point, well inside that noise. Four of these tools read
+a clean Blu-ray about equally well, and no ranking between them survives the measurement. If you
+need to know which one reads *your* material better, run both over a track you care about and read
+the output — that's the same instrument, applied honestly, and it's the only one there is.
+
+Two things in the table do survive.
 
 ## Cost isn't close
 

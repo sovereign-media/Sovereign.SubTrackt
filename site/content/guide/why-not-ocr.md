@@ -74,4 +74,6 @@ Built from the material's own typeface, a set reads at least as well as a genera
 more evenly across titles. Built from a generic one that doesn't match, it reads clearly worse.
 Refusing to guess only helps when the shapes you know are the right ones.
 
-[How it compares](/guide/how-it-compares) has both numbers.
+"At least as well" is a judgement rather than a reading off an instrument: both numbers come from
+scoring against transcripts people typed, which is the only ground truth a real disc has.
+[How it compares](/guide/how-it-compares) has them, and what they can and can't settle.

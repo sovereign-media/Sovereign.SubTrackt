@@ -17,6 +17,14 @@ a typeface is a human driving a training GUI.
 **With a generic set, an OCR engine beats it.** Not marginally. If you can't get the right fonts,
 use OCR today; [the numbers](/guide/how-it-compares) say so in those words.
 
+**No accuracy figure on this site is objective, including the ones that flatter this tool.** A
+subtitle is correct when a person reading it says so, and every percentage published here was
+produced by scoring against a transcript some other person typed. Change the transcript and the
+number changes — by up to 14 points on the discs where that has been measured. Comparisons against
+other tools are run the same way for every tool, which makes them fair to each other and still
+leaves them a judgement rather than a measurement. Read them as "roughly this good", never as a
+specification.
+
 **Nothing can tell a good fit from a bad one.** `fit` ranks candidates against each other and can't
 certify the winner, and [that can't be fixed](/guide/fitting-a-title). So: read a few cues before
 trusting a track to a set.

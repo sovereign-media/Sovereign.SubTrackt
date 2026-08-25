@@ -111,14 +111,16 @@ reject. `--provenance` forces it in anyway; `--no-provenance` refuses both.
 
 Every line of it is a count or a measurement. **Nothing in there claims an accuracy figure, and
 nothing can**: that needs a reference transcript and an extraction has none, so a file grading its
-own reading would be the confident wrong answer this design exists to avoid. What it records
-instead is the reference set, which is the half of a bad read that is otherwise untraceable months
-later.
+own reading would be the confident wrong answer this design exists to avoid. Even with a transcript
+to hand the figure would be soft, because the transcript is one person's reading of the same disc,
+and *correct*, for a subtitle, is finally something a human decides. What it records instead is the
+reference set, which is the half of a bad read that is otherwise untraceable months later.
 
 ## Reading the report
 
 `--report` prints the tally. Every field is a count or a measurement, and none of it is an
-opinion.
+opinion. That is also the limit of it: how many shapes were read is a fact, and whether the text
+that came out is *right* is not a count. Somebody has to read it.
 
 | Field | What it means |
 | :--- | :--- |

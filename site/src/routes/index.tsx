@@ -58,7 +58,11 @@ function Home() {
           Glyph-based subtitle extraction, without a general OCR engine.
         </p>
         <p className="mt-4 text-default-500">
-          Read image-based subtitles from MKV containers at blistering speed, with a high-degree of accuracy. SubTrackt reads Blu-ray PGS and DVD VOBSUB streams, and outputs plain text.
+          Read image-based subtitles from MKV containers at blistering speed, and accurately
+          enough to hold its own against OCR where the typeface is matched. SubTrackt reads Blu-ray
+          PGS and DVD VOBSUB streams, and outputs plain text. Accuracy here is a judgement rather
+          than a measurement: every figure on this site was scored against a transcript a person
+          typed.
         </p>
       </div>
 

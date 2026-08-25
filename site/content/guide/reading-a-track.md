@@ -48,6 +48,11 @@ It catches a track that couldn't be *read*, and says nothing about one that was 
 near-miss set clears the default comfortably and still gets the text wrong, for the same reason
 [nothing can grade a fit](/guide/fitting-a-title).
 
+Nothing in the tool measures *well*, and nothing can: you decide that by reading a few cues. Every
+accuracy figure quoted for SubTrackt, or for the tools it's
+[compared against](/guide/how-it-compares), is that same judgement — made once by whoever
+typed the transcript the scoring ran against.
+
 ## When a track reads badly
 
 Roughly in order of how often each is the answer.
