@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
 import os
 import re
 import string
@@ -43,6 +44,8 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+
+import lexicon
 
 # The digits, spaces and punctuation every one of these orthographies shares. A subtitle carries
 # numerals and dashes in every language, and charging those to the language would bury the letters.
@@ -149,6 +152,96 @@ def census(lines: list[str], script: str, letters: str) -> dict[str, object]:
     }
 
 
+def word_layer(lines: list[str], vocabulary: set[str]) -> dict[str, object]:
+    """The layer #217 asked for: is this a word, and if not, what one edit would make it one.
+
+    Three counts, and they are worth less as you go down the list only in the sense that the first
+    is *unusable alone*. `lexicon.py calibrate` measures each one on real transcripts of the same
+    language: unattested runs at a median 16.9% on correct Swedish, one-letter-off at 4.1% and
+    splits at 2.2%. A figure here means something only above its own floor, and the floors are
+    nothing like each other.
+    """
+    tokens = 0
+    unattested = 0
+    alphabet = lexicon.alphabet_of(vocabulary)
+    subs: collections.Counter[tuple[str, str]] = collections.Counter()
+    cuts: collections.Counter[str] = collections.Counter()
+    examples: dict[str, list[str]] = collections.defaultdict(list)
+    one_off = 0
+    splittable = 0
+
+    for line in lines:
+        for raw in WORD.findall(line):
+            word = raw.lower()
+            tokens += 1
+            if word in vocabulary:
+                continue
+            unattested += 1
+            pairs = lexicon.substitutions(word, vocabulary, alphabet)
+            parts = lexicon.splits(word, vocabulary)
+            if pairs:
+                one_off += 1
+                # Only a token with exactly one repair votes for a confusion class. A token six
+                # edits from six words says the lexicon is thin, not that a character is confused,
+                # and letting it vote would fill the census with whatever letters are common.
+                if len(pairs) == 1:
+                    subs[pairs[0]] += 1
+                    if len(examples[f"sub:{pairs[0]}"]) < 6:
+                        examples[f"sub:{pairs[0]}"].append(raw)
+            if parts:
+                splittable += 1
+                if len(parts) == 1:
+                    cuts[parts[0][1][:1]] += 1
+                    if len(examples[f"cut:{parts[0][1][:1]}"]) < 6:
+                        examples[f"cut:{parts[0][1][:1]}"].append(f"{parts[0][0]}|{parts[0][1]}")
+
+    return {
+        "tokens": tokens,
+        "unattested": unattested,
+        "one_off": one_off,
+        "splittable": splittable,
+        "subs": subs,
+        "cuts": cuts,
+        "examples": examples,
+    }
+
+
+def report_words(result: dict[str, object], show: int) -> None:
+    tokens: int = result["tokens"]  # type: ignore[assignment]
+    subs: collections.Counter[tuple[str, str]] = result["subs"]  # type: ignore[assignment]
+    cuts: collections.Counter[str] = result["cuts"]  # type: ignore[assignment]
+    examples: dict[str, list[str]] = result["examples"]  # type: ignore[assignment]
+    share = lambda n: n / max(tokens, 1)  # noqa: E731
+
+    print(f"\n  {tokens} words read\n")
+    for name, key in (("unattested", "unattested"), ("one letter off", "one_off"), ("splits", "splittable")):
+        count: int = result[key]  # type: ignore[assignment]
+        print(f"  {name:<22} {count:>7}   {share(count):>7.2%}")
+
+    if subs:
+        print("\n  One character off a word, and the character\n")
+        print(f"    {'read':<6} {'should be':<11} {'count':>7}   examples")
+        for (wrong, right), count in subs.most_common(show):
+            sample = " ".join(examples.get(f"sub:{(wrong, right)}", [])[:4])
+            print(f"    {wrong:<6} {right:<11} {count:>7}   {sample}")
+
+    if cuts:
+        print("\n  Two words with the space missing, by the letter the second one starts with\n")
+        print(f"    {'letter':<6} {'count':>7}   examples")
+        for letter, count in cuts.most_common(show):
+            sample = " ".join(examples.get(f"cut:{letter}", [])[:4])
+            print(f"    {letter:<6} {count:>7}   {sample}")
+
+    for note in [
+        "",
+        "  Only a token with exactly *one* repair votes for a class. A token that six different",
+        "  edits would fix says the word list is thin, not that a character is confused.",
+        "  Compare every rate above against `lexicon.py calibrate`, which measures all three on",
+        "  real transcripts of the same language. They do not have the same floor.",
+    ]:
+        print(note)
+
+
 def report(result: dict[str, object], name: str, script: str, show: int) -> None:
     characters = result["characters"]
     foreign: collections.Counter[str] = result["foreign"]  # type: ignore[assignment]
@@ -194,6 +287,9 @@ def main() -> int:
         "--xtask", default="target/release/xtask.exe", type=os.path.normpath,
         help="where the alphabet table comes from",
     )
+    parser.add_argument(
+        "--lexicon", type=Path, help="a word list from lexicon.py, for the word layer"
+    )
     parser.add_argument("--examples", type=int, default=12, help="how many rows each table shows")
     args = parser.parse_args()
 
@@ -204,7 +300,16 @@ def main() -> int:
             f"Add it to LANGUAGES in xtask/src/language.rs; known: {' '.join(sorted(table))}"
         )
     name, script, letters, _punctuation = table[args.language]
-    report(census(cues(args.extraction), script, letters), name, script, args.examples)
+    text = cues(args.extraction)
+    report(census(text, script, letters), name, script, args.examples)
+    if args.lexicon:
+        data = json.loads(args.lexicon.read_text(encoding="utf-8"))
+        vocabulary = {w for counts in data["sources"].values() for w in counts}
+        print(
+            f"\n{data['language']} word list: {len(vocabulary)} distinct words "
+            f"from {data['files']} sidecars"
+        )
+        report_words(word_layer(text, vocabulary), args.examples)
     return 0
 
 
