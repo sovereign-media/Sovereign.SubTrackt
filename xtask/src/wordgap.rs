@@ -512,9 +512,9 @@ How wide a word space measures in front of each letter
 /// what makes it comparable between tracks. This says which *pairs* the effect actually lives in,
 /// and it is where the letter before the space finally matters: a `j` after a round `o` and a `j`
 /// after a `T` are not the same measurement, because the two boxes overhang towards each other.
-fn report_pairs(gaps: &[Gap], font: &Font) {
+fn report_pairs(gaps: &[Gap], font: &Font, breaks: bool) {
     let mut per_pair: BTreeMap<(char, char), Vec<(u32, u32)>> = BTreeMap::new();
-    for gap in gaps.iter().filter(|g| g.is_break) {
+    for gap in gaps.iter().filter(|g| g.is_break == breaks) {
         if let Some(ink) = gap.ink_ratio {
             per_pair
                 .entry((gap.previous, gap.next))
@@ -545,9 +545,8 @@ fn report_pairs(gaps: &[Gap], font: &Font) {
     rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.4.cmp(&b.4)).then(a.5.cmp(&b.5)));
 
     println!(
-        "
-The pairs where the box understates the space by the most
-"
+        "\nThe {} pairs where the box understates the space by the most\n",
+        if breaks { "word-break" } else { "within-word" }
     );
     println!(
         "{:<8} {:>8} {:>8} {:>8} {:>12} {:>12}",
@@ -596,7 +595,8 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         let breaks = gaps.iter().filter(|g| g.is_break).count();
         println!("{} adjacent pairs on {media}, {breaks} of them word breaks", gaps.len());
         report_media(&gaps, &font);
-        report_pairs(&gaps, &font);
+        report_pairs(&gaps, &font, true);
+        report_pairs(&gaps, &font, false);
     }
 
     let verdicts = measure(&font, &bytes, px)?;
