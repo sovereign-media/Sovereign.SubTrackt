@@ -540,6 +540,96 @@ mechanisms, one population that no transcript of that film records.
 
 [issue-123]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/123
 
+## The stage that looked slant-blind and is not
+
+[#231][issue-231] observed that `group::group` runs at `pipeline.rs:1061` and the line's shear is
+computed nineteen lines later at `:1080`, so the mark stage decides which components belong together
+before anything has measured the lean. `overlaps_enough` is an axis-aligned horizontal overlap
+between two boxes at different heights, and on a leaning line a tittle sits displaced from its stem
+by the lean — so it looked as though the test was being asked about an overlap the mark does not
+have.
+
+The population was there to justify it. Tagging each cue by the extraction's own `<i>`, the invented
+accents split cleanly by style:
+
+| | italic | upright |
+| :--- | ---: | ---: |
+| A Fish Called Wanda, `ì` | **77** | 3 |
+| A Fish Called Wanda, `Ì` | 19 | 0 |
+| Gone Girl, `Ì` | 9 | 0 |
+| A Fish Called Wanda, `Í` | 1 | **39** |
+| Gone Girl, `Í` | 3 | **75** |
+
+Against the release's own italic marking, `i → ì` and `i → Ì` are **93 of Wanda's 128 italic
+substitutions — 73%** — and `i → l` with `i → I` are 74 of The Karate Kid's 129. Two discs, two
+codecs, one letter.
+
+It was built: `slant::component_shear` reads the estimate off the components so the grouping does not
+have to wait for the glyphs, and `overlaps_enough` slid the mark to where it would sit if its line
+stood upright.
+
+**It moves none of them.**
+
+| | before | after |
+| :--- | ---: | ---: |
+| Wanda, `i → ì` | 77 | **77** |
+| Wanda, `i → Ì` | 16 | **16** |
+| The Karate Kid, `i → l` | 56 | **56** |
+| Wanda, invented accents | 148 | **148** |
+
+Not "improved slightly" — identical, on every disc. And the change cost 20 cues across the bench,
+with two tracks regressing:
+
+| track | better | worse |
+| :--- | ---: | ---: |
+| Gone Girl | 18 | 4 |
+| King Kong | 5 | 2 |
+| The Karate Kid | 3 | 2 |
+| 10 Cloverfield Lane | 1 | 1 |
+| A Fish Called Wanda | 1 | **6** |
+| Training Day | 0 | **5** |
+
+### Why, and it is a fact this file already had
+
+**A leaning stem's bounding box already spans its own lean.** That is the sentence
+[`upright_span`](../crates/subtrackt-glyph/src/slant.rs) opens with — *a slanted letter's box
+contains its neighbour's ink* — and it is the reason that function reads the label map instead of
+the box. The box of a stem leaning right runs from the bottom-left of the ink to the top-right, so a
+tittle sitting above the top of that stem is **already inside the box's horizontal range**. There was
+never a misplacement to correct, and sliding the mark left by the lean pushes a correctly attached
+mark out of a box that was holding it.
+
+The regressions say exactly that, in the failures they produce:
+
+```
+before: JEFF: Check this out.          after: JEFF�. Check this out.
+before: - Pow! - Boom!                 after: - PowI. - Boom!
+before: Listen.                        after: LI.sten.
+```
+
+A colon's two dots, an exclamation mark's bar and dot, an `i`'s tittle — every one of them a mark
+that grouped correctly and now does not. **The stage was not slant-blind. It was slant-proof**, by
+the accident that a box is the shape it is, and the correction removed the accident.
+
+### So the family is a matching failure, on both discs
+
+The tittle attaches; the composite is matched wrong. `i → ì` on a 1080p PGS disc and `i → l` on a
+480p VOBSUB one are the same event at two resolutions: a merged base-plus-mark glyph landing on the
+wrong entry. Two candidates were also refused on the way past — `ComponentFilter::min_area` at 4 was
+suspected of eating a tittle at VOBSUB resolution, and dropping it to 1 produces a **byte-identical**
+extraction of The Karate Kid.
+
+That leaves the merged box itself, which is [#232][issue-232]'s subject: `i` reports a height of
+about 100% of cap height because its tittle reaches ascender height, `I` reports 100, and #37's term
+cannot separate the two at all. The gap it leaves is what `Í` at 125 falls into.
+
+**Nothing ships from #231.** `component_shear` and the sheared overlap were written, benched and
+reverted, which is what `docs/glyph-stability.md` records as the rule: a knob that measures worse is
+worse than no knob.
+
+[issue-231]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/231
+[issue-232]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/232
+
 ## What this does not settle
 
 The spaces are answered above. What is left:
@@ -556,6 +646,10 @@ The spaces are answered above. What is left:
 - **Whether [#49][issue-49]'s decisiveness margin would have reached some of these anyway.** It is
   a smaller change than #121 and it is now measurable against a much smaller residual: 36 missed
   spaces on Cloverfield rather than 66, and 29 of the 36 are on upright lines this cannot help.
+- **The letter `i`, which is most of what an italic cue gets wrong on two discs** — and which the
+  section above proves is not a grouping fault. 93 of Wanda's 128 italic substitutions and 74 of The
+  Karate Kid's 129. It belongs to whatever decides between a merged `i` and an `I`, and today
+  nothing does: both report the same height against the same cap line.
 
 ## Reproducing
 
