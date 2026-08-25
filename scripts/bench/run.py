@@ -27,6 +27,12 @@ seven tracks. After that a whole bench pass is a few seconds, which is what make
 **Read the `worse` column, not the CER.** A change can gain character error on one disc while making
 hundreds of cues worse on another; #110 did exactly that, and #113 found it only because two more
 discs were scored.
+
+**A CER is refused before it is reported.** #229 found the bench's worst number -- King Kong at
+21.3% -- was 529 of 1,704 cues pairing by start time onto a neighbour's text, because the disc is a
+Blu-ray and its only English sidecar is a WEB-DL. The same track reads 6.0% with cue boundaries
+ignored. `PAIRED_ENOUGH` is the check that catches the next one, and the unpaired count now reaches
+the results file for every entry rather than scrolling past on stderr.
 """
 
 import argparse
@@ -41,7 +47,28 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROSTER = os.path.join(HERE, "roster.json")
 
+# The fraction of extracted cues that must find a partner in the release before the cue-level CER
+# means anything. #229.
+#
+# A fraction rather than a count, which is `CLAUDE.md`'s rule and which matters here because the
+# roster's tracks run from 106 cues to 2,442. The gap this sits in is not close: eight of the nine
+# entries pair every cue but four, one, one and none, which is 0.5% at worst -- and King Kong
+# leaves 529 of 1,704 unpaired, which is 31%. Anywhere between 1% and 30% would do; 5% is the
+# round number in the middle of a gap sixty times wider than the threshold's own precision.
+#
+# What it catches is a sidecar cut from a *different release* of the film. #175 taught the bench to
+# check a sidecar's convention -- SDH against SDH -- and King Kong passes that check: both sides are
+# SDH. Both sides being SDH says nothing about both sides being the same cut, and a cue that pairs
+# by start time onto a neighbour's text scores as a wall of insertions.
+PAIRED_ENOUGH = 0.95
+
 CER = re.compile(r"^\s+all\s+\S+\s+\S+\s+(\S+)%\s+\S+%\s+\S+\s+(\S+)%", re.M)
+# The track-level row: one transcript against another, cue boundaries and timing ignored. #169
+# built it for the census and #229 found the bench needed it too -- see `PAIRED_ENOUGH`.
+TRACK_CER = re.compile(r"^\s+track\s+\S+\s+\S+\s+(\S+)%\s+\S+\s+\S+\s+(\S+)%", re.M)
+PAIRING = re.compile(
+    r"^\s+cues: (\d+) extracted, (\d+) in the release, (\d+) with no partner", re.M
+)
 REPORT = re.compile(
     r"(\d+) cues from (\d+) images .*?glyphs (\d+) matched / (\d+) unmatched / (\d+) ambiguous"
     r" \(([\d.]+)% read\); fit ([\d.]+)"
@@ -213,13 +240,27 @@ def do_score(args, roster):
         if track["kind"] == "scored":
             release = os.path.join(roster["root"], track["folder"], track["sidecar"])
             scored = run([args.xtask, "srt-score", srt, release, "--align"])
-            match = CER.search(scored.stdout or "")
-            if match:
-                entry["cer"] = float(match.group(1))
-                entry["wer"] = float(match.group(2))
+            cue_level, track_level = CER.search(scored.stdout or ""), \
+                TRACK_CER.search(scored.stdout or "")
+            pairing = PAIRING.search(scored.stdout or "")
+            # Recorded on every entry, not only the one that fails. The count was printed on every
+            # run for as long as `srt-score` has existed and was in no results file, so nothing
+            # could see that one track had been pairing a third of its cues onto the wrong text.
+            if pairing:
+                entry["cues_extracted"] = int(pairing.group(1))
+                entry["cues_in_release"] = int(pairing.group(2))
+                entry["cues_unpaired"] = int(pairing.group(3))
+            paired = 1.0 - entry.get("cues_unpaired", 0) / max(entry.get("cues_extracted", 1), 1)
+            entry["scored_at"] = "cue" if paired >= PAIRED_ENOUGH else "track"
+            source = cue_level if entry["scored_at"] == "cue" else track_level
+            if source:
+                entry["cer"] = float(source.group(1))
+                entry["wer"] = float(source.group(2))
+            note = "" if entry["scored_at"] == "cue" else (
+                f"  <- track-level; {entry.get('cues_unpaired', 0)} cues unpaired")
             print(f"  {key:15s} CER {entry.get('cer', float('nan')):5.1f}%  "
                   f"WER {entry.get('wer', float('nan')):5.1f}%  read {entry.get('read', 0):5.1f}%  "
-                  f"fit {entry.get('fit', 0):4.1f}")
+                  f"fit {entry.get('fit', 0):4.1f}{note}")
         else:
             # No sidecar, so no accuracy claim. What this asserts is that the track came through:
             # cues out, glyphs read, no error. #133 put it here for the shape rather than the score.
@@ -272,6 +313,12 @@ def do_compare(args, roster):
         cer_after = new_entry.get("cer", float(match.group(4)))
         regressions += worse
         flag = "   <- REGRESSION" if worse > better else ""
+        # An entry scored track-level says so on its own row, because the two columns beside it do
+        # not change meaning and the CER column does. `better`/`worse` still come from a cue-level
+        # comparison there and are still worth reading: a mispaired cue is mispaired identically in
+        # both runs, so the pairing adds noise to that column rather than a direction.
+        if "track" in (old.get("scored_at"), new_entry.get("scored_at")):
+            flag += "   (CER track-level)"
         print(f"{key:16s} {cer_before:9.1f}% {cer_after:9.1f}% "
               f"{cer_before - cer_after:+7.1f} {better:>7d} {worse:>7d}{flag}")
 

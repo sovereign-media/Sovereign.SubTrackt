@@ -17,7 +17,17 @@
     "kind: 'scored' has a release sidecar and yields CER/WER. 'smoke' does not, and claims no",
     "accuracy at all -- it asserts the pipeline survives the shape of the track. A forced track",
     "scored against a full transcript would report a meaningless number, and reporting one would be",
-    "the invented-data failure CLAUDE.md forbids."
+    "the invented-data failure CLAUDE.md forbids.",
+    "",
+    "A 'scored' entry yields a CUE-LEVEL number only where its cues pair. #229 found King Kong",
+    "leaving 529 of 1,704 unpaired -- a Blu-ray extraction against a WEB-DL sidecar -- and reporting",
+    "the resulting 21.3% as if it were a read, where the same extraction scores 6.0% with cue",
+    "boundaries ignored. run.py refuses the cue-level figure below `PAIRED_ENOUGH` and reports the",
+    "track-level one instead, saying which on the row. Every entry now records its unpaired count.",
+    "",
+    "Three of nine entries have now been caught by some version of the same rule -- The Prestige and",
+    "Airplane! on convention (#175), King Kong on cut (#229). The bench's own sidecars are the part",
+    "of it least likely to have been checked, because nothing fails when they are wrong."
   ],
   "root": "//nas/MEDIA/movies",
   "tracks": [
@@ -64,7 +74,7 @@
       "stream": 0,
       "kind": "scored",
       "sidecar": "King Kong (2005) - [WEBDL-1080p][EAC3 5.1][h264]-BiOMA.eng.SDH.srt",
-      "covers": "SDH, scored against an SDH sidecar",
+      "covers": "SDH, scored against an SDH sidecar -- and since #229, scored TRACK-LEVEL rather than per cue. The disc is a Blu-ray and the only English sidecar in its folder is a WEB-DL: 1,704 cues against 1,608, and 529 of them pair by start time onto a neighbour's text. That read as 21.3% CER for as long as the bench has existed, and five documents quote the figure as if it described the read. With cue boundaries ignored the same extraction scores 6.0%. #175 taught the bench to check a sidecar's CONVENTION and both sides here are SDH; what nothing checked was the CUT. `PAIRED_ENOUGH` in run.py is the general form.",
       "glyphs": 42311
     },
     {
