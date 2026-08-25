@@ -114,31 +114,48 @@ pub struct LayoutRules {
     pub space_gap_percent: u32,
     /// Whether a gap is measured band by band down the line rather than between whole boxes.
     ///
-    /// **Off**, and #222 is why. The measurement is more truthful and the classification is worse.
+    /// **On since #225**, and the road there is worth the paragraph because the obvious version of
+    /// it does not work.
     ///
-    /// #219 established the defect: a box gap understates the space between two letters whenever
-    /// one of them is widened by ink at a height the other does not occupy -- 29 points in front of
-    /// a `j`, 46 in front of a `T` -- which is why Gone Girl fuses `jag` to the word before it 80
-    /// times in Swedish and `jeg` 62 times in Norwegian against six `you` in its English track.
-    /// Turning this on removes **69%** of both: 80 to 25, and 62 to 19.
+    /// #219 measured the defect: a box gap understates the space between two letters whenever one
+    /// of them is widened by ink at a height the other does not occupy -- 29 points in front of a
+    /// `j`, 46 in front of a `T`. Gone Girl fuses `jag` to the word before it 80 times in Swedish
+    /// and `jeg` 62 times in Norwegian, against six `you` in its English track.
     ///
-    /// It also breaks the English bench, on every scored track, and the mechanism is the one #222
-    /// predicted in advance. A full stop has ink in one band only, so the single band it shares with
-    /// the letter before it is the letter's narrow foot, and the honest distance between them is
-    /// genuinely wide. `He said they were God's second blunder.` becomes `... blunder .`. The box
-    /// gap compressed those to nothing *by accident*, and `split_threshold`'s two decisiveness
-    /// constants -- 50% of median glyph width, 200% of the low cluster -- were fitted against a
-    /// distribution that included the compression.
+    /// #222 turned it on and made **600 cues worse** across the bench. The mechanism was a *third*
+    /// population appearing in the line's gap distribution: a full stop has ink in one band only,
+    /// the band it shares with the letter before it holds that letter's narrow foot, and the honest
+    /// distance there is genuinely wide. `blunder.` became `blunder .` on every disc.
     ///
-    /// So this ships off, in the shape `MatchThresholds::mark_weight_permille` already has: the
-    /// machinery is the instrument that measured the question, and turning it on is one flag once
-    /// those two constants have been swept against ink gaps rather than box gaps.
+    /// #225 swept both decisiveness constants against it and **no setting of either works** -- the
+    /// floors that suppress the punctuation gaps also refuse real word breaks, and at a width floor
+    /// of 80% the Wanda track reads 6.8% CER against 1.3%. What works is
+    /// [`Self::band_gap_min_shared`], which removes the population rather than moving a threshold.
+    ///
+    /// At two shared bands: **66 cues better and 17 worse** across the nine-track bench, character
+    /// error down or level on every scored track, and the Scandinavian glued-word counts down from
+    /// 80 to 22 and 62 to 19. `docs/word-gap.md` has all of it.
     ///
     /// Falls back to [`UprightSpan`](subtrackt_core::UprightSpan) wherever the bands are unknown --
-    /// a line whose anchors were not found, a part cut out of a fused component, a glyph pair that
-    /// shares no band at all. The fallback is not a degraded path; it is exactly what every gap is
-    /// measured by today.
+    /// a line whose anchors were not found, a part cut out of a fused component, a pair that does
+    /// not share enough bands. The fallback is not a degraded path; it is what every gap was
+    /// measured by before #219.
     pub band_gaps: bool,
+    /// How many bands two glyphs must share before [`Self::band_gaps`] answers for them.
+    ///
+    /// **Two**, and it is a population filter rather than a threshold -- which is why it works
+    /// where #225's sweep of the two decisiveness constants did not. A pair that faces the other
+    /// over one band only is a full stop or an apostrophe beside a letter, where the single shared
+    /// band holds the letter's narrow foot; handing those back to the box measurement removes
+    /// **97%** of what #222 cost, from 600 worse cues to 17.
+    ///
+    /// Not three. `j` shares exactly two bands with the letter before it -- the letter has no ink
+    /// below the baseline, which is the whole reason its hook widens the box unopposed -- so a floor
+    /// of three gives most of the defect back: Swedish glued `jag` returns from 22 to 71 and
+    /// Norwegian `jeg` from 19 to 53, for one further cue on the English bench.
+    ///
+    /// Read only when [`Self::band_gaps`] is on.
+    pub band_gap_min_shared: u32,
     /// Character substituted for a glyph the matcher could not identify.
     pub placeholder: char,
     /// Whether a leading `-` is followed by a space even when the gap alone would not warrant one.
@@ -159,7 +176,8 @@ impl Default for LayoutRules {
             split_min_width_percent: 50,
             split_min_cluster_percent: 200,
             space_gap_percent: 250,
-            band_gaps: false,
+            band_gaps: true,
+            band_gap_min_shared: 2,
             placeholder: '\u{fffd}',
             preserve_speaker_dash: true,
             ambiguity_margin: 8,
@@ -361,7 +379,10 @@ fn glyph_width(glyph: &Glyph) -> u32 {
 fn gap(this: &Glyph, next: &Glyph, rules: LayoutRules) -> u32 {
     let banded = rules
         .band_gaps
-        .then(|| this.bands.gap_to(next.bands))
+        .then(|| {
+            this.bands
+                .gap_to_over(next.bands, rules.band_gap_min_shared)
+        })
         .flatten();
     let tenths = banded
         .or_else(|| this.upright.gap_to(next.upright))
@@ -592,9 +613,9 @@ mod tests {
     }
 
     #[test]
-    fn a_gap_is_measured_between_boxes_unless_the_bands_are_asked_for() {
-        // The default, and it is the default because #222 measured the alternative costing 600
-        // worse cues across the nine-track bench. `docs/word-gap.md` has both halves.
+    fn a_gap_is_measured_between_ink_unless_the_boxes_are_asked_for() {
+        // Which way round the default sits, pinned. #219 measured the box understating the space in
+        // front of a `j` by 29 points; #225 shipped the correction. `docs/word-gap.md` has it.
         let empty = subtrackt_core::UprightBands::EMPTY_BAND;
         let body = [empty, (0, 100), (0, 100), empty];
         let far = [empty, (400, 500), (400, 500), empty];
@@ -611,14 +632,38 @@ mod tests {
     }
 
     #[test]
-    fn a_pair_with_no_shared_band_falls_back_to_the_box_rather_than_to_nothing() {
-        // The apostrophe-beside-a-comma case. There is no height at which they face each other, so
-        // there is no ink distance to report -- and the caller has to answer anyway.
+    fn a_pair_with_too_few_shared_bands_falls_back_to_the_box_rather_than_to_nothing() {
+        // The apostrophe-beside-a-comma case, and the population #225's floor of two exists for:
+        // there is no height at which they face each other over enough of the line to be worth
+        // measuring -- and the caller has to answer anyway.
         let empty = subtrackt_core::UprightBands::EMPTY_BAND;
         let high = banded(0, 10, [(0, 100), (0, 100), empty, empty]);
         let low = banded(20, 10, [empty, empty, (200, 300), (200, 300)]);
-        let bands = LayoutRules { band_gaps: true, ..LayoutRules::default() };
+        let bands = LayoutRules::default();
         assert_eq!(gap(&high, &low, bands), 100, "the box gap, unchanged");
+    }
+
+    #[test]
+    fn one_shared_band_is_not_enough_because_a_full_stop_is_the_pair_that_has_one() {
+        // #225's whole finding, in the small. The letter and the stop face each other only where
+        // the letter's foot is, so the honest distance there is wide -- and `split_threshold` reads
+        // wide as a word break. Two shared bands hands the pair back to the box, which had it right
+        // by accident, and that is 97% of what turning ink gaps on cost.
+        let empty = subtrackt_core::UprightBands::EMPTY_BAND;
+        let letter = banded(0, 10, [empty, (0, 100), (0, 40), empty]);
+        let stop = banded(20, 10, [empty, empty, (300, 340), empty]);
+
+        let one = LayoutRules { band_gap_min_shared: 1, ..LayoutRules::default() };
+        assert_eq!(
+            gap(&letter, &stop, one),
+            260,
+            "the honest ink distance, which reads as a space"
+        );
+        assert_eq!(
+            gap(&letter, &stop, LayoutRules::default()),
+            100,
+            "the box, at the shipped floor"
+        );
     }
 
     fn glyph(x: u32, width: u32, line: usize) -> Glyph {

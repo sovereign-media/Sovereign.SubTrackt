@@ -47,7 +47,7 @@ $ subtrackt extract [OPTIONS] <INPUT>
 | `--include-outline` | off | Treat the outline drawn around subtitle text as part of the character rather than as background. |
 | `--defuse` / `--no-defuse` | on | Retry a component the matcher cannot read as two characters that were touching. |
 | `--borrow-track-scale` / `--no-borrow-track-scale` | borrow | Where a line whose glyphs are all one height takes its scale from. |
-| `--band-gaps` / `--no-band-gaps` | off | Measure a word gap between the letters' ink, band by band, rather than between their bounding boxes. Fixes words fused before a `j` or a `y`; costs spaces around full stops. |
+| `--band-gaps` / `--no-band-gaps` | on | Measure a word gap between the letters' ink, band by band, rather than between their bounding boxes. Without it, words fuse in front of a `j`, a `y` or a `T`. |
 | `--post-correct` / `--no-post-correct` | on | Resolve ambiguous reads from the characters around them. |
 | `--lone-words` / `--no-lone-words` | on | Also read a one-character word of `l` as `I`. Needs post-correction. |
 | `--track-vocabulary` / `--no-track-vocabulary` | off | Also resolve a word-edge glyph from words the same track read clearly. Needs post-correction. |

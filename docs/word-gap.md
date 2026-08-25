@@ -16,6 +16,8 @@ For most letters those are the same number. For `j` they differ by 29 points.**
 [issue-121]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/121
 [issue-40]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40
 [issue-222]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/222
+[issue-225]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/225
+[issue-226]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/226
 
 ## The instrument
 
@@ -156,56 +158,107 @@ its line was `nonP Lnon anan onon`, all x-height, so the line had no cap line fo
 `?O?? ??O? ???? O?O?` — 651 pairs discarded. **A synthetic line has to be given an ascender
 deliberately**, because a real subtitle line always has one.
 
-## The fix, measured and shipped off
+## The fix: two attempts, and the second one ships
 
 [#222][issue-222] built it. `UprightBands` carries a glyph's deskewed ink in **four bands** down its
-line — above the cap line, the two halves of the body, below the baseline — and `--band-gaps`
-measures a word gap as the narrowest distance over the bands both glyphs reach. The bands are
-fractions of the line's own measured cap height, never a typographic constant, and a line whose
-anchors were not found reports them unknown and falls back to the box.
+line — above the cap line, the two halves of the body, below the baseline — and a word gap becomes
+the narrowest distance over the bands both glyphs reach. The bands are fractions of the line's own
+measured cap height, never a typographic constant, and a line whose anchors were not found reports
+them unknown and falls back to the box.
 
-**It removes 69% of the defect.** Gone Girl's glued `jag` goes from 80 instances to 25 and its
-glued `jeg` from 62 to 19. `Greatfish!` becomes `Great fish!`.
+**It removed 69% of the defect and made 600 cues worse.** Every scored track on the bench.
 
-**And it breaks the English bench, on every scored track:**
-
-| track | CER before | CER after | better | worse |
-| :--- | ---: | ---: | ---: | ---: |
-| cloverfield | 0.4% | 0.6% | 7 | 55 |
-| gonegirl | 1.4% | 1.6% | 23 | 165 |
-| wanda | 1.3% | 1.8% | 8 | 124 |
-| kingkong | 21.3% | 21.5% | 9 | 58 |
-| karate-kid | 1.8% | 2.3% | 10 | 122 |
-| training-day | 1.9% | 2.2% | 3 | 76 |
-
-**600 cues worse.** #222 predicted the mechanism in advance and named the character:
-
-> At least one regression appears in a pair that shares few rows — an apostrophe or a full stop
-> beside a letter — because that is the case the box gap handles by accident.
+The mechanism was the one #222 predicted in advance, down to the character. A full stop has ink in
+**one band only**; the band it shares with the letter before it holds that letter's narrow foot; and
+the honest distance there is genuinely wide.
 
 ```
 He said they were God's second blunder.   ->   ... second blunder .
 So, you're Wanda's brother.               ->   ... Wanda's brother .
 ```
 
-A full stop has ink in one band only. The single band it shares with the letter before it holds
-that letter's narrow foot, so the honest distance between them is genuinely wide — and
-`split_threshold` reads wide as a word break. **The box gap was compressing those gaps by accident,
-and #40's two decisiveness constants — 50% of median glyph width, 200% of the low cluster's median
-— were fitted against a distribution that included the compression.** Making one measurement more
-truthful moved the population the other two were tuned against.
+A *third* population had appeared in the line's gap distribution. #40's two decisiveness constants
+sit where two populations separate, and there were now three.
 
-Spaces are lost as well as gained, for the same reason: `The dog` becomes `Thedog` on a line whose
-threshold rose faster than its word gaps did.
+### No setting of the constants works
 
-So it ships **off**, in the shape `MatchThresholds::mark_weight_permille` already has — the
-machinery is the instrument that measured the question, and turning it on is one flag once those
-two constants have been swept against ink gaps rather than box gaps.
+[#225][issue-225] swept both, whole pipeline at each setting, scored against a release subtitle —
+`xtask gap-sweep`. Wanda, against its SDH sidecar, with the shipped 50/200 in the top row:
+
+| shared bands | width floor | cluster floor | CER | worse |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 50 | 200 | 1.8% | 124 |
+| 1 | 50 | 300 | 2.4% | 250 |
+| 1 | **80** | 200 | **6.8%** | 846 |
+| 1 | 110 | 200 | 14.3% | 1,180 |
+
+**Prediction 1 held.** Raising a floor to suppress the punctuation gaps also refuses real word
+breaks: at 80% the whole line stops splitting, and the glued-word count goes *up*. There is no
+window.
+
+### What works is removing the population, not moving the threshold
+
+`band_gap_min_shared` — how many bands two glyphs must share before the ink measurement answers for
+them at all. A full stop shares one. Requiring **two** hands that pair back to the box, which had it
+right by accident.
+
+| shared bands | worse on Wanda | Swedish glued `jag` | Norwegian glued `jeg` |
+| ---: | ---: | ---: | ---: |
+| box gap (before) | — | 80 | 62 |
+| 1 | 124 | 25 | 19 |
+| **2** | **8** | **22** | **19** |
+| 3 | 1 | 71 | 53 |
+| 4 | 0 | 80 | 62 |
+
+Two is the whole window. **Three gives the defect back**, because `j` shares exactly two bands with
+the letter before it — the letter has no ink below the baseline, which is precisely why `j`'s hook
+widens its box unopposed.
+
+### What ships
+
+`--band-gaps` **on**, `band_gap_min_shared` at 2:
+
+| track | CER before | CER after | better | worse |
+| :--- | ---: | ---: | ---: | ---: |
+| cloverfield | 0.4% | **0.3%** | 8 | 4 |
+| gonegirl | 1.4% | **1.3%** | 25 | 3 |
+| wanda | 1.3% | 1.3% | 7 | 8 |
+| kingkong | 21.3% | 21.3% | 10 | 0 |
+| karate-kid | 1.8% | **1.7%** | 13 | 2 |
+| training-day | 1.9% | 1.9% | 3 | 0 |
+
+**66 cues better, 17 worse.** Word error falls on every track that moves — Cloverfield 1.8% to 1.6%,
+Gone Girl 6.1% to 5.7%, Karate Kid 7.3% to 7.0%. The ceiling fixture stays at 0.0%. And the
+Scandinavian tracks, which are the only place the gain is large enough to see, drop from 80 glued
+`jag` to 22 and from 62 glued `jeg` to 19.
+
+That is not #110's shape, which is why it ships: #110 gained character error *while* making 232 cues
+worse, and this improves both columns at once.
+
+### The 17 that are left
+
+Two classes, and one of them is not a regression at all.
+
+```
+before  Ken, somebodyjust called!      <- the extraction
+after   Ken, somebody just called!     <- the extraction, corrected
+want    Ken, somebodyjust called!      <- the sidecar, which has the glue
+```
+
+The rest are `T` followed by a letter — `T reasUre`, `T o Us`, `T Wo`. `T` is the largest divergence
+in the whole table at 80% against 126%, its crossbar shares two bands with whatever follows, and no
+band-count rule separates it from the `j` case that the same rule exists to catch. That is
+[#226][issue-226].
+
+**Prediction 2 is refuted in the good direction** — it said the two-shared-bands rule would remove
+more than half the regression and still not reach parity. It removes 97% and clears parity.
+**Prediction 3 is refuted too**: it said the English bench could only ever refuse this change, and
+the English bench is where 66 of the better cues are.
 
 One thing #222 got wrong in the useful direction: **the memory cost is nothing.** Four bands is 40
 fixed bytes per glyph and the bench's resident glyph figures do not move — Gone Girl reads 220.4 MiB
-either way. The issue had priced a row-exact profile at 8 MB and a full mask copy at more; the
-approximation costs neither, and it was never the obstacle.
+either way. #222 had priced a row-exact profile at 8 MB and a full mask copy at more. Storage was
+never the obstacle; the tuning was.
 
 ## What this does not claim
 
@@ -226,7 +279,14 @@ approximation costs neither, and it was never the obstacle.
 $ cargo run --release -p xtask -- dump-sup "...Gone Girl...mkv" swe.sup --stream 13
 $ cargo run --release -p xtask -- word-gap C:/Windows/Fonts/arial.ttf --px 56 \
       --media swe.sup --reference arial-ri.subtref
+$ cargo run --release -p xtask -- gap-sweep wanda.sup arial-ri.subtref wanda.eng.SDH.srt \
+      --glued you --widths 50,65,80 --clusters 200,300 --shared 1,2,3
+$ cargo run --release -p xtask -- gap-sweep swe.sup arial-ri.subtref --glued jag --shared 1,2,3
 ```
+
+`gap-sweep` runs the whole pipeline once per setting and scores each result, which is the shape
+`xtask width-sweep` established. Its `glued` column takes no sidecar, which is the only reason the
+Swedish and Norwegian tracks can be scored at all.
 
 The fixture half runs on the font alone and takes a second. The disc half needs a `.sup` and a
 reference set, and turns `Config::glyph_masks` on for the pass — it is the only command in the tree
