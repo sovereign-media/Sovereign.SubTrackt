@@ -200,20 +200,7 @@ The sweep behind those defaults, and what each arm is worth, is in
 
 ## When a track reads badly
 
-In rough order of how often each is the answer:
-
-- **Coverage is low, most shapes unmatched.** The reference set is wrong for this material, or you
-  forgot to pass one. Refit against a wider candidate directory. This failure is loud and easy, and
-  it is the good case.
-- **Coverage is fine and the text is subtly wrong.** Almost always a near-miss typeface. Check the
-  `fit` figure against titles you have read successfully, widen the candidate directory, refit.
-- **The dialogue is fine and the flashbacks are garbage.** The set has no italic cut. Rebuild it
-  with [`gen-reference`](/usage/gen-reference) and its `--italic` flag.
-- **Word spaces missing on some all-caps lines.** A known limitation rather than a misconfiguration;
-  see [What it cannot do](/guide/what-it-cannot-do).
-- **Nothing in your library fits.** Then the honest answer is that this title has no text subtitle
-  available by this route, and the caller should fall back. Getting that answer is a success.
-
-[Reading a track](/guide/reading-a-track) walks the same list at more length.
+[Reading a track](/guide/reading-a-track#when-a-track-reads-badly) has the five failures in order
+of how often each one is the answer, and what to do about each.
 
 Next: [`glyphs`](/usage/glyphs), for when you want the shapes rather than the text.

@@ -1,107 +1,56 @@
 ---
 title: What it cannot do
 label: What it cannot do
-description: The known limits, in plain language and up front rather than buried at the bottom of a README.
+description: The known limits, up front rather than buried at the bottom of a README.
 ---
 
 # What it cannot do
 
-Every one of these is known and measured, and stated here rather than discovered by you later. They
-are roughly in order of how likely each is to matter to you.
+All measured, all known, roughly in order of how likely each is to matter to you.
 
-## You have to supply the reference set
+**You have to supply the reference set.** Nothing ships embedded, so before anything works you need
+fonts and a `gen-reference` run, and it reads best from the material's *own* typeface rather than a
+similar one. [Why](/guide/reference-sets). Less lopsided than it sounds — the closest comparable
+tool ships no character database in either of its Linux packages, and its documented way to aim at
+a typeface is a human driving a training GUI.
 
-This is the big one, and it is what stands between the tool and working the moment you install it.
+**With a generic set, an OCR engine beats it.** Not marginally. If you can't get the right fonts,
+use OCR today; [the numbers](/guide/how-it-compares) say so in those words.
 
-No set is embedded, so before you do anything you need fonts and a `gen-reference` run. The tool
-also reads best when the set comes from the material's **own** typeface rather than a similar one.
-Reading material drawn in one typeface using a metrically-similar substitute goes less well than it
-sounds, and "metrically similar" is doing less work than people expect.
+**Nothing can tell a good fit from a bad one.** `fit` ranks candidates against each other and can't
+certify the winner, and [that can't be fixed](/guide/fitting-a-title). So: read a few cues before
+trusting a track to a set.
 
-The reasoning is on [the reference sets page](/guide/reference-sets). The short version: shipping a
-set and letting near-misses through trades a failure you can detect for one you cannot. Fitting a
-set per title is as far as this can be taken without already knowing the right answer, and that is
-what `fit` does.
+**Style is finer-grained than typeface.** The right font's upright cut still reads a film's italic
+passages worse than its dialogue. `--italic` and `--bold` close most of the gap when you have the
+files, and the slant estimator covers some of the rest, but nothing closes it and nothing can pick
+between the two approaches automatically. [The slant](../docs/italic-slant.md).
 
-This is also less lopsided than it reads. Comparable tools need something supplied too. The closest
-one ships no character database at all in either of its Linux packages, and the documented way to
-aim its matcher at a particular typeface is a human driving a training GUI.
+**What's left is cutting, not recognising.** On well-fitted material the remaining errors mostly
+aren't the matcher misreading a shape — they're the stage before it cutting in the wrong place. A
+double quotation mark arriving as two apostrophes, a word space that was never cut, two touching
+characters read as one. There's a recovery pass for the last of those and it catches most. This is
+the current frontier.
 
-## Out of the box, with a generic set, an OCR engine beats it
+**Word spacing collapses on some all-caps lines.** `MAN ON INTERCOM: The red zone is` comes out as
+`MANONINTERCOM:Theredzoneis`. Mostly speaker labels in subtitles for the deaf and hard of hearing.
+Not yet explained, and the most visible unexplained defect in the output.
 
-Stated plainly because it is true and measured. If you cannot supply the typeface the material was
-drawn in, and use a generic set instead, a good OCR engine reads these discs better than this does,
-and by a wide margin rather than marginally.
+**No MP4.** Matroska, transport streams, raw `.sup` and VOBSUB `.idx`/`.sub` only. MP4 is refused by
+name rather than guessed at. Tracks that are already text and subtitles burned into the video are
+[out of scope entirely](/guide/what-this-is).
 
-The trade only pays when the set fits. If you have no way to get the right fonts, use OCR today.
-[How it compares](/guide/how-it-compares) says so in those words, with the numbers.
+**DVD-era material is the least measured part.** It decodes and produces output, with far less
+measurement behind it than Blu-ray. Lower resolution and older is the combination most likely to
+behave differently, so it's where you should be most inclined to check the output yourself.
+[What VOBSUB reads at](../docs/vobsub.md) is the first real measurement.
 
-## Nothing can tell a good fit from a bad one
-
-`fit` ranks candidates against each other and cannot certify the winner. That is not a missing
-feature. Several approaches have been tried and each failed for a structural reason, laid out on
-[the fitting page](/guide/fitting-a-title) and in full in [Telling a good fit from a bad
-one](../docs/fit-confidence.md).
-
-The practical consequence is one instruction: **read a few cues before trusting a track to a set.**
-
-## Style is finer-grained than typeface
-
-Getting the typeface right is not the same as getting the *drawing* right. A set built from only
-the upright cut of the correct font still reads a film's italic passages markedly worse than its
-dialogue.
-
-`gen-reference --italic --bold` closes most of that when you have the other font files, and where
-you do not, the pipeline measures how far a line leans and compensates. Between them the gap gets
-small. It does not close, and nothing can choose automatically between the two approaches for a
-given title, for the same reason nothing can grade a fit. See [The slant](../docs/italic-slant.md).
-
-## What is left is cutting, not recognising
-
-The errors that remain on well-fitted material are mostly not the matcher misreading a shape. They
-come from the stage before it, where a picture is cut into shapes and the cut goes wrong:
-
-- **A double quotation mark arriving as two apostrophes**, because the two marks were never joined.
-- **A word space that was never cut**, so two words run together.
-- **Two characters that touch** being read as one shape. There is a recovery pass for this and it
-  catches most of them.
-
-These are being worked on, and they are the current frontier.
-
-## Word spacing collapses on some all-caps lines
-
-`MAN ON INTERCOM: The red zone is` can come out as `MANONINTERCOM:Theredzoneis`.
-
-Seen mostly on speaker labels in subtitles for the deaf and hard of hearing. It is not yet
-explained, and it is the most visible unexplained defect in the output.
-
-## Formats it does not read
-
-It reads Matroska (`.mkv`), broadcast transport streams (`.ts`, `.m2ts`, `.mts`), raw PGS dumps
-(`.sup`) and DVD VOBSUB (`.idx`/`.sub`, pointed at the `.idx`).
-
-**MP4 is not supported.** Pointed at one, it says so and stops rather than guessing at the container
-and producing something wrong.
-
-And, as [the first page](/guide/what-this-is) covers, tracks that are already text are out of scope
-entirely, as are subtitles burned into the video image.
-
-## DVD-era material is the least measured part
-
-The DVD format decodes and produces output, and far less measurement exists for it than for
-Blu-ray. It is lower resolution and older, which is the combination most likely to behave
-differently, so it is the corner where you should be most inclined to check the output yourself.
-The first real measurement of it is [What VOBSUB reads at](../docs/vobsub.md).
-
-## A frozen surface is not a frozen output
-
-From `v1.0.0` the command-line surface is stable: flags and output formats change on a major, not
-before. What that does not promise is that the same disc reads the same way forever. Accuracy work
-is the ongoing part of this project, so a minor release that reads a cue better has changed your
-output without changing a flag. Pin a version if you are diffing extractions rather than just
-running them.
+**A frozen surface isn't a frozen output.** From `v1.0.0` flags and output formats change on a
+major and not before. That doesn't promise the same disc reads the same way forever — accuracy is
+the ongoing work, so a minor that reads a cue better has changed your output without changing a
+flag. Pin a version if you're diffing extractions rather than just running them.
 
 ---
 
-If none of the above is a blocker, [Quick start](/usage/quick-start) is the shortest way from here
-to a subtitle file. If one of them is, that is what this page is for: better to find out here.
+If none of that is a blocker, [Quick start](/usage/quick-start) is the shortest way to a subtitle
+file. If one of them is, better to find out here.

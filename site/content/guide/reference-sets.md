@@ -6,109 +6,84 @@ description: What a reference set is, how you build one from fonts you already h
 
 # Reference sets
 
-The matcher works by comparison, so it needs something to compare *against*. That something is a
-**reference set**, and building one is the first thing you do.
+The matcher works by comparison, so it needs something to compare against. That's a reference set,
+and building one is the first thing you do.
 
 ## What one is
 
-A reference set is a small file, a few kilobytes, that answers one question: what does each
-character look like?
+A few kilobytes answering one question: what does each character look like?
 
-Not "look like" as a picture. Look like as a **measurement**. For every character, the set stores
-the same description the pipeline will later compute from a shape cut out of a subtitle image: a
-fixed-size summary of where the ink falls, plus a few proportions that summary throws away. How
-tall the character stands relative to its line, how far it drops below the baseline, how wide its
-ink is for its height.
+Not as a picture. As a measurement — for every character, the same description the pipeline will
+later compute from a shape cut out of a subtitle image. A fixed-size summary of where the ink
+falls, plus a few proportions that summary throws away: how tall the character stands against its
+line, how far it drops below the baseline, how wide its ink is for its height.
 
-That last group matters more than it sounds. A capital `I` and a lower-case `l` can be the *same*
-arrangement of ink at the same height. What separates them is that one is drawn heavier than the
-other, and the set records that.
+Those proportions matter more than they sound. A capital `I` and a lower-case `l` can be the same
+ink at the same height, and what separates them is that one's drawn heavier.
 
-The important part is that both sides of the comparison are produced **the same way**. A reference
-set is not a picture of a font. It is a font put through the identical process a subtitle image
-goes through, which is why building one is a command in this tool rather than a script you write.
-A set built any other way produces distances that mean nothing.
+Both sides of the comparison have to come out of the same process, which is why building a set is a
+command in this tool rather than a script you write. A set built any other way produces distances
+that are numerically fine and mean nothing.
 
-## How you make one
+## Building them
 
-From a font file you already have.
-
-```console
-$ subtrackt gen-reference Arial.ttf arial.subtref
-```
-
-That reads the font, draws every character, measures each one and writes the set.
-
-Point it at a **directory** instead and you get one set per font in it:
+Point [`gen-reference`](/usage/gen-reference) at a directory of fonts and get one set per font:
 
 ```console
 $ subtrackt gen-reference /usr/share/fonts ./sets
 ```
 
-That is the normal way to start. `./sets` becomes your **library of candidates**, every typeface
-you could plausibly be asked to read. You are not choosing anything yet, and you do not need to
-know what any particular disc used. You are collecting. Each set costs a few kilobytes, so
-collecting broadly is nearly free.
-
-This is a one-off. Do it once, and add to it when you meet material nothing in the library fits.
+`./sets` is now your library of candidates. You aren't choosing anything yet and you don't need to
+know what any disc used — you're collecting, and at a few kilobytes each you can afford to collect
+broadly. This is a one-off; come back to it when you meet material nothing in the library fits.
 
 ## Italic and bold are separate shapes
 
-A film's italic passages are not the same letters leaning over. They are **different drawings**.
-An italic `a` is usually a different shape, not a slanted upright one, so a set built from only the
-upright cut of a typeface does not really know them.
+A film's italic passages aren't the upright letters leaning over. They're different drawings — an
+italic `a` is usually a different shape — so a set built from only the upright cut doesn't really
+know them.
 
-If you have the other cuts of the font, put them in:
+If you have the other cuts, put them in:
 
 ```console
 $ subtrackt gen-reference Arial.ttf arial.subtref --italic Ariali.ttf --bold Arialbd.ttf
 ```
 
-One set, several cuts, every character contributing an entry from each. That is worth more than it
-looks. A film's italic act, meaning flashbacks, radio voices, foreign dialogue and song lyrics, is
-often a small fraction of the runtime and a large fraction of the errors.
+Worth more than it sounds. Flashbacks, radio voices, foreign dialogue and song lyrics are often a
+small slice of the runtime and a large slice of the errors.
 
-Where you do not have the italic cut, the pipeline compensates differently, by measuring how far a
-line leans and taking that into account. It is a real recovery, and it switches itself off as soon
-as a set carries italic entries. The full comparison is in [The slant](../docs/italic-slant.md).
+Without the italic cut the pipeline measures how far each line leans and compensates, then switches
+that off as soon as a set carries italic entries. [The slant](../docs/italic-slant.md) compares the
+four combinations.
 
-## Why nothing is embedded in the binary
+## Why nothing ships embedded
 
-This is the design decision people push back on hardest, so it is worth stating carefully.
+This is the decision people push back on hardest. Out of the box, before you build a set, every
+character comes back unmatched and you get nothing.
 
-SubTrackt ships with **no reference set at all**. Out of the box, before you build one, every
-character comes back unmatched and you get nothing. That is deliberate.
-
-Shipping a set built from some reasonable typeface sounds obviously better. It is not, for the same
-reason [the previous page](/guide/why-not-ocr) gives.
-
-A shipped set would have to be built from *some* font, and whatever font that is, most discs were
-not authored in it. When a reference set is close to the material but not the same, the matcher
-does not fail loudly. It finds a nearest entry for nearly everything, because nearly everything has
-something vaguely similar in the set. The result is a file that looks complete and is quietly
-wrong, in ways no counter in the output can detect.
-
-That is the exact failure this tool exists to avoid, and it would have been the default.
+Shipping a set built from some reasonable typeface sounds obviously better, and it's the same trap
+[OCR falls into](/guide/why-not-ocr). Whatever font it came from, most discs weren't
+authored in it, and a set that's close but not right doesn't fail loudly. It finds a nearest entry
+for nearly everything, because nearly everything has something vaguely similar in the set. You get
+a file that looks complete and is quietly wrong, and no counter in the output can see it.
 
 Compare the two failures:
 
-- **No set at all**: everything is unmatched, the run refuses, and you know immediately.
-- **A near-miss set**: most things match, the report looks healthy, and the text is wrong.
+- **No set**: everything unmatched, the run refuses, you know immediately.
+- **A near-miss set**: most things match, the report looks healthy, the text is wrong.
 
-The first is an inconvenience. There is no recovering from the second, because nothing downstream
-will ever notice it.
+The first is an inconvenience. There's no recovering from the second, because nothing downstream
+will ever notice.
 
-So the set is your input rather than the tool's opinion. The cost is that this does not work the
-moment you download it, and that cost is real. It is the first entry in [what it cannot
-do](/guide/what-it-cannot-do).
+So the set is your input rather than the tool's opinion. The price is that it doesn't work the
+moment you download it, which is real enough to lead
+[what it cannot do](/guide/what-it-cannot-do).
 
-The measurement behind the decision, including what a deliberately wrong set does to a real disc,
-is in [Which set should ship](../docs/reference-set.md). What studios actually author against, over
-a survey of real titles, is in [Typeface survey](../docs/library-survey.md).
+[Which set should ship](../docs/reference-set.md) has the measurement, including what a
+deliberately wrong set does to a real disc. [Typeface survey](../docs/library-survey.md) has what
+studios actually author against.
 
-## What you have when you are done
+---
 
-A directory of candidate sets, built once, from fonts on a machine you control.
-
-The next question is which of them this particular film was drawn in, and that is [fitting a
-title](/guide/fitting-a-title).
+You now have a directory of candidates. Working out which one this film was drawn in is
+[fitting a title](/guide/fitting-a-title).

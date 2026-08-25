@@ -109,13 +109,7 @@ months later instead of just regrettable.
 
 ## When the answer looks wrong
 
-If the extraction that follows reads badly, it is usually one of three things:
-
-- **The right typeface is not in your candidate directory.** Add more fonts, rerun
-  [`gen-reference`](/usage/gen-reference), refit.
-- **The set is right but incomplete.** With no italic or bold cut, the dialogue reads perfectly and
-  the italic passages read badly. Rebuild that one set with `--italic` and `--bold`.
-- **Nothing you have fits.** That is a real answer, and being able to give it is the point of the
-  tool.
+Usually the right typeface is missing from your candidate directory, or the winning set has no
+italic cut. [Reading a track](/guide/reading-a-track#when-a-track-reads-badly) has the full list.
 
 Next: [`extract`](/usage/extract), which produces the subtitle file.

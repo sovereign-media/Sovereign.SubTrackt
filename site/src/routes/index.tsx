@@ -11,9 +11,10 @@ import site from "../../site.json" with { type: "json" };
 // `site.json`, because what each one is *for* is a sentence somebody has to write, and the manifest
 // carries ordering rather than prose.
 //
-// There were three cards until the research section left the site. The measurements are still
-// worth reaching from here, so they are the line under the cards rather than a card of their own:
-// the link leaves for the repository, and a card that quietly does that is a card that lies.
+// There were three cards until the research section left the site, and then a paragraph under them
+// explaining where it had gone. The paragraph read as an apology for a link. What is left is one
+// footer line: the two off-site destinations, named, and the version. Anything longer here is
+// something the guide says better two clicks in.
 //
 // Plain anchors carrying `site.base`, not router `Link`s, for the same reason the old redirect used
 // one: the route ids are generated during a Vite run and typing a computed `to` against them buys
@@ -22,7 +23,7 @@ const SECTIONS = [
   {
     href: `${site.base}guide/${site.guide[0]}`,
     label: "How it works",
-    lede: "Seven short pages assuming nothing: what an image-based subtitle is, why this is not OCR, how it measures up against five other tools, and what it refuses to guess at.",
+    lede: "Seven short pages, assuming nothing. What an image-based subtitle is, why this isn't OCR, how it measures up against five other tools, and what it refuses to guess at.",
     cta: "Start here to understand it",
   },
   {
@@ -85,22 +86,14 @@ function Home() {
       </div>
 
       <p className="mt-12 text-sm text-default-500">
-        Every decision above was measured before it was made. Fourteen write-ups
-        cover the typeface surveys, the error censuses, the accuracy across a
-        real library and the approaches that were tried and failed. They are
-        in{" "}
-        <a className="underline" href={`${site.repo}/tree/main/docs`}>
-          docs/
-        </a>{" "}
-        in the repository.
-      </p>
-
-      <p className="mt-4 text-sm text-default-500">
+        v1.0 ·{" "}
         <a className="underline" href={site.repo}>
-          Source on GitHub
+          Source
+        </a>{" "}
+        ·{" "}
+        <a className="underline" href={`${site.repo}/tree/main/docs`}>
+          Research
         </a>
-        . Version 1.0: the command-line surface is frozen, and flags and output
-        formats change on a major.
       </p>
     </main>
   );
