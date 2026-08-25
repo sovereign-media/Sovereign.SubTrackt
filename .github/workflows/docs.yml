@@ -1,9 +1,11 @@
 name: Docs
 
 # Gated on the paths that can change the site, so a Rust-only pull request does not pay for a Node
-# build. `docs/**` is in the list because the research half of the site is generated from it: a
-# document edited there changes the site without anything under `site/` being touched. The two
-# lists are written out twice because GitHub Actions does not resolve YAML anchors.
+# build. `docs/**` is in the list even though those documents are not published: the site links out
+# to them, and `site/scripts/content.mjs` checks every one of those links and its anchor against the
+# real file. A heading renamed in `docs/` with nothing under `site/` touched is exactly the change
+# that breaks a link, so it has to run the build. The two lists are written out twice because
+# GitHub Actions does not resolve YAML anchors.
 on:
   push:
     branches: [main]

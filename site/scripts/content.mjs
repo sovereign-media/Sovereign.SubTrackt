@@ -1,25 +1,21 @@
-// Generates `src/content/` -- every page the site serves -- from two sources that stay canonical
-// where they are.
+// Generates `src/content/` -- every page the site serves -- from `content/<collection>/*.md`, and
+// checks the research corpus in `docs/` that the site no longer publishes.
 //
-// `docs/*.md`, at the repository root, is the research corpus. The README links into it twenty-odd
-// times, some with anchors, and every one of those URLs is one somebody may already have; moving
-// the documents here would break all of them. `content/<collection>/*.md`, beside this script, is
-// the hand-written half -- `guide/` explains it, `usage/` is the command reference -- and it is
-// committed.
+// The site is `guide/` and `usage/`, written by hand and committed beside this script. Everything
+// under `src/content/` is a build artefact: gitignored, regenerated on every build, never edited.
 //
-// Both go through the same rewrite, and everything under `src/content/` is a build artefact:
-// gitignored, regenerated on every build, never edited.
+// `docs/*.md` at the repository root used to be a third collection. It is read on GitHub now, and
+// the pages here link out to it. It is still parsed on every build, for one reason given below.
 //
 // Two things have to be rewritten, and neither can be done as a Prestige markdown plugin --
 // `prestige.config.ts` accepts a `markdown.rehypePlugins` list, documents it in its own reference,
 // and never passes it to the compiler. Version 0.15.0, checked.
 //
-//   Links. A research document links to its siblings as `reference-set.md`, which is right on
-//   GitHub and a 404 on a site whose route is `/research/reference-set`. Site-absolute links then
-//   need the `/Sovereign.SubTrackt/` prefix, because nothing else in the build puts it on an href
-//   that came out of a document -- Vite's `base` reaches assets and the router's basepath reaches
-//   its own `Link`s, and neither touches this. Doing it here rather than in each document is what
-//   lets both halves be written with plain `/research/reference-set`.
+//   Links. A site-absolute link needs the `/Sovereign.SubTrackt/` prefix, because nothing else in
+//   the build puts it on an href that came out of a document -- Vite's `base` reaches assets and
+//   the router's basepath reaches its own `Link`s, and neither touches this. Doing it here lets a
+//   page be written with a plain `/guide/what-this-is`. A `../` target is a path into the
+//   repository and leaves for GitHub, which is how a page reaches `docs/` and the source tree.
 //
 //   Fenced code languages. Every shell transcript in this repository is tagged ```console, which
 //   GitHub understands and Prism does not -- and Prestige treats an unregistered language as a
@@ -28,6 +24,12 @@
 // An unrecognised link target, a link to a page that does not exist and a `#fragment` that no
 // heading answers are all build failures rather than rewritten guesses. A broken cross-link is how
 // a docs site rots quietly, and this is the thing that notices.
+//
+// That check is why `docs/` is still read here. Those documents left the site; they did not leave
+// the repository, and a page that links to `docs/alternatives.md#table-4--cost` can still name a
+// heading that no longer exists. So every `../docs/*.md` target is resolved against the document
+// on disk and every fragment against its real headings -- and the corpus is checked against itself
+// the same way, because a link between two documents nobody builds is exactly the kind that rots.
 
 import GithubSlugger from "github-slugger";
 import { toString as mdToString } from "mdast-util-to-string";
@@ -58,13 +60,6 @@ export const site = JSON.parse(
 );
 
 const PREFIX = site.base.replace(/\/$/, "");
-
-/** Every research document in sidebar order, flattened out of its group. */
-export function manifestDocuments() {
-  return site.research.flatMap((group) =>
-    group.documents.map((doc) => ({ ...doc, group: group.label })),
-  );
-}
 
 const parser = unified().use(remarkParse).use(remarkGfm);
 
@@ -125,12 +120,11 @@ const REFERENCE_DEFINITION = /^(\[[^\]\n]+\]:[ \t]*)(\S+)/gm;
  * Rewrite one link target from what it means in its source directory to what it means on the site.
  *
  * `source` names the page being rewritten, for error messages and for its own `#fragment`s.
- * `routes` maps every site route to its heading anchors. `research` is the set of research
- * filenames, empty for a hand-written page -- `reference-set.md` means a sibling document only
- * inside the research corpus, and a guide or usage page writing that has made a mistake worth
- * reporting.
+ * `routes` maps every site route to its heading anchors. `repo` maps every repository path that
+ * has checkable headings -- `docs/alternatives.md` and the like -- to that document's anchors, so
+ * a link leaving for GitHub is still held to the same standard as one that stays.
  */
-export function rewriteTarget(target, { source, route, routes, research }) {
+export function rewriteTarget(target, { source, route, routes, repo }) {
   const bare = target.replace(/^<|>$/g, "");
 
   // Absolute URLs already mean the same thing wherever they are read.
@@ -147,31 +141,36 @@ export function rewriteTarget(target, { source, route, routes, research }) {
   const fragment = rest.join("#");
   const suffix = fragment ? `#${fragment}` : "";
 
-  // A sibling research document, written the way GitHub needs it.
-  if (research.has(path)) {
-    return withPrefix(source, `/research/${path.replace(/\.md$/, "")}`, fragment);
-  }
-
   // A site route, written the way both halves are told to write one.
   if (path.startsWith("/")) return withPrefix(source, path, fragment);
 
-  // Anything outside the two content directories -- source files, the hand-verified transcripts --
-  // has no site route and leaves for GitHub, which is what the document's author meant anyway.
+  // A path into the repository -- a research document, a source file, a hand-verified transcript.
+  // None has a site route, and GitHub is where the author meant it to land. A document whose
+  // headings this build can read is checked against them anyway; see the note at the top.
   if (path.startsWith("../")) {
-    return `${site.repo}/blob/main/${path.slice(3)}${suffix}`;
+    const inRepo = path.slice(3);
+    if (fragment && repo.has(inRepo)) {
+      requireAnchor(source, fragment, repo.get(inRepo), inRepo);
+    }
+    if (inRepo.endsWith(".md") && inRepo.startsWith("docs/") && !repo.has(inRepo)) {
+      throw new Error(
+        `${source}: link to "${path}" does not resolve -- there is no such document in docs/.`,
+      );
+    }
+    return `${site.repo}/blob/main/${inRepo}${suffix}`;
   }
 
   throw new Error(
     `${source}: cannot rewrite link target ${JSON.stringify(target)}. ` +
-      "A relative target must be a research document or a path into the repository " +
-      'beginning "../"; anything else must be a site route beginning "/" or an absolute URL.',
+      'A relative target must be a path into the repository beginning "../"; ' +
+      'anything else must be a site route beginning "/" or an absolute URL.',
   );
 
   function withPrefix(from, sitePath, frag) {
     if (!routes.has(sitePath)) {
       throw new Error(
         `${from}: link to "${sitePath}" does not resolve -- there is no such page. ` +
-          "Pages come from site.json; a research document also needs a file in docs/.",
+          "Pages come from site.json. A document in docs/ is not a page; link to it as ../docs/x.md.",
       );
     }
     if (frag) requireAnchor(from, frag, routes.get(sitePath), sitePath);
@@ -215,14 +214,11 @@ async function readSources(dir, names) {
 }
 
 /**
- * Check `docs/` and `content/guide/` against `site.json`, and return every page to write.
+ * Check `content/` against `site.json`, check `docs/` against itself, and return every page.
  *
  * Nothing is written here, so a test can call this and get the same failures the build gets.
  */
 export async function buildPages() {
-  const entries = manifestDocuments();
-  const research = new Set(entries.map((entry) => entry.file));
-
   const docsOnDisk = (await readdir(DOCS_DIR))
     .filter((name) => name.endsWith(".md"))
     .sort();
@@ -240,24 +236,16 @@ export async function buildPages() {
     );
   }
 
-  const problems = [
-    ...docsOnDisk
-      .filter((n) => !research.has(n))
-      .map((n) => `  docs/${n} is not listed in site.json`),
-    ...entries
-      .filter((e) => !docsOnDisk.includes(e.file))
-      .map((e) => `  site.json lists ${e.file}, which is not in docs/`),
-    ...HANDWRITTEN.flatMap((id) => [
-      ...onDisk
-        .get(id)
-        .filter((n) => !listed.get(id).includes(n))
-        .map((n) => `  content/${id}/${n} is not listed in site.json`),
-      ...listed
-        .get(id)
-        .filter((n) => !onDisk.get(id).includes(n))
-        .map((n) => `  site.json lists ${id}/${n}, which is not in content/${id}/`),
-    ]),
-  ];
+  const problems = HANDWRITTEN.flatMap((id) => [
+    ...onDisk
+      .get(id)
+      .filter((n) => !listed.get(id).includes(n))
+      .map((n) => `  content/${id}/${n} is not listed in site.json`),
+    ...listed
+      .get(id)
+      .filter((n) => !onDisk.get(id).includes(n))
+      .map((n) => `  site.json lists ${id}/${n}, which is not in content/${id}/`),
+  ]);
   if (problems.length) {
     throw new Error(
       `site.json does not describe what is on disk:\n${problems.join("\n")}\n` +
@@ -272,43 +260,28 @@ export async function buildPages() {
   }
 
   // Every route first, with its anchors, so a link can be checked against a page that has not been
-  // rewritten yet -- including a forward reference from the guide into the research corpus, and
-  // the cross-references the usage half makes in both directions.
+  // rewritten yet -- which is most of them, since the usage half cross-references in both
+  // directions and the guide links forward into pages that come after it.
   const routes = new Map();
-  const headings = new Map();
-  for (const [collection, sources] of [["research", docs], ...handwritten]) {
+  for (const [collection, sources] of handwritten) {
     for (const [name, markdown] of sources) {
-      const parsed = readHeadings(markdown);
       const route = `/${collection}/${name.replace(/\.md$/, "")}`;
-      headings.set(`${collection}/${name}`, parsed);
-      routes.set(route, parsed.anchors);
+      routes.set(route, readHeadings(markdown).anchors);
     }
+  }
+
+  // The repository paths whose headings this build can read. Nothing here becomes a page; it is
+  // what lets a `../docs/alternatives.md#table-4--cost` be held to the same standard as a link
+  // that stays on the site.
+  const repo = new Map();
+  for (const [name, markdown] of docs) {
+    repo.set(`docs/${name}`, readHeadings(markdown).anchors);
+  }
+  for (const [name, markdown] of docs) {
+    checkCorpus(`docs/${name}`, markdown, repo);
   }
 
   const pages = [];
-
-  for (const entry of entries) {
-    const key = `research/${entry.file}`;
-    const slug = entry.file.replace(/\.md$/, "");
-    const { title } = headings.get(key);
-    if (!title) {
-      throw new Error(`docs/${entry.file}: no "# " heading to take a title from.`);
-    }
-    pages.push({
-      collection: "research",
-      slug,
-      route: `/research/${slug}`,
-      source: `docs/${entry.file}`,
-      // A research document carries no frontmatter -- it is read on GitHub as often as here -- so
-      // the site's own metadata is prepended. The title is the document's own `# ` heading; the
-      // label and description come from site.json, which is where a group is chosen anyway.
-      markdown: withFrontmatter(
-        { title, description: entry.description, label: entry.label },
-        rewrite(docs.get(entry.file), `docs/${entry.file}`, `/research/${slug}`),
-      ),
-    });
-  }
-
   for (const collection of HANDWRITTEN) {
     for (const slug of site[collection]) {
       const name = `${slug}.md`;
@@ -319,21 +292,60 @@ export async function buildPages() {
         route: `/${collection}/${slug}`,
         source,
         // Written by hand, so it carries its own frontmatter and nothing is prepended.
-        markdown: rewrite(
-          handwritten.get(collection).get(name),
-          source,
-          `/${collection}/${slug}`,
+        markdown: rewriteFences(
+          rewriteLinks(handwritten.get(collection).get(name), {
+            source,
+            route: `/${collection}/${slug}`,
+            routes,
+            repo,
+          }),
         ),
       });
     }
   }
 
   return pages;
+}
 
-  function rewrite(markdown, source, route) {
-    return rewriteFences(
-      rewriteLinks(markdown, { source, route, routes, research }),
-    );
+/**
+ * Check one research document's links the way GitHub resolves them.
+ *
+ * These documents are not pages any more, so nothing rewrites them and nothing would otherwise
+ * notice a sibling that was renamed or a heading that moved. They are read where they sit, so
+ * `reference-set.md` means the file beside it and `#table-4--cost` means a real heading, and both
+ * are checkable from here for the cost of a parse.
+ *
+ * A `../` target leaves `docs/` for the source tree and is left alone: those are paths to Rust
+ * files and transcripts, and this build has no business asserting what is in them.
+ */
+export function checkCorpus(source, markdown, repo) {
+  const self = repo.get(source);
+  const { masked } = maskCode(markdown);
+  const targets = [
+    ...[...masked.matchAll(INLINE_LINK)].map((m) => m[2]),
+    ...[...masked.matchAll(REFERENCE_DEFINITION)].map((m) => m[2]),
+  ];
+
+  for (const raw of targets) {
+    const bare = raw.replace(/^<|>$/g, "");
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(bare)) continue;
+    if (bare.startsWith("../")) continue;
+
+    if (bare.startsWith("#")) {
+      requireAnchor(source, bare.slice(1), self, source);
+      continue;
+    }
+
+    const [path, ...rest] = bare.split("#");
+    const fragment = rest.join("#");
+    const sibling = `docs/${path}`;
+    if (!repo.has(sibling)) {
+      throw new Error(
+        `${source}: link to "${path}" does not resolve -- there is no such document in docs/. ` +
+          "A research document links to a sibling by filename, the way GitHub reads it.",
+      );
+    }
+    if (fragment) requireAnchor(source, fragment, repo.get(sibling), path);
   }
 }
 

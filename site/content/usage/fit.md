@@ -96,7 +96,7 @@ wrong — because scores only look wrong next to better ones.
 This is not a missing feature. Six approaches to grading a fit without ground truth have been tried
 and all six failed for structural rather than incidental reasons; the argument is on
 [Fitting a title](/guide/fitting-a-title) and in full in
-[Telling a good fit from a bad one](/research/fit-confidence).
+[Telling a good fit from a bad one](../docs/fit-confidence.md).
 
 The practical consequence is one instruction, and it is printed under the table every time the
 command runs: **read a few cues before trusting a track to a set.**

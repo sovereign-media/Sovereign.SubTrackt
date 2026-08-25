@@ -3,13 +3,15 @@
 //
 // `buildPages()` is run against the real corpus rather than against fixtures. That is deliberate:
 // it means adding a document to `docs/` that links to a heading which does not exist fails here,
-// on a pull request, rather than shipping. `scripts/check-links.mjs` then follows the same links
-// through the built HTML, which is what catches a page that was never rendered at all.
+// on a pull request, rather than shipping. It matters more now than it did: `docs/` is no longer
+// built into pages, so this and the corpus check it calls are the only things that read those
+// links at all. `scripts/check-links.mjs` then follows the site's own links through the built
+// HTML, which is what catches a page that was never rendered.
 
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   buildPages,
+  checkCorpus,
   readHeadings,
   rewriteFences,
   rewriteLinks,
@@ -19,17 +21,16 @@ import {
 const PREFIX = site.base.replace(/\/$/, "");
 const pages = await buildPages();
 
-/** A rewrite context standing in for one research document that links to one sibling. */
+/** A rewrite context standing in for one guide page linking out to the corpus and to a sibling. */
 function context(overrides: Record<string, unknown> = {}) {
   return {
-    source: "docs/here.md",
-    route: "/research/here",
+    source: "content/guide/here.md",
+    route: "/guide/here",
     routes: new Map([
-      ["/research/here", new Set(["own-heading"])],
-      ["/research/there", new Set(["a-heading"])],
+      ["/guide/here", new Set(["own-heading"])],
       ["/guide/what-this-is", new Set<string>()],
     ]),
-    research: new Set(["here.md", "there.md"]),
+    repo: new Map([["docs/there.md", new Set(["a-heading"])]]),
     ...overrides,
   };
 }
@@ -38,15 +39,15 @@ const rewrite = (markdown: string, overrides = {}) =>
   rewriteLinks(markdown, context(overrides));
 
 describe("a link that resolves", () => {
-  it("turns a sibling document into a site route carrying the base path", () => {
-    expect(rewrite("see [that](there.md).")).toBe(
-      `see [that](${PREFIX}/research/there).`,
+  it("sends a research document to the repository, because the site has no route for one", () => {
+    expect(rewrite("see [that](../docs/there.md).")).toBe(
+      `see [that](${site.repo}/blob/main/docs/there.md).`,
     );
   });
 
-  it("keeps an anchor, and checks it against the target's own headings", () => {
-    expect(rewrite("see [that](there.md#a-heading).")).toBe(
-      `see [that](${PREFIX}/research/there#a-heading).`,
+  it("keeps an anchor on the way out, and checks it against the document's own headings", () => {
+    expect(rewrite("see [that](../docs/there.md#a-heading).")).toBe(
+      `see [that](${site.repo}/blob/main/docs/there.md#a-heading).`,
     );
   });
 
@@ -56,7 +57,7 @@ describe("a link that resolves", () => {
     );
   });
 
-  it("sends a path out of docs/ to the repository, because the site has no route for one", () => {
+  it("sends a source file to the repository without pretending to know its headings", () => {
     expect(rewrite("see [it](../crates/subtrackt-core/src/glyph.rs).")).toBe(
       `see [it](${site.repo}/blob/main/crates/subtrackt-core/src/glyph.rs).`,
     );
@@ -68,8 +69,8 @@ describe("a link that resolves", () => {
   });
 
   it("rewrites a reference definition, which is how the issue links are written", () => {
-    expect(rewrite("[spec]: there.md#a-heading")).toBe(
-      `[spec]: ${PREFIX}/research/there#a-heading`,
+    expect(rewrite("[spec]: ../docs/there.md#a-heading")).toBe(
+      `[spec]: ${site.repo}/blob/main/docs/there.md#a-heading`,
     );
   });
 
@@ -79,13 +80,21 @@ describe("a link that resolves", () => {
 });
 
 describe("a link that does not resolve", () => {
-  it("is a failure rather than a rewritten guess when the document is unknown", () => {
+  it("is a failure rather than a rewritten guess when the target is a bare filename", () => {
     expect(() => rewrite("[x](nowhere.md)")).toThrowError(/cannot rewrite link target/);
   });
 
-  it("is a failure when the page exists and the anchor does not", () => {
-    expect(() => rewrite("[x](there.md#no-such-heading)")).toThrowError(
-      /there.md#no-such-heading|\/research\/there#no-such-heading/,
+  // Leaving the site is not leaving the check. These documents are read on GitHub, where a
+  // renamed heading breaks the link just as quietly as it would have here.
+  it("is a failure when a research document is named that docs/ does not have", () => {
+    expect(() => rewrite("[x](../docs/nowhere.md)")).toThrowError(
+      /no such document in docs/,
+    );
+  });
+
+  it("is a failure when the research document exists and the anchor does not", () => {
+    expect(() => rewrite("[x](../docs/there.md#no-such-heading)")).toThrowError(
+      /no heading with that anchor/,
     );
   });
 
@@ -98,18 +107,18 @@ describe("a link that does not resolve", () => {
   });
 
   it("names the file it came from, since the failure is read in CI output", () => {
-    expect(() => rewrite("[x](nowhere.md)")).toThrowError(/docs\/here\.md/);
+    expect(() => rewrite("[x](nowhere.md)")).toThrowError(/content\/guide\/here\.md/);
   });
 });
 
 describe("code is not prose", () => {
   it("leaves a link-shaped thing inside a fenced block alone", () => {
-    const block = "```\n$ cp [a](there.md) out\n```";
+    const block = "```\n$ cp [a](nowhere.md) out\n```";
     expect(rewrite(block)).toBe(block);
   });
 
   it("leaves a link-shaped thing inside a code span alone", () => {
-    expect(rewrite("run `[a](there.md)` now")).toBe("run `[a](there.md)` now");
+    expect(rewrite("run `[a](nowhere.md)` now")).toBe("run `[a](nowhere.md)` now");
   });
 
   it("does not mistake a number between spaces for its own placeholder", () => {
@@ -150,18 +159,21 @@ describe("heading anchors", () => {
 describe("the generated site", () => {
   it("has a page for every entry in site.json and nothing else", () => {
     const expected = [
-      ...site.research.flatMap((group: { documents: { file: string }[] }) =>
-        group.documents.map((doc) => `/research/${doc.file.replace(/\.md$/, "")}`),
-      ),
       ...site.guide.map((slug: string) => `/guide/${slug}`),
       ...site.usage.map((slug: string) => `/usage/${slug}`),
     ];
     expect(pages.map((page) => page.route).sort()).toEqual(expected.sort());
   });
 
+  it("publishes no research document, which is the point of them living in the repository", () => {
+    expect(pages.map((page) => page.collection)).not.toContain("research");
+  });
+
+  // A `.md` in an href is fine now, and is in fact what a link into the repository looks like --
+  // so the check is that nothing was left *relative*, which is the form that 404s here.
   it("leaves no link written the way GitHub needs it", () => {
     for (const page of pages) {
-      expect(page.markdown, page.source).not.toMatch(/]\([^)]*\.md[)#]/);
+      expect(page.markdown, page.source).not.toMatch(/]\((?!https?:)[^)]*\.md[)#]/);
       expect(page.markdown, page.source).not.toMatch(/]\(\.\.\//);
     }
   });
@@ -183,17 +195,50 @@ describe("the generated site", () => {
     }
   });
 
-  it("changes nothing in a research document except its links and its fences", async () => {
-    for (const page of pages.filter((p) => p.collection === "research")) {
-      const source = await readFile(`../docs/${page.slug}.md`, "utf8");
-      const body = page.markdown.split("\n---\n").slice(1).join("\n---\n").slice(1);
-      const strip = (text: string) =>
-        text
-          .replace(/]\([^)]*\)/g, "]()")
-          .replace(/^(\[[^\]\n]+\]:).*$/gm, "$1")
-          .replace(/^(\s*)(`{3,}|~{3,})[A-Za-z][\w-]*/gm, "$1$2");
-      expect(strip(body), page.source).toBe(strip(source));
-    }
+});
+
+// The corpus is not built any more, so nothing would notice a sibling link that stopped resolving.
+// This is what notices. It runs over the real `docs/`, so a document renamed without its referrers
+// being updated fails on the pull request that renamed it.
+describe("the research corpus, which the site links out to", () => {
+  const repo = new Map([
+    ["docs/here.md", new Set(["own-heading"])],
+    ["docs/there.md", new Set(["a-heading"])],
+  ]);
+  const check = (markdown: string) => checkCorpus("docs/here.md", markdown, repo);
+
+  it("passes a sibling link, which is how these documents cross-reference on GitHub", () => {
+    expect(() => check("see [that](there.md#a-heading).")).not.toThrow();
+  });
+
+  it("fails a sibling that does not exist", () => {
+    expect(() => check("see [that](gone.md).")).toThrowError(/no such document in docs/);
+  });
+
+  it("fails an anchor no heading in the sibling answers", () => {
+    expect(() => check("see [that](there.md#moved).")).toThrowError(
+      /no heading with that anchor/,
+    );
+  });
+
+  it("fails an in-page anchor that names a heading which was renamed", () => {
+    expect(() => check("see [above](#renamed).")).toThrowError(
+      /no heading with that anchor/,
+    );
+  });
+
+  it("leaves a path out of docs/ alone, having no business asserting what is in it", () => {
+    expect(() => check("see [it](../crates/subtrackt-core/src/glyph.rs).")).not.toThrow();
+  });
+
+  it("leaves a link inside a fenced block alone, because that is an example", () => {
+    expect(() => check("```\n$ cp [a](gone.md) out\n```")).not.toThrow();
+  });
+
+  it("runs over the real corpus, which is the only reason any of this catches anything", () => {
+    // `buildPages()` above already ran it. If `docs/` had a broken cross-link, the top of this
+    // file would have thrown before a single test was collected.
+    expect(pages.length).toBeGreaterThan(0);
   });
 });
 
@@ -220,11 +265,23 @@ describe("the hand-written half", () => {
     }
   });
 
-  it("reaches the research half, so the sections are one site", () => {
+  it("reaches the research corpus, so a reader who wants the workings can get to them", () => {
     const linked = [...guide, ...usage].flatMap((page) => [
-      ...page.markdown.matchAll(new RegExp(`${PREFIX}/research/([a-z-]+)`, "g")),
+      ...page.markdown.matchAll(
+        new RegExp(`${site.repo}/blob/main/docs/([a-z-]+)\\.md`, "g"),
+      ),
     ]);
     expect(new Set(linked.map((m) => m[1])).size).toBeGreaterThan(3);
+  });
+
+  // The comparison is the measurement behind the claim the whole tool rests on, and it spent its
+  // life three sidebars away in a section that no longer exists. It is a guide page now.
+  it("carries the tool comparison in the half a reader actually reads", () => {
+    expect(site.guide).toContain("how-it-compares");
+    const page = guide.find((p) => p.slug === "how-it-compares")!;
+    expect(page.markdown).toMatch(/PgsToSrt/);
+    expect(page.markdown).toMatch(/pgsrip/);
+    expect(page.markdown).toMatch(new RegExp(`${site.repo}/blob/main/docs/alternatives\\.md`));
   });
 
   // The usage half is a command reference, so the thing it must not do is silently stop covering a

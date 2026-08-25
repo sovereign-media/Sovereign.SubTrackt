@@ -112,5 +112,5 @@ much was read, not how much was read *correctly*, and those are different questi
 So the claim is narrow, and it is this: when this tool fails, it says so, and says where. That is
 the property everything else was traded for.
 
-The measurements behind all of the above — this against five other tools, over the same bytes —
-are in [Five other tools](/research/alternatives).
+All of the above was measured against five other tools reading the same bytes, and the next page,
+[How it compares](/guide/how-it-compares), is what that found.

@@ -35,14 +35,14 @@ drawn in, and you use a generic set instead, a good OCR engine reads these discs
 does — not marginally, but by a wide margin.
 
 The trade only pays when the set fits. If you have no way to get the right fonts, use OCR today.
-[Five other tools](/research/alternatives) says so in those words, with the numbers.
+[How it compares](/guide/how-it-compares) says so in those words, with the numbers.
 
 ## Nothing can tell a good fit from a bad one
 
 `fit` ranks candidates against each other and cannot certify the winner. This is not a missing
 feature; several approaches have been tried and each failed for a structural reason, laid out on
 [the fitting page](/guide/fitting-a-title) and in full in
-[Telling a good fit from a bad one](/research/fit-confidence).
+[Telling a good fit from a bad one](../docs/fit-confidence.md).
 
 The practical consequence is one instruction: **read a few cues before trusting a track to a set.**
 
@@ -55,7 +55,7 @@ dialogue.
 `gen-reference --italic --bold` closes most of that when you have the other font files, and where
 you do not, the pipeline measures how far a line leans and compensates. Between them the gap gets
 small. It does not get closed, and nothing can choose automatically between the two approaches for
-a given title, for the same reason nothing can grade a fit. See [The slant](/research/italic-slant).
+a given title, for the same reason nothing can grade a fit. See [The slant](../docs/italic-slant.md).
 
 ## What is left is cutting, not recognising
 
@@ -92,7 +92,7 @@ scope entirely, as are subtitles burned into the video image.
 The DVD format decodes and produces output, and far less measurement exists for it than for
 Blu-ray. It is lower resolution and older, which is exactly the combination most likely to behave
 differently — so it is the corner where you should be most inclined to check the output yourself.
-The first real measurement of it is [What VOBSUB reads at](/research/vobsub).
+The first real measurement of it is [What VOBSUB reads at](../docs/vobsub.md).
 
 ## A frozen surface is not a frozen output
 

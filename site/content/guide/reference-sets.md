@@ -72,7 +72,7 @@ often a small fraction of the runtime and a large fraction of the errors.
 Where you do not have the italic cut, the pipeline compensates in a different way, by measuring how
 far a line leans and taking that into account. It is a real recovery, and it switches itself off as
 soon as a set actually carries italic entries. The full comparison is in
-[The slant](/research/italic-slant).
+[The slant](../docs/italic-slant.md).
 
 ## Why nothing is embedded in the binary
 
@@ -106,8 +106,8 @@ you download it, and that cost is real — it is the first entry in
 [what it cannot do](/guide/what-it-cannot-do).
 
 The measurement behind the decision, including what a deliberately wrong set does to a real disc,
-is in [Which set should ship](/research/reference-set). What studios actually author against, over a
-survey of real titles, is in [Typeface survey](/research/library-survey).
+is in [Which set should ship](../docs/reference-set.md). What studios actually author against, over a
+survey of real titles, is in [Typeface survey](../docs/library-survey.md).
 
 ## What you have when you are done
 

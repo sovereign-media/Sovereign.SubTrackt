@@ -14,46 +14,10 @@
   "guide": [
     "what-this-is",
     "why-not-ocr",
+    "how-it-compares",
     "reference-sets",
     "fitting-a-title",
     "reading-a-track",
     "what-it-cannot-do"
-  ],
-  "research": [
-    {
-      "label": "The pipeline",
-      "documents": [
-        { "file": "architecture.md",  "label": "Architecture",      "description": "How the workspace is laid out, what each stage does with a track, and where each decision lives." },
-        { "file": "cost-baseline.md", "label": "What a run costs",  "description": "Wall clock, CPU seconds and peak memory for a full extraction, measured rather than estimated." },
-        { "file": "distribution.md",  "label": "Distribution",      "description": "CLI over cdylib, static musl over glibc, and the binary-size and cold-start numbers behind both." }
-      ]
-    },
-    {
-      "label": "What the glyphs do",
-      "documents": [
-        { "file": "glyph-stability.md",     "label": "Glyph vector stability",   "description": "Whether one character renders to a stable feature vector. It does not, and the measurement says which axes cost what." },
-        { "file": "glyph-hit-list.md",      "label": "Which glyphs to fix first","description": "The confusion families ranked by errors contributed rather than by how interesting they are." },
-        { "file": "error-census.md",        "label": "Where the error is",       "description": "A character-by-character census of a real disc's errors, and what closing each class was worth." },
-        { "file": "reference-rendering.md", "label": "The reference side",       "description": "Why the full stop matched nothing, and the two-line change to the reference renderer that halved a disc's error rate." },
-        { "file": "italic-slant.md",        "label": "The slant",                "description": "Why the italic act costs so much, and what measuring a line's own slant recovers two stages before the matcher." }
-      ]
-    },
-    {
-      "label": "Reference sets and typefaces",
-      "documents": [
-        { "file": "library-survey.md",  "label": "Typeface survey",                  "description": "What studios actually author subtitles against, measured over 56 titles spanning seventy years." },
-        { "file": "reference-set.md",   "label": "Which set should ship",            "description": "Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one." },
-        { "file": "fit-confidence.md",  "label": "Telling a good fit from a bad one","description": "Whether any statistic can grade a fit without ground truth. Six were tried and all six failed." }
-      ]
-    },
-    {
-      "label": "Measured on real material",
-      "documents": [
-        { "file": "library-accuracy.md", "label": "Accuracy across a library", "description": "What the pipeline reads on 50 real titles rather than on the three it was tuned against." },
-        { "file": "vobsub.md",           "label": "What VOBSUB reads at",      "description": "The DVD-era codec, measured for the first time after shipping unmeasured." },
-        { "file": "post-correction.md",  "label": "Post-correction",           "description": "What is left once the shapes are as good as they get, and the three arms that resolve it." },
-        { "file": "alternatives.md",     "label": "Five other tools",          "description": "Nine configurations of five tools reading the same bytes: accuracy, cost, and the failure column." }
-      ]
-    }
   ]
 }

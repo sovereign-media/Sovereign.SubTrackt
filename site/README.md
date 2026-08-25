@@ -22,23 +22,37 @@ runs in CI and emits HTML is not that, and `cargo tree -p subtrackt -e normal` i
 
 | | |
 | :--- | :--- |
-| `content/guide/` | The plain-language half, written by hand and committed. No prior knowledge assumed, no CER figures, no issue numbers — `tests/` enforces the last two. |
-| `../docs/` | The research half. **Canonical, and edited there.** The README links into it twenty-odd times and every one of those URLs is one somebody may already have. |
+| `content/guide/` | Why the tool works the way it does, written by hand and committed. No prior knowledge assumed, no CER figures, no issue numbers — `tests/` enforces the last two. |
+| `content/usage/` | The command reference, one page per subcommand, in the order you would run them. |
 | `src/content/` | Generated from both by `scripts/build-content.mjs`, and gitignored. Never edit this. |
-| `site.json` | Sidebar order, groups, and the label and description of each research document. The one list; the generator fails the build if it disagrees with what is on disk. |
+| `site.json` | Sidebar order. The one list; the generator fails the build if it disagrees with what is on disk. |
 
-`scripts/content.mjs` is where the work is. It rewrites `reference-set.md`, which is right on GitHub
-and a 404 here, into `/Sovereign.SubTrackt/research/reference-set`; sends `../crates/...` off to
-GitHub, which has no route here at all; renames ```` ```console ```` fences, which GitHub knows and
-Prism does not; and **fails the build on a link it cannot resolve or an anchor no heading answers**.
-`scripts/check-links.mjs` then follows every link through the rendered HTML, which is the half that
-catches a page the prerenderer never wrote.
+`../docs/` is **not** part of the site. The fourteen documents there are the record of what was
+measured and why each decision went the way it did, and they are read in the repository: the guide
+says what they found in words that assume nothing, and links out to the document for the workings.
+
+`scripts/content.mjs` is where the work is. It puts the `/Sovereign.SubTrackt/` prefix on a
+site-absolute link, sends a `../` target off to GitHub, renames ```` ```console ```` fences, which
+GitHub knows and Prism does not, and **fails the build on a link it cannot resolve or an anchor no
+heading answers**. `scripts/check-links.mjs` then follows every link through the rendered HTML,
+which is the half that catches a page the prerenderer never wrote.
+
+## The corpus is still checked, even though it is not built
+
+`content.mjs` parses `docs/` on every build and holds it to the rules GitHub reads it by: a sibling
+named by filename has to exist, and a `#fragment` has to name a real heading — in a document
+linking to a sibling, and in a guide page linking out.
+
+That is deliberate and it is the one thing not to drop when touching this. Those fifty-odd
+cross-links used to be checked because the corpus was compiled into pages. It is not any more, so
+without this a document renamed here would break every referrer silently, which is the exact failure
+the rest of this file exists to prevent.
 
 ## Adding a research document
 
-Write it in `docs/` as usual, then add one line to `site.json` naming its group, its sidebar label
-and a one-sentence description. The build fails until you do, which is deliberate: a document with
-no group has nowhere to appear.
+Write it in `docs/` and link to it. Nothing has to be registered anywhere: it is not a page, so it
+needs no sidebar entry, no label and no description. A guide page reaches it as
+`../docs/whatever.md`, and the build checks that the file and the anchor are both real.
 
 ## Notes on the framework
 
