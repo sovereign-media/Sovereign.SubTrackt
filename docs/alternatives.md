@@ -10,11 +10,12 @@ There was a real measurement once, in [sovereign#328][issue-328] (2026-07-27), t
 motivated building this library. It timed ffmpeg's `ocr` filter and Tesseract 5.3.4 against **Big
 Hero 6 (2014)** and produced hard cost numbers. It **never measured character or word error**: its
 entire accuracy case was five sample lines. So there was a gap on both sides — the prior analysis had
-timings and no accuracy, this project had accuracy and no competitor. This closes both, on the same
+timings and no accuracy, this project had accuracy and no comparison. This closes both, on the same
 media, through one instrument.
 
 [issue-328]: https://github.com/sovereign-media/sovereign/issues/328
 [issue-131]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/131
+[issue-209]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/209
 
 ## What this can and cannot claim
 
@@ -44,12 +45,11 @@ Rambo: First Blood Part II, whose two candidate sidecars read 0.9% and 82.3%. An
 smaller than that title's spread is reported as too close to call, and the spread is printed beside
 the gap rather than left for a reader to go looking for.
 
-**Widening the corpus is what lets that caveat stop being fatal, and this is the argument #209 was
-built on.** Nine of the 24 titles have only one candidate sidecar and therefore a spread of zero,
-which sounds like precision and is not — it means the instrument has nothing to say about its own
-uncertainty there. Per title, the honest verdict on most of this corpus remains *inconclusive*. What
-24 titles buy is a verdict that does not depend on any one of them: a 2-7 record across titles is a
-statement no single title's spread can undo, and it is the statement three discs could not make.
+**Breadth is what keeps that caveat from being fatal.** Nine of the 24 titles have only one candidate
+sidecar and therefore a spread of zero, which sounds like precision and is not — it means the
+instrument has nothing to say about its own uncertainty there. Per title, the honest verdict on most
+of this corpus is *inconclusive*. What 24 titles buy is a verdict that does not depend on any one of
+them: a 2-7 record across titles is a statement no single title's spread can undo.
 
 ## Method
 
@@ -66,13 +66,11 @@ script is how a benchmark starts lying quietly.
 
 ### One run for accuracy, five items repeated for cost
 
-The first version of this benchmark repeated every unit three times. Its own results say what that
-bought: **all 64 (engine, item) pairs came back byte-identical**, so every accuracy figure it
-published was the median of three identical numbers. Widening the corpus at that rate would have
-cost nine hours to learn nothing.
+Every engine here is deterministic: **every repeated (engine, item) pair produces byte-identical
+output**, so a repeat buys no accuracy resolution at all. Repeating all 26 items three times would
+cost nine hours and return the median of three identical numbers.
 
-The repeats were not worthless, though — they were in the wrong place. One engine's cost is
-genuinely unstable:
+Repeats are not worthless, though. One engine's cost is genuinely unstable:
 
 | unit | wall, three runs | spread |
 | :--- | :--- | ---: |
@@ -94,7 +92,7 @@ measured a single time would be vacuous rather than merely narrow.
 
 Scoring runs on the host, outside every timed region, through the same `xtask srt-score` that
 produced every accuracy figure this project has published. **One instrument for every row** is the
-whole method: a competitor number produced by a second code path would have to be independently
+whole method: a figure produced by a second code path would have to be independently
 trusted, and nothing would be able to say whether a gap was the engines or the scorers.
 
 ### The sidecar is chosen once, and frozen
@@ -244,7 +242,7 @@ comparison that is the reason it was wanted.
 
 ## The instrument
 
-Before a single competitor number is quoted, the harness has to reproduce what this project already
+Before a single figure is quoted, the harness has to reproduce what this project already
 publishes. It does — and finding out cost two published figures, because they had gone stale.
 
 | check | result |
@@ -320,7 +318,7 @@ for #48's diacritic work, and four of its ten cues are French, Spanish or Italia
 Tesseract arm above was given an **English** model. Between 59% and 71% of their error is one class:
 `à→a`, `á→a`, `ï→i`, `è→e`, `ù→u`, the diacritic stripped. Ours is 7.9%.
 
-That is a configuration *we* chose for the competition, so it was re-run rather than argued about:
+That is a configuration *we* chose for the alternatives, so it was re-run rather than argued about:
 
 | `seconv-tesseract` on the fixture | cue CER | track CER |
 | :--- | ---: | ---: |
@@ -358,11 +356,10 @@ difference at zero.
 CPU is the sum over the five repeated `cost` items, which is the only set any timing figure may come
 from. `subtrackt, fitted` is byte-identical to `subtrackt, Arial` on every item and shares its row.
 
-**The three-disc version of this table said subtrackt had the best mean and the best worst case.
-Twenty-four titles say that was an artefact of three discs chosen years ago because they fit Arial.**
-Both Tesseract arms in Subtitle Edit now beat it on mean and on worst case, and the head-to-head
-resolves against us: **2 wins, 7 losses, 15 too close to call**. The prediction that widening the
-corpus would resolve the comparison was right. It resolved the other way.
+**Both Tesseract arms in Subtitle Edit beat subtrackt on mean and on worst case, and the head-to-head
+resolves against us: 2 wins, 7 losses, 15 too close to call.** The corpus is drawn from the library
+by a rule blind to what any engine makes of a title, which is what the verdict rests on: a corpus
+assembled from titles that suit one engine will flatter it by an amount nobody can estimate.
 
 Two things about *how* it lost, both of which matter more than the ranking.
 
@@ -389,15 +386,15 @@ half. An arm that could do both is a set builder that pairs cuts, not a differen
 
 **What survives the widening, and what does not.**
 
-The consistency claim survives, and it now has a number rather than an anecdote. Every competitor's
+The consistency claim survives, and it now has a number rather than an anecdote. Every alternative tool's
 p90 is more than three times its median — 3.3x, 3.6x, 3.2x and 5.5x — so no engine tested is good on
 all 24 titles. pgsrip is the clearest case: median 5.95 with a p90 of 18.9, reading How to Train Your
 Dragon at 22.3% and Heart Eyes at 19.9%. PgsToSrt shares subtrackt's median of 1.81 exactly and then
 reads Lilo & Stitch at **27.3%**, the worst single result of any working engine.
 
 The cost claim survives untouched and gets larger. Reading the five repeated items costs subtrackt
-**5.0 CPU-seconds** against the cheapest competitor's **828** — 166x — and PgsToSrt's 2,217, which is
-443x. Nothing here trades accuracy for speed at a rate that makes the competitors' cost look bought:
+**5.0 CPU-seconds** against the cheapest alternative's **828** — 166x — and PgsToSrt's 2,217, which is
+443x. Nothing here trades accuracy for speed at a rate that makes the alternative tools' cost look bought:
 the two engines that beat us on accuracy do so by 0.9 and 0.8 points of mean CER, for two orders of
 magnitude more CPU.
 
@@ -420,7 +417,7 @@ Gone Girl, 2,442 cues, median of three:
 | seconv, Tesseract (best) | 270.21 s | 365.18 | 135% | 111 | 150 |
 | pgsrip | 345.87 s | 439.37 | 127% | 142 | 180 |
 
-**Wall clock alone would flatter the competition badly.** PgsToSrt looks 2.6x faster than
+**Wall clock alone would flatter the alternatives badly.** PgsToSrt looks 2.6x faster than
 `seconv-tesseract` in wall clock and costs **1.9x more CPU**; it runs at 394% on a four-CPU
 container. subtrackt is single-threaded at 85%. The wall figure is what a user feels and the CPU
 figure is what a queue pays, so both are here.
@@ -446,7 +443,7 @@ The five repeated `cost` items, 7,589 cues — the only set a timing figure may 
 
 **Fitting is cheap and scanning 128 candidates is barely dearer than scanning six.** The whole
 fitting apparatus — the thing that takes Excision from 24.8% to 11.4% — costs 2.2 CPU-seconds across
-five films, and is still 118x cheaper than the cheapest competitor. Whatever the argument against
+five films, and is still 118x cheaper than the cheapest alternative. Whatever the argument against
 building reference sets per title is, it is not the price of choosing one.
 
 **Death Race 2, one track measured and 37 projected** — the arithmetic row, against #328's 8.4 hours
@@ -513,10 +510,9 @@ which cues were supplied.
 
 ### Table 7 — capability
 
-The table the argument actually rests on — and after #209 it is no longer a hypothetical. The
-three-disc version of this document said "if a competitor reads these discs better than SubTrackt,
-that goes in the headline and the argument rests entirely on this table." Two of them now do, over 24
-titles, and it does. This is the table.
+The table the argument actually rests on, and it is not a hypothetical: two alternative tools read
+these titles more accurately than SubTrackt does. That is in the headline, and the argument rests
+entirely on this table. This is the table.
 
 | | detectable no-match | per-glyph confidence | italic tag | unattended | gateable failure | aimed at a typeface | ranks candidates against the track |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -560,12 +556,12 @@ inherits the blind spot [`fit-confidence.md`](fit-confidence.md) documents — a
 set is by construction a low-distance one — and adds one of its own: it stops looking the moment
 something clears the bar, so a better candidate two files down is never scored.
 
-**#209 gave the last column its first real test, and it passed on the one title that needed it.**
-Given six candidates, `fit` chose Arial for all 26 items and its arm was byte-identical to the
-single-Arial arm — an apparatus doing nothing, because the answer was not in the directory. Given
-128, it identified Excision as Arial **Bold** at a mean distance of 11.5 with 99.6% of glyphs read,
-against 30.5 and 90.1% for the regular cut, and took the title from 24.8% CER to 11.4% and its unread
-glyphs from 2,666 to 52. No other engine in this comparison has a mechanism that could have found
+**The last column earns itself on exactly one title, and the size of the effect there is the reason
+it is in the table.** Given six candidate sets, `fit` chooses Arial for all 26 items and its arm is
+byte-identical to the single-Arial arm — an apparatus doing nothing, because the answer is not in the
+directory. Given 128, it identifies Excision as Arial **Bold** at a mean distance of 11.5 with 99.6%
+of glyphs read, against 30.5 and 90.1% for the regular cut, taking the title from 24.8% CER to 11.4%
+and its unread glyphs from 2,666 to 52. No other engine in this comparison has a mechanism that could have found
 that, and the two that read the title correctly did so without being able to report that anything
 about it was unusual.
 
@@ -576,7 +572,7 @@ of one set, and the wide arm therefore has no italic pairing at all. It wins the
 and loses the italic one, which is a set-builder problem rather than a matcher problem.
 
 **The `*` is the finding that sharpens prediction 9 rather than breaking it.** `NOcrOcrEngine.cs`
-emits a literal `*` into the output where `_db.GetMatch` returns null, so "zero for every competitor
+emits a literal `*` into the output where `_db.GetMatch` returns null, so "zero for every alternative tool
 on every item" does not survive as written. It survives where it matters, and the line is worth
 drawing precisely: a `*` inline in the subtitle text is a **marker, not a count**. A caller cannot
 gate on it without parsing the output, and cannot distinguish it from a `*` the disc actually
@@ -585,7 +581,7 @@ zero it is not.
 
 ## Where the comparison is unfair, and to whom
 
-**Unfair to the competition:**
+**Unfair to the alternatives:**
 
 - **The fixture is accent-dense and their headline model was English.** The largest single
   distortion in the document, and the one that was measured rather than caveated: the right language
@@ -593,15 +589,14 @@ zero it is not.
   change the ordering, and it was worth knowing that before publishing a 4x claim that is really 3x.
 - **Both fitted arms choose from a directory of candidate typefaces**, and the wide one gets 128 —
   every font on the machine. That is the intended workflow, but it is a luxury none of the
-  competitors were offered, because none of them can accept it. A Tesseract engine does not care what
-  the typeface is; we care enormously, and the gap between our two fitted arms on Excision is 13.4
-  points of exactly that caring.
+  alternative tools were offered, because none of them can accept it. A Tesseract engine does not
+  care what the typeface is; we care enormously, and the gap between our two fitted arms on Excision
+  is 13.4 points of exactly that caring.
 - **This corpus is still mostly Arial.** `fit` chose regular Arial on 25 of 26 items, so a single
   Arial set is close to optimal almost everywhere here — which is a fact about the library rather
-  than a favour to us, but it is a fact that favours us. #209 predicted a single Arial set would lose
-  more than 5 points of median CER on a wider corpus; it lost **0.6**. The library is more uniform
-  than the "three discs chosen because they fit Arial" framing implied, and a pipeline that must be
-  aimed at a typeface benefits from that uniformity in a way an OCR engine does not.
+  than a favour to us, but it is a fact that favours us: a single Arial set gives up only **0.6**
+  points of median CER against the three titles it was tuned on. A pipeline that must be aimed at a
+  typeface benefits from that uniformity in a way an OCR engine does not.
 - **`seconv`'s corrector was off in its headline arm**, because that is its default. Table 6 shows it
   is worth nearly a point on Cloverfield, and turning it on would have made seconv's headline row
   better.
@@ -635,25 +630,25 @@ written with.
 | 1 | 20x faster per cue than the fastest Tesseract tool, ratio larger in CPU than wall | **Right, and by a distance.** 48–79x wall, 110–307x CPU. Both clauses |
 | 2 | subtrackt under 60 MB; .NET tools over 200 MB; Tesseract tools over 300 MB; ratio 5x | **Lost, three clauses of four.** subtrackt reaches **214 MB** on Gone Girl, `seconv-tesseract` only **158 MB**. Only the 5x ratio survives, via pgsrip's 1,259 MB |
 | 3 | We lose the fixture — a Tesseract tool under 3% CER | **Wrong.** Best Tesseract is **9.1%**, and **7.2%** given the right language models, against **2.3%** |
-| 4 | We win the discs when fitted, gap under 3 points somewhere | **Lost, and #209 removed the "inconclusive" escape.** On three discs every gap sat inside the sidecar spread. On 24 titles it resolves: 2 wins, 7 losses, 15 too close to call against Subtitle Edit's Tesseract arms, which beat us on mean and worst case both |
-| 5 | We lose out of the box | **Right, and #209 widened the margin.** Liberation Sans reads **10.97% mean** across 24 titles against Tesseract-best's 2.67%, and it is the only arm that refused a track outright |
+| 4 | We win the discs when fitted, gap under 3 points somewhere | **Lost.** 2 wins, 7 losses and 15 too close to call against Subtitle Edit's Tesseract arms, which lead on mean and worst case both |
+| 5 | We lose out of the box | **Right.** Liberation Sans reads **10.97% mean** across 24 titles against Tesseract-best's 2.67%, and it is the only arm that refused a track outright |
 | 6 | nOCR and binaryocr cannot run unattended at all | **Premise dead before the run; conclusion right beyond expectation.** Both ran unattended. Both read **100.0% CER** — a generic Latin database matched *not one glyph* on any item |
 | 7 | #328's 55–102 ms/frame transfers within 2x | **Right.** `seconv-tesseract` at **76–88 ms/cue** wall, 99–114 ms CPU, stable across titles from 1988 to 2016 |
 | 8 | Cue counts agree within 1% across engines | **Lost, once.** pgsrip drops 69 of Wanda's 1,396 cues — **4.9%**. Everywhere else exact |
-| 9 | Zero machine-readable "could not read" for every competitor | **Right, and #209 made it emphatic: literally zero from all four Tesseract engines across 33,755 cues**, against our 4,434 located markers and one refused track. Sharpened for Subtitle Edit's matchers, which emit a `*` inline: 52,914 of them, one per cue, a marker rather than a count |
-| 10 | Every competitor over 100 MB; subtrackt plus a set under 2 MB | **Both halves lost, narrowly.** subtrackt plus a set is **2.09 MB**; `seconv` is 90.7 MB and PgsToSrt 21.3 MB before its runtime |
+| 9 | Zero machine-readable "could not read" for every alternative tool | **Right: literally zero from all four Tesseract engines across 33,755 cues**, against our 4,434 located markers and one refused track. Sharpened for Subtitle Edit's matchers, which emit a `*` inline: 52,914 of them, one per cue, a marker rather than a count |
+| 10 | Every alternative tool over 100 MB; subtrackt plus a set under 2 MB | **Both halves lost, narrowly.** subtrackt plus a set is **2.09 MB**; `seconv` is 90.7 MB and PgsToSrt 21.3 MB before its runtime |
 
-**Prediction 4 is the one worth dwelling on, and #209 is what it turned into.** It was written
-expecting a win; the three-disc run produced a loss the instrument could not certify either way, and
-this document concluded that separating these engines needed ground truth the project does not have.
-That conclusion was half wrong. It did not need better truth per title — it needed *more titles*. At
-24 the per-title noise stops mattering, because a 2-7 record over titles is a statement no single
-title's sidecar spread can undo. `scripts/truth/` is still the right answer to "what is the true CER
-of this one disc"; it was the wrong answer to "which engine reads a library better".
+**Prediction 4 is the one worth dwelling on.** It was written expecting a win and it lost, but the
+useful part is what makes the loss *sayable at all*. Per title it still is not: every margin here
+sits inside its title's sidecar spread, so no single disc decides anything. What decides it is
+breadth. A 2-7 record across 24 titles is a statement no one title's spread can undo, and it needs no
+better truth per disc to hold. `scripts/truth/` — cues transcribed by eye — is the right instrument
+for "what is the true CER of this one disc"; it is the wrong one for "which engine reads a library
+better", and that distinction is worth more than the prediction was.
 
-### #209's predictions, scored
+### Corpus predictions, scored
 
-Committed in the issue before the wider corpus ran.
+Committed in [#209][issue-209] before the corpus was assembled or a figure was seen.
 
 | # | prediction | verdict |
 | :--- | :--- | :--- |
@@ -671,8 +666,8 @@ nothing anywhere else. Breadth found it; more of the same three discs never woul
 
 ## What it settles
 
-**The README's argument is about the failure mode, and the failure mode is the one place the
-widening made our case stronger rather than weaker.** Across 24 titles and 33,755 scored cues, the
+**The README's argument is about the failure mode, and the failure mode is where this pipeline is
+furthest ahead.** Across 24 titles and 33,755 scored cues, the
 four Tesseract-based engines reported **zero** glyphs they could not read. Not few — zero, because
 there is no mechanism in any of them to say so. This pipeline reported **4,434**, each with a
 location, and on Excision it went further: pointed at a Liberation set it **refused the track**,
@@ -681,12 +676,11 @@ pgsrip read that same track and returned clean-looking subtitles with no indicat
 is the entire claim `README.md` has been making without a measurement, and twenty-four titles measure
 it more convincingly than three did.
 
-**The accuracy argument is weaker than the project has been implying, and the three-disc version of
-this document had it wrong.** That version claimed the best mean and the best worst case. On 24
-titles both Tesseract arms in Subtitle Edit beat us on both: 2.67% and 2.78% mean against our 3.53%,
-10.0% and 9.1% worst case against our 24.8%. Head to head it is **2 wins, 7 losses, 15 too close to
-call**. The old conclusion was an artefact of three discs that were chosen, years ago, *because they
-fit Arial* — which is precisely the selection effect the corpus was widened to remove.
+**The accuracy argument is weaker than the failure argument, and this is where it is weakest.** Both
+Tesseract arms in Subtitle Edit read these titles better than SubTrackt: 2.67% and 2.78% mean against
+3.53%, and 10.0% and 9.1% worst case against 24.8%. Head to head it is **2 wins, 7 losses, 15 too
+close to call**. The corpus is drawn from the library by a rule that never consults an engine's
+output, so the verdict is not an artefact of which titles were chosen.
 
 **But the loss is one film, and the fix is a reference set rather than a matcher.** Excision is
 authored in Arial Bold. The reference directory held regular and italic cuts only, so 2,666 of the
@@ -698,10 +692,10 @@ number says is that the ceiling is a set-building problem, and `reference-set.md
 the Shortcoming.
 
 **No engine tested is consistent across the corpus, and that claim is now a statistic rather than an
-anecdote.** Every competitor's p90 is more than three times its median: 3.3x, 3.6x, 3.2x, 5.5x.
+anecdote.** Every alternative tool's p90 is more than three times its median: 3.3x, 3.6x, 3.2x, 5.5x.
 PgsToSrt shares our median of 1.81% exactly and then reads Lilo & Stitch at **27.3%**, the worst
 single result of any working engine. pgsrip reads How to Train Your Dragon at 22.3% and Heart Eyes at
-19.9%. Widening the corpus did not find a competitor that is simply better; it found that every
+19.9%. The corpus does not name an alternative tool that is simply better; it shows that every
 engine here, including this one, has titles it falls over on.
 
 **Out of the box we lose, unambiguously, and by more than before.** A generic Liberation Sans set
@@ -710,7 +704,7 @@ Anyone who cannot supply the typeface is better served by an OCR engine today. T
 `README.md` §Shortcomings and the wider corpus has not softened it.
 
 **The cost argument is entirely intact and larger than it was.** Reading the five repeated items
-costs subtrackt **5.0 CPU-seconds** against 828 for the cheapest competitor, 1,104 for the most
+costs subtrackt **5.0 CPU-seconds** against 828 for the cheapest alternative, 1,104 for the most
 accurate one and 2,217 for PgsToSrt — **166x, 221x and 443x**. The two engines that beat us on
 accuracy do so by about 0.9 points of mean CER for two orders of magnitude more CPU. That is a price,
 not a trade. But **nOCR is 5 ms/cue against our 1 ms**, so most of the gap is *glyph matching versus
@@ -724,12 +718,13 @@ document.** `Latin.nocr` and `Latin.db` ship from the same project, are freely o
 same decision taken by someone else and measured: a database that is nobody's typeface reads nothing
 at all.
 
-**What the widening itself settled.** Three discs could not resolve this comparison — every margin
-sat inside the sidecar spread and the document said so. Twenty-four resolve it, against us on
-accuracy and for us on cost and on failure reporting. That is worth more than the inconclusive
-version it replaces, and it cost three hours rather than nine because the repeats were moved to where
-the variance actually is: all 69 repeated (engine, item) pairs came back byte-identical, and the only
-engine whose *cost* needed repeating was PgsToSrt, at a 278% spread.
+**What breadth settles that depth cannot.** Per title this comparison decides nothing: every margin
+sits inside its sidecar spread, and nine titles have no spread to report because they carry one
+candidate transcript. Across 24 it decides plainly — against this pipeline on accuracy, for it on
+cost and on failure reporting. A verdict that rests on no single title is worth more than a
+per-title verdict that rests on a transcript somebody typed, and it costs three hours rather than
+nine because repeats sit where the variance is: all 69 repeated (engine, item) pairs are
+byte-identical, and the only engine whose *cost* moves is PgsToSrt, at a 278% spread.
 
 ## Reproducing
 

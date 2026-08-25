@@ -356,29 +356,29 @@ The italic act goes from 35.7% to **4.7%** and the upright column does not move 
 also beats the italic-only set's 10.8% on its own cues, because a combined set covers what either
 cut alone misses.
 
-**Bold costs and buys nothing here**: 0.2 points on the upright column, ambiguous glyphs up from
-3,872 to 4,532, and no gain — the film has no bold. That is one film, so it is an argument for not
-adding bold *by default* rather than for never adding it. A track with bold in it would want the
-same measurement run again.
+**Bold costs and buys nothing on a film that has none**: 0.2 points on the upright column, ambiguous
+glyphs up from 3,872 to 4,532, and no gain. That is an argument for not putting bold in a single set
+*by default*, and it is only that.
 
-### That track turned up, and it is expensive
+### A film set in bold is a different question, and an expensive one
 
-[#209][issue-209] widened the competitor corpus to 24 titles and found one: **Excision (2012) is set
-in Arial Bold throughout.** Read with the regular-plus-italic set this section recommends, it scores
-**24.8% CER with 2,666 unreadable glyphs** — more than every other title in that corpus combined, and
-the worst result this project has published. `fit` given a directory containing the bold cut ranks
-`arialbd` at a mean distance of **11.5** against **30.5** for the regular cut, with 99.6% of glyphs
-read against 90.1%, and the title reads **11.4% with 52** unreadable glyphs.
+**Excision (2012) is drawn in Arial Bold throughout.** Read with the regular-plus-italic set this
+section recommends for a single set, it scores **24.8% CER with 2,666 unreadable glyphs** — more than
+every other title in the 24-film corpus of [`alternatives.md`](alternatives.md) combined, and the
+worst result this project publishes. `fit` given a directory containing the bold cut ranks `arialbd`
+at a mean distance of **11.5** against **30.5** for the regular cut, with 99.6% of glyphs read
+against 90.1%, and the title reads **11.4% with 52**.
 
-So the caveat above was the right shape and the wrong size. Bold is not a rounding error a title
-either has or does not have in passing; it is a cut a whole film can be authored in, and a set
-without it fails that film outright rather than degrading. In the competitor comparison it is the
-entire difference between winning the accuracy column and losing it.
+So bold is not a rounding error a title either has or does not have in passing. It is a cut a whole
+film can be authored in, and a set without it **fails that film outright rather than degrading**. In
+the comparison against alternative tools it is the entire difference between leading the accuracy
+column and trailing it.
 
-It does not change what ships *by default* — 0.2 points and 660 extra ambiguous glyphs is still the
-wrong trade for the 23 titles that have no bold. It changes what a **candidate directory** should
-contain, which is a different question: `fit` costs 2.2 CPU-seconds to scan 128 candidates instead of
-6 and 2 MB of peak RSS, so there is no reason for a cut to be missing from the pool it chooses from.
+That leaves the default for a single set alone — 0.2 points and 660 extra ambiguous glyphs is the
+wrong trade for the 23 titles with no bold in them. It settles a different question the two had been
+run together: what a **candidate directory** should contain. `fit` costs 2.2 CPU-seconds to scan 128
+candidates instead of 6, and 2 MB of peak RSS, so there is no reason for a cut to be missing from the
+pool it chooses from.
 
 [issue-209]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/209
 

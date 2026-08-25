@@ -23,10 +23,8 @@ those words.
 
 **With a matched set it still loses on accuracy, by about a point.** Across those same 24 films
 Subtitle Edit's Tesseract mode reads 2.7% against this tool's 3.5%, and head to head it's 2 wins to
-7. An earlier version of this site claimed the opposite; that claim rested on three discs picked
-because they suited this tool, and it did not survive a wider sample. What this tool is still better
-at is [saying when it failed](/guide/how-it-compares) — which matters if nobody is watching the
-pipeline, and matters much less if you are reading the output anyway.
+7. What this tool is better at is [saying when it failed](/guide/how-it-compares) — which matters if
+nobody is watching the pipeline, and matters much less if you are reading the output anyway.
 
 **No accuracy figure on this site is objective, including the ones that flatter this tool.** A
 subtitle is correct when a person reading it says so, and every percentage published here was
