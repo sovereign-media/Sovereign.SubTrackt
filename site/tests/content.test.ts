@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPages,
   checkCorpus,
+  checkFrontmatter,
   readHeadings,
   rewriteFences,
   rewriteLinks,
@@ -195,6 +196,41 @@ describe("the generated site", () => {
     }
   });
 
+});
+
+// This one cannot be tested through `buildPages()` over the real corpus the way the rest are, and
+// the reason is the reason the check exists. An unparseable frontmatter block takes gray-matter
+// down inside the Vite plugin while vitest is still loading its config, so a test asserting over
+// the built pages never runs: the suite is already a startup error naming `js-yaml`. The generator
+// refuses first, before the build and before the tests, which is why these call it directly.
+describe("frontmatter a page cannot be built without", () => {
+  const page = (matter: string) => `---\n${matter}\n---\n\n# Title\n`;
+
+  it("passes the ordinary case", () => {
+    expect(() => checkFrontmatter("x.md", page("title: A\nlabel: A\ndescription: B"))).not.toThrow();
+  });
+
+  it("refuses a value carrying a colon, which YAML reads as a mapping and not as prose", () => {
+    expect(() =>
+      checkFrontmatter("x.md", page("description: A note: what this is")),
+    ).toThrowError(/YAML reads/);
+  });
+
+  it("names the page, because the failure it replaces named js-yaml", () => {
+    expect(() =>
+      checkFrontmatter("content/guide/x.md", page("description: A note: b")),
+    ).toThrowError(/content\/guide\/x\.md/);
+  });
+
+  it("allows a colon in a value that is quoted, which is the other way to write one", () => {
+    expect(() =>
+      checkFrontmatter("x.md", page('description: "A note: what this is"')),
+    ).not.toThrow();
+  });
+
+  it("refuses a page with no frontmatter at all", () => {
+    expect(() => checkFrontmatter("x.md", "# Title\n")).toThrowError(/no frontmatter/);
+  });
 });
 
 // The corpus is not built any more, so nothing would notice a sibling link that stopped resolving.

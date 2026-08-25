@@ -1,7 +1,7 @@
 ---
 title: subtrackt extract
 label: extract
-description: The command that produces the subtitle file — every flag, how to read the report, and what the accuracy gate does and does not promise.
+description: The command that produces the subtitle file. Every flag, how to read the report, and what the accuracy gate does and does not promise.
 ---
 
 # `subtrackt extract`
@@ -14,9 +14,8 @@ $ subtrackt extract movie.mkv --reference movie.subtref --format srt -o movie.en
   / 2237 ambiguous (99.9% read); fit 10.7; cache 100%; defused 87; corrections 3 (context)
 ```
 
-Two things came out of that: a subtitle file on disk, and a line of counts on stderr. The counts are
-the half that makes this tool different from an OCR run, so a good part of this page is about
-reading them.
+Two things came out of that: a subtitle file on disk and a line of counts on stderr. The counts are
+what make this different from an OCR run, so a good part of this page is about reading them.
 
 ## Usage
 
@@ -69,7 +68,7 @@ Plus the [global options](/usage/global-options).
 the other five pairs.
 
 That is deliberate. Each of those defaults is a **measurement result** rather than a fixed property
-of the tool — it is on because scoring it against real discs said it should be — and results move. A
+of the tool: it is on because scoring it against real discs said it should be, and results move. A
 wrapper script that has pinned the behaviour it wants should not have to notice when a measurement
 changes the default out from under it. The rightmost flag on the command line wins, so a script can
 append one to a line that already carries the other.
@@ -82,9 +81,9 @@ Without `-o` the subtitle goes to standard output, so it pipes:
 $ subtrackt extract movie.mkv --reference movie.subtref | grep -n "red zone"
 ```
 
-Everything the tool says *about itself* — progress, warnings, the report, errors — goes to standard
-error and never into the subtitle. A redirect is always clean, and not one escape byte reaches
-stdout under any flag combination, because a coloured `.srt` is a corrupt `.srt`.
+Everything the tool says *about itself*, meaning progress, warnings, the report and errors, goes to
+standard error and never into the subtitle. A redirect is always clean, and not one escape byte
+reaches stdout under any flag combination, because a coloured `.srt` is a corrupt `.srt`.
 
 ## Italic lines are tagged
 
@@ -106,20 +105,20 @@ glyphs: 66370 matched, 68 unmatched, 7046 ambiguous (99.9% read)
 mean match distance: 11.7
 ```
 
-WebVTT gets this automatically. **SubRip does not**, because SubRip has no comment syntax at all — a
-note there is text before the first cue, which most parsers skip and a strict one is entitled to
+WebVTT gets this automatically. **SubRip does not**, because SubRip has no comment syntax at all.
+A note there is text before the first cue, which most parsers skip and a strict one is entitled to
 reject. `--provenance` forces it in anyway; `--no-provenance` refuses both.
 
-Every line of it is a count or a measurement. **There is no character error rate in there, and there
-cannot be**: that needs a reference transcript and an extraction has none, so a file claiming its own
-accuracy would be exactly the confident wrong answer this design exists to avoid. What it records
+Every line of it is a count or a measurement. **Nothing in there claims an accuracy figure, and
+nothing can**: that needs a reference transcript and an extraction has none, so a file grading its
+own reading would be the confident wrong answer this design exists to avoid. What it records
 instead is the reference set, which is the half of a bad read that is otherwise untraceable months
 later.
 
 ## Reading the report
 
-`--report` prints the tally. Every field is a count or a measurement; there is nothing in it that is
-an opinion.
+`--report` prints the tally. Every field is a count or a measurement, and none of it is an
+opinion.
 
 | Field | What it means |
 | :--- | :--- |
@@ -140,16 +139,16 @@ a count of specific characters the tool declined to guess at, and a caller can a
 
 **`fit` is the field people skip, and it is the one to watch.** Coverage says how many shapes found
 *an* answer; `fit` says how well they fitted it. A mean drifting upward toward the acceptance
-threshold is the signature of a track being read confidently and wrongly — everything matching,
-nothing matching well. If you track one number across a library, track this one.
+threshold is the signature of a track being read confidently and wrongly, with everything matching
+and nothing matching well. If you track one number across a library, track this one.
 
-**`cache` should be very high**, because the same letter recurs constantly. If it drops sharply,
-something upstream has stopped normalising shapes consistently, and that is a bug rather than a
+**`cache` should be very high**, because the same letter recurs constantly. A sharp drop means
+something upstream has stopped normalising shapes consistently, which is a bug rather than a
 property of the disc.
 
-With post-correction on, **every individual correction is listed underneath the summary**. That is by
-design: three corrections is a claim nobody can check, and a named substitution in a named word is
-one anybody can. A stage allowed to rewrite text has to leave a trace.
+With post-correction on, **every individual correction is listed underneath the summary**. Three
+corrections is a claim nobody can check; a named substitution in a named word is one anybody can. A
+stage allowed to rewrite text has to leave a trace.
 
 ## The accuracy gate
 
@@ -163,16 +162,16 @@ happens when shapes cannot be read:
 | `drop` | Leave out any subtitle containing an unread shape. |
 | `placeholder` | Write the subtitle with a replacement character in place of the shape. |
 
-The default means a badly-read track **fails loudly** rather than producing a file, which is what
-makes this safe to run unattended: the calling script gets a non-zero exit and an error on stderr,
-not a plausible subtitle.
+The default means a badly-read track **fails loudly** instead of producing a file, which is what
+makes this safe to run unattended. The calling script gets a non-zero exit and an error on stderr
+rather than a plausible subtitle.
 
 `fail-track` was the default until it was measured. Rejecting on a *single* unread glyph refused
-essentially every track in the library, which is a gate that never opens. It remains the right
-choice for a caller who genuinely cannot tolerate a guess and has a fallback ready.
+essentially every track in the library, which is a gate that never opens. It is still the right
+choice for a caller who cannot tolerate a guess and has a fallback ready.
 
 One warning about the floor, because it is easy to misread: **it catches a track that could not be
-read. It makes no claim about a track that was read well.** A track can clear 0.90 comfortably and
+read. It claims nothing about a track that was read well.** A track can clear 0.90 comfortably and
 still be wrong, if the reference set is a near-miss. Coverage is a weak predictor of correctness at
 any threshold, which is the same point [`fit`](/usage/fit) makes about its own score.
 [Architecture](../docs/architecture.md#the-accuracy-gate) has where the number came from and why
@@ -180,8 +179,8 @@ raising it would not buy much.
 
 ## Post-correction
 
-`--post-correct` is on by default. It resolves pairs that a *drawn* character genuinely cannot
-distinguish — zero against capital O, one against lower-case l against capital I — using the
+`--post-correct` is on by default. It resolves pairs a *drawn* character genuinely cannot
+distinguish (zero against capital O, one against lower-case l against capital I) from the
 characters around them, and it has been measured to improve lines and worsen none.
 `--no-post-correct` gives you the raw reading.
 
@@ -204,8 +203,8 @@ The sweep behind those defaults, and what each arm is worth, is in
 In rough order of how often each is the answer:
 
 - **Coverage is low, most shapes unmatched.** The reference set is wrong for this material, or you
-  forgot to pass one. Refit against a wider candidate directory. This failure is loud and easy — it
-  is the good case.
+  forgot to pass one. Refit against a wider candidate directory. This failure is loud and easy, and
+  it is the good case.
 - **Coverage is fine and the text is subtly wrong.** Almost always a near-miss typeface. Check the
   `fit` figure against titles you have read successfully, widen the candidate directory, refit.
 - **The dialogue is fine and the flashbacks are garbage.** The set has no italic cut. Rebuild it
