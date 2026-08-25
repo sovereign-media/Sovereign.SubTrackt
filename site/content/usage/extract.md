@@ -38,6 +38,7 @@ $ subtrackt extract [OPTIONS] <INPUT>
 | `--report` | off | Print the extraction summary to stderr. |
 | `--on-unmatched <POLICY>` | `threshold` | What to do about glyphs the matcher cannot identify. [See below](#the-accuracy-gate). |
 | `--min-matched <RATIO>` | `0.90` | With `threshold`, the fraction that must match. A value outside `0.0..=1.0` is rejected at parse time rather than clamped later. |
+| `--ignore-declared-script` | off | Read the track even if its declared language is written in a script the reference set holds no character of. [See below](#the-script-guard). |
 
 ### Shape and text handling
 
@@ -178,6 +179,36 @@ still be wrong, if the reference set is a near-miss. Coverage is a weak predicto
 any threshold, which is the same point [`fit`](/usage/fit) makes about its own score.
 [Architecture](../docs/architecture.md#the-accuracy-gate) has where the number came from and why
 raising it would not buy much.
+
+## The script guard
+
+There is a second gate, and it runs **before** anything is decoded rather than after. If the
+container says a track is Russian and the reference set holds no Cyrillic character at all, the run
+fails immediately:
+
+```console
+$ subtrackt extract movie.mkv --stream 11 --reference arial.subtref
+error: the track declares rus, which is written in Cyrillic, and the reference set arial holds no
+Cyrillic character at all: it would read as whatever the set does hold rather than fail
+```
+
+Before this, such a track was caught — barely — by the accuracy gate above, at 83.0% against a 90%
+floor. Seven points, and nothing in that decision knew the track was in a different alphabet.
+
+It refuses only on a fact, so it stays quiet whenever there is any doubt:
+
+- an **untagged** stream is never refused, and most English tracks are untagged;
+- a language tag the tool does not recognise is never refused;
+- Serbian and Azerbaijani are never refused, because both are written in either script;
+- **one** character of the declared script anywhere in the set is enough to pass.
+
+`--ignore-declared-script` turns it off, for a mistagged stream or a set deliberately fitted to
+something the tag does not describe.
+
+It is not a detector: it compares two declarations and never looks at the picture. A track tagged
+`eng` that is really Greek will pass, and the accuracy gate is what catches that.
+[Script guard](../docs/script-guard.md) has the measurement, including why no statistic computed
+from the read could do this job.
 
 ## Post-correction
 

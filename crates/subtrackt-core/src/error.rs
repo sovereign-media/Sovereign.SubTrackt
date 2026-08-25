@@ -67,6 +67,27 @@ pub enum Error {
         required: f32,
     },
 
+    /// The track declares a language whose script the reference set holds no character of.
+    ///
+    /// Refused before a packet is decoded, and it is the one refusal in this pipeline that rests on
+    /// evidence from *outside* the read. Every other gate counts something the matcher produced,
+    /// and #218 measured why that cannot work here: mean match distance for five non-Latin tracks
+    /// on one disc is 26.5 to 37.3, and for the same English track read with six wrong typefaces it
+    /// is 23.1 to 34.9. A wrong script and a wrong typeface are the same event to anything
+    /// downstream — the set cannot spell this track — so no statistic over the read can name which.
+    /// The container's declared tag can.
+    ///
+    /// Distinct from [`Error::TrackRejected`] on purpose: that is a fraction falling below a floor,
+    /// and this is a fact about two things that were never comparable.
+    ScriptMismatch {
+        /// The language tag the container declared.
+        declared: String,
+        /// The script that language is written in.
+        script: crate::Script,
+        /// The reference set that cannot spell it.
+        reference_set: String,
+    },
+
     /// The requested codec, container or output format is recognised but not yet supported.
     Unsupported {
         /// Human-readable description of the unsupported thing.
@@ -120,6 +141,12 @@ impl fmt::Display for Error {
                     required * 100.0
                 )
             }
+            Self::ScriptMismatch { declared, script, reference_set } => write!(
+                f,
+                "the track declares {declared}, which is written in {script}, and the reference \
+                 set {reference_set} holds no {script} character at all: it would read as \
+                 whatever the set does hold rather than fail"
+            ),
             Self::Unsupported { what, issue } => {
                 write!(f, "{what} is not supported yet (tracking issue #{issue})")
             }

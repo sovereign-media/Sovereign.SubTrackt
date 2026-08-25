@@ -160,6 +160,14 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "defuse")]
     pub no_defuse: bool,
 
+    /// Read the track even if its declared language is in a script the reference set cannot spell.
+    ///
+    /// For a mistagged stream, or a set deliberately fitted to something the tag does not describe.
+    /// The guard it turns off refuses only on a fact -- the set holds not one character of the
+    /// declared script -- so overriding it asserts the container is wrong.
+    #[arg(long)]
+    pub ignore_declared_script: bool,
+
     /// Measure a line whose glyphs are all one height against the scale the track is drawn at.
     #[arg(long, overrides_with = "no_borrow_track_scale")]
     pub borrow_track_scale: bool,
@@ -517,6 +525,7 @@ impl ExtractArgs {
             track_vocabulary: self.track_vocabulary(),
             lone_words: self.lone_words(),
             assume_english: self.assume_english,
+            check_declared_script: !self.ignore_declared_script,
             provenance: self.provenance(),
             vocabulary: VocabularyRules {
                 min_occurrences: self.vocab_min_occurrences,

@@ -283,6 +283,23 @@ pub struct Config {
     /// Nothing on the matching path reads this. It changes what a survey carries, never what an
     /// extraction decides.
     pub glyph_masks: bool,
+    /// Whether to refuse a track whose declared language is written in a script the reference set
+    /// holds no character of.
+    ///
+    /// **On.** It is the only gate in this pipeline that consults evidence from outside the read,
+    /// and #218 measured why one was needed: nothing computed from the read can tell a wrong script
+    /// from a wrong typeface, because to everything downstream they are the same event. Mean match
+    /// distance over one disc is 26.5 to 37.3 for five non-Latin tracks and 23.1 to 34.9 for the
+    /// same English track read with six wrong typefaces -- the second band contains the first.
+    ///
+    /// It refuses only on a *fact*: the container named a language, the language has a known
+    /// script, and the set holds not one character of it. An unknown tag, an untagged stream and a
+    /// set that holds even a single character of the script all pass. `docs/language-coverage.md`
+    /// has what it catches.
+    ///
+    /// Off is for a caller who knows better than the container -- a mistagged stream, or a set
+    /// deliberately fitted to something the tag does not describe.
+    pub check_declared_script: bool,
 }
 
 /// Written out rather than derived, since #185.
@@ -315,6 +332,7 @@ impl Default for Config {
             assume_english: false,
             vocabulary: VocabularyRules::default(),
             glyph_masks: false,
+            check_declared_script: true,
         }
     }
 }

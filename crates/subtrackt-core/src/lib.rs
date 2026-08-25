@@ -11,6 +11,7 @@ pub mod bitmap;
 pub mod error;
 pub mod glyph;
 pub mod progress;
+pub mod script;
 pub mod stage;
 pub mod subtitle;
 pub mod time;
@@ -22,6 +23,7 @@ pub use glyph::{
     LineMetrics, MarkSlope, Measured, SPAN_TENTHS, Slant, UprightSpan,
 };
 pub use progress::{Phase, Progress, Silent};
+pub use script::Script;
 pub use stage::{BitmapDecoder, GlyphMatcher, Segmenter, TextAssembler, TrackWriter};
 pub use subtitle::{Confidence, Cue, Provenance, SubtitleFormat, SubtitleImage, TextTrack};
 pub use time::{PTS_HZ, TimeSpan, Timestamp};

@@ -11,6 +11,7 @@
 
 use subtrackt_core::{
     Error, FEATURE_GRID, FEATURE_WORDS, FeatureVector, InkAspect, LineMetrics, MarkSlope, Result,
+    Script,
 };
 
 /// Typographic variant of a reference glyph.
@@ -142,6 +143,24 @@ impl ReferenceSet {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Whether the set holds any character of a given script.
+    ///
+    /// #218's guard asks this of a track's *declared* language, before a packet is decoded. The
+    /// question is deliberately as weak as it can be and still be useful — **any** character, not
+    /// most of them, not a required set — because the failure it exists to catch is total. A track
+    /// declared `rus` read against a set with no Cyrillic in it at all is not a degraded read; it is
+    /// 63% confident Latin garbage, measured in `docs/language-coverage.md`.
+    ///
+    /// Anything stronger would be a threshold, and `docs/fit-confidence.md` has seven measurements
+    /// saying what thresholds do here. A set missing four of Swedish's letters still reads Swedish
+    /// well enough to be worth having, and this must not refuse it.
+    #[must_use]
+    pub fn spells(&self, script: Script) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| Script::of_char(entry.character) == Some(script))
     }
 }
 
@@ -379,6 +398,27 @@ mod tests {
                 },
             ],
         )
+    }
+
+    #[test]
+    fn a_set_spells_the_scripts_of_the_characters_it_holds_and_no_others() {
+        // What #218's guard asks before a packet is decoded. `é` is Latin like `A` is, so a set of
+        // the two spells Latin and nothing else -- and the negative half is the load-bearing one,
+        // because it is what refuses a Cyrillic track rather than reading it as Latin garbage.
+        let set = sample();
+        assert!(set.spells(Script::Latin));
+        for script in [Script::Cyrillic, Script::Greek, Script::Han, Script::Thai] {
+            assert!(!set.spells(script), "claimed to spell {script}");
+        }
+    }
+
+    #[test]
+    fn an_empty_set_spells_nothing_rather_than_defaulting_to_latin() {
+        // The set the binary ships with. A default of Latin here would make the guard pass every
+        // Latin track against a set that can read none of it.
+        for script in [Script::Latin, Script::Cyrillic, Script::Han] {
+            assert!(!ReferenceSet::empty().spells(script));
+        }
     }
 
     #[test]
