@@ -603,8 +603,9 @@ Nothing here was assumed. Each write-up was measured — against a real 1,328-ti
 against ground truth the tool renders itself — and each one changed the design, usually by killing
 the plan it was meant to confirm.
 
-Each links to the file in `docs/`; the same documents are grouped and browsable on
-[the site](https://sovereign-media.github.io/Sovereign.SubTrackt/research/architecture).
+Each links to the file in `docs/`, which is where they are read. The site says what they found in
+plainer words and links back here for the workings; the shortest of those pages is
+[How it compares](https://sovereign-media.github.io/Sovereign.SubTrackt/guide/how-it-compares).
 
 | Document | What it settled |
 | :--- | :--- |

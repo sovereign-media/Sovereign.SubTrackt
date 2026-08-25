@@ -155,5 +155,5 @@ than as background. The default does not, and the default is usually right, but 
 unusually heavy outlines can read better with it.
 
 Every flag this command takes is on [its usage page](/usage/extract). What the pipeline does
-internally, stage by stage, is in [Architecture](/research/architecture); what it costs to run is in
-[What a run costs](/research/cost-baseline).
+internally, stage by stage, is in [Architecture](../docs/architecture.md); what it costs to run is in
+[What a run costs](../docs/cost-baseline.md).

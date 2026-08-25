@@ -92,7 +92,7 @@ A line the ink shows was set in a leaning face is written `<i>`, in both formats
 measurement of the line's own slant rather than a reference lookup, so it works even with a set
 carrying no italic cut, and it agrees with a release subtitle's own tags on the overwhelming
 majority of cues without changing a character of the text.
-[The slant](/research/italic-slant) has the figures and the two ways it is still wrong.
+[The slant](../docs/italic-slant.md) has the figures and the two ways it is still wrong.
 
 ## Provenance
 
@@ -175,7 +175,7 @@ One warning about the floor, because it is easy to misread: **it catches a track
 read. It makes no claim about a track that was read well.** A track can clear 0.90 comfortably and
 still be wrong, if the reference set is a near-miss. Coverage is a weak predictor of correctness at
 any threshold, which is the same point [`fit`](/usage/fit) makes about its own score.
-[Architecture](/research/architecture#the-accuracy-gate) has where the number came from and why
+[Architecture](../docs/architecture.md#the-accuracy-gate) has where the number came from and why
 raising it would not buy much.
 
 ## Post-correction
@@ -197,7 +197,7 @@ It has arms, and they are separately switchable:
   `--vocab-min-occurrences`, `--vocab-min-len` and `--vocab-prefix` tune what counts as evidence.
 
 The sweep behind those defaults, and what each arm is worth, is in
-[Post-correction](/research/post-correction).
+[Post-correction](../docs/post-correction.md).
 
 ## When a track reads badly
 

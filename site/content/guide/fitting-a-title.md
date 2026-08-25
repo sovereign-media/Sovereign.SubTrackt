@@ -91,7 +91,7 @@ where the reading went wrong.
 The conclusion is not "nobody has found it yet". It is that a tool cannot grade its own reading
 without something to compare it against, and if you had something to compare it against you would
 not need the tool. The long version, with all six attempts and why each one failed, is in
-[Telling a good fit from a bad one](/research/fit-confidence).
+[Telling a good fit from a bad one](../docs/fit-confidence.md).
 
 ## So: read a few cues
 

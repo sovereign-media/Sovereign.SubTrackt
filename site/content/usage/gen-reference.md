@@ -85,7 +85,7 @@ often a small fraction of the runtime and a large fraction of the errors.
 Where you do not have the italic cut, the pipeline compensates a different way — it measures how far
 a line leans and samples along that slant, two stages before the matcher — and that recovery
 switches itself off the moment a set actually carries italic entries. The four-way comparison is in
-[The slant](/research/italic-slant).
+[The slant](../docs/italic-slant.md).
 
 ## Why this is a subcommand and not a script
 
@@ -121,6 +121,6 @@ fail loudly — it finds a plausible nearest entry for nearly everything and pro
 looks complete and is quietly wrong.
 
 [Reference sets](/guide/reference-sets) makes the argument in full, and
-[Which set should ship](/research/reference-set) has the measurement behind it.
+[Which set should ship](../docs/reference-set.md) has the measurement behind it.
 
 Next: [`fit`](/usage/fit), which decides which of your candidates reads a given title best.

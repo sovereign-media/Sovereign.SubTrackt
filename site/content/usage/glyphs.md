@@ -53,8 +53,8 @@ One tab-separated row per glyph, on stdout:
 Because the vector is produced by the same normalisation everywhere in the pipeline, **vectors are
 comparable across files**. Two shapes from two different discs can be measured against each other
 directly, and that property is what made the typeface survey and the reference-set work possible in
-the first place — [Typeface survey](/research/library-survey) and
-[Glyph vector stability](/research/glyph-stability) are both built on this output.
+the first place — [Typeface survey](../docs/library-survey.md) and
+[Glyph vector stability](../docs/glyph-stability.md) are both built on this output.
 
 `--limit` matters here for the same reason it does on [`fit`](/usage/fit): cues are spread evenly
 through a film, so a few hundred touches only that fraction of a multi-gigabyte file, and a typeface
@@ -92,6 +92,6 @@ line tells you roughly how much alphabet the track uses before you have committe
 the same output a new measurement would start from.
 
 For what the vector actually is and why it is shaped that way, see
-[Architecture](/research/architecture).
+[Architecture](../docs/architecture.md).
 
 Next: [Global options](/usage/global-options), which apply to every command on this list.
