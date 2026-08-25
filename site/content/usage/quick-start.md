@@ -22,13 +22,13 @@ version to match, no runtime to install, no model files. The artifact is the who
 
 Take the tag from the
 [releases page](https://github.com/sovereign-media/Sovereign.SubTrackt/releases) and put it in
-`$tag` below. It is named rather than resolved through `/releases/latest/`, because that path skips
-pre-releases and every tag so far is one.
+`$tag` below. It is named rather than resolved through `/releases/latest/`, because the asset
+filename carries the version, so a `latest` URL would have to guess it.
 
 **Linux**
 
 ```console
-$ tag=v0.0.3-alpha
+$ tag=v1.0.0
 $ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
 $ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
 $ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
@@ -38,7 +38,7 @@ $ install -m 755 subtrackt-$tag-x86_64-unknown-linux-musl /usr/local/bin/subtrac
 **Windows**, in PowerShell:
 
 ```powershell
-$tag = 'v0.0.3-alpha'
+$tag = 'v1.0.0'
 $base = "https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag"
 Invoke-WebRequest "$base/subtrackt-$tag-x86_64-pc-windows-msvc.exe" -OutFile subtrackt.exe
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
@@ -53,7 +53,7 @@ asked for one.
 
 ```console
 $ subtrackt --version
-subtrackt 0.0.3-alpha (reference set: empty, 0 glyphs)
+subtrackt 1.0.0 (reference set: empty, 0 glyphs)
 ```
 
 Two things decide what an extraction says — the code, and the reference data it matched against —

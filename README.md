@@ -12,8 +12,9 @@ runtime, no model files and no system dependencies.
 > nothing to recognise, and `list` will not show them. If a track is text, you want a muxer, not
 > this. **Output** is text either way — SubRip or WebVTT.
 
-**Status: alpha.** The pipeline runs end to end on real media, but it ships with **no reference
-glyph set embedded** — on purpose, and the reasoning is in
+**Status: 1.0.** The pipeline runs end to end on real media and the command-line surface is
+frozen: flags and output formats change on a major, not before. What it still does not carry is a
+**reference glyph set** — on purpose, and the reasoning is in
 [`docs/reference-set.md`](docs/reference-set.md). You generate a set from fonts you already have and
 let `subtrackt fit` pick between them. Until you do, every glyph honestly comes back unmatched.
 
@@ -42,7 +43,7 @@ glibc version to match and no runtime to install — the artifact is the whole d
 **Linux**
 
 ```console
-$ tag=v0.0.3-alpha
+$ tag=v1.0.0
 $ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
 $ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
 $ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
@@ -52,7 +53,7 @@ $ install -m 755 subtrackt-$tag-x86_64-unknown-linux-musl /usr/local/bin/subtrac
 **Windows** (PowerShell)
 
 ```powershell
-$tag = 'v0.0.3-alpha'
+$tag = 'v1.0.0'
 $base = "https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag"
 Invoke-WebRequest "$base/subtrackt-$tag-x86_64-pc-windows-msvc.exe" -OutFile subtrackt.exe
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
@@ -63,15 +64,15 @@ Four targets are published per tag: `x86_64-unknown-linux-musl`, `aarch64-unknow
 `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`. There is no macOS build because nobody has
 asked for one; it is one row in the release matrix if that changes.
 
-The tag is named rather than resolved through `/releases/latest/`, because that path skips
-pre-releases and every tag so far is one — and because the asset filename carries the version, so a
-`latest` URL would have to guess it.
+The tag is named rather than resolved through `/releases/latest/`, because the asset filename
+carries the version, so a `latest` URL would have to guess it. That path also skips pre-releases,
+which made it useless before `v1.0.0` and merely insufficient after.
 
 Confirm what you installed, including which reference data it carries:
 
 ```console
 $ subtrackt --version
-subtrackt 0.0.3-alpha (reference set: empty, 0 glyphs)
+subtrackt 1.0.0 (reference set: empty, 0 glyphs)
 ```
 
 To build from source instead, see [Building](#building).
@@ -292,7 +293,7 @@ both.
 
 ```
 NOTE
-Extracted by subtrackt 0.0.3-alpha on 2026-08-23
+Extracted by subtrackt 1.0.0 on 2026-08-24
 reference set: arial-ri
 glyphs: 66370 matched, 68 unmatched, 7046 ambiguous (99.9% read)
 mean match distance: 11.7
@@ -589,8 +590,10 @@ than guessing. VOBSUB was 4% of the surveyed library, so PGS got the attention.
 The typeface survey predates the decoder and was never re-run, so the DVD-era part of the library —
 lower resolution, older, the part most likely to differ — is the largest unmeasured corner of this.
 
-**Alpha, and versioned like it.** Every release so far is a pre-release, and the CLI surface is not
-yet frozen.
+**Frozen, and versioned like it.** `v1.0.0` is the first tag published as a full release rather than
+a pre-release, and the command-line surface is frozen with it: flags and output formats change on a
+major, not before. That is a promise about the *interface* and not about the *numbers* — the limits
+above are limits of scope and measurement, and a stable surface does not narrow one of them.
 
 ---
 

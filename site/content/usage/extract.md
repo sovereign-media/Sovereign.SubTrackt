@@ -100,7 +100,7 @@ By default an extracted file says what made it, where the format has syntax to s
 
 ```
 NOTE
-Extracted by subtrackt 0.0.3-alpha on 2026-08-23
+Extracted by subtrackt 1.0.0 on 2026-08-24
 reference set: arial-ri
 glyphs: 66370 matched, 68 unmatched, 7046 ambiguous (99.9% read)
 mean match distance: 11.7
