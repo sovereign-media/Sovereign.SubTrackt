@@ -15,6 +15,7 @@
 // exactly nothing -- which it is, because `shown` starts null and the tagging happens in an
 // effect.
 
+import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** What the overlay is showing. `null` is closed, and is the only state the server ever renders. */
@@ -130,7 +131,10 @@ export function Lightbox() {
       role="dialog"
       aria-modal="true"
       aria-label={shown.alt || "Enlarged diagram"}
-      className="fixed inset-0 z-50 overflow-y-auto bg-default-950/85 backdrop-blur-sm"
+      // Plain black rather than a theme colour. The thing behind it is a page, but the thing in
+      // front of it is a picture with its own light and dark palettes, and a tinted scrim would sit
+      // between two of them.
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm"
     >
       <div
         onClick={close}
@@ -150,10 +154,14 @@ export function Lightbox() {
         type="button"
         onClick={close}
         autoFocus
+        // The label is for anything that cannot see the cross, and there is no visible text to
+        // read: `aria-label` is the whole accessible name here rather than a supplement to one.
+        aria-label="Close"
         // Fixed rather than absolute, so it is still reachable at the bottom of a long diagram.
-        className="fixed top-4 right-4 rounded-md border border-default-700 bg-default-900/80 px-3 py-1.5 text-sm text-default-100 hover:bg-default-800"
+        // White on the scrim rather than a theme colour, for the reason the scrim itself is black.
+        className="fixed top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-white"
       >
-        Close
+        <X className="size-5" aria-hidden="true" />
       </button>
     </div>
   );

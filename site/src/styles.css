@@ -147,3 +147,36 @@
 .prose :is(h1, h2, h3, h4, h5, h6)[id] {
   scroll-margin-top: calc(var(--spacing-header) + 1.5rem);
 }
+
+/* Pin the left sidebar for the whole page, not just for most of it.
+ *
+ * Prestige gives it `sticky top-header` and a height of exactly `100vh - header`. That works until
+ * the bottom of a long page, where it rides up and disappears under the header — measured at the
+ * foot of `usage/extract`: the sidebar sat at -80px while the table of contents on the right sat
+ * correctly at 64px.
+ *
+ * The cause is that a sticky element is only sticky within its parent, and the sidebar's parent is
+ * inside `<main>` while the footer is a sibling of `<main>`. So the last stretch of scroll — the
+ * footer's height, 144px on this site — has no sticky context left, and an element that is exactly
+ * one viewport tall gets pushed up by the whole of the difference. The table of contents escapes
+ * this only by being short enough not to reach the constraint; it is the same bug, unexpressed.
+ *
+ * Taking the sidebar out of the flow fixes it for any footer height and any sidebar length, which
+ * neither shortening the sidebar nor padding the main element would do. `left` is deliberately not
+ * set: a fixed element without one keeps its static position, which is what holds it in the
+ * centred container rather than against the window.
+ *
+ * The wrapper then has to hold the column open, since its only child has left the flow.
+ */
+@media (min-width: 1024px) {
+  main div:has(> [class~="lg:w-sidebar"]) {
+    width: var(--width-sidebar);
+    flex: 0 0 auto;
+  }
+
+  main [class~="lg:w-sidebar"] {
+    position: fixed;
+    top: var(--spacing-header);
+    height: var(--height-main);
+  }
+}
