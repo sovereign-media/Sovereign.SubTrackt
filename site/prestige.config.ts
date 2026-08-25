@@ -9,8 +9,8 @@ export default defineConfig({
   github: site.repo,
   license: { label: "MIT", url: `${site.repo}/blob/main/LICENSE` },
   // No `algolia` key, and that omission is the whole of disabling search: Prestige renders the
-  // DocSearch box only when this object is present. Sixteen pages behind a sidebar do not need an
-  // Algolia index that goes stale against a document that changed.
+  // DocSearch box only when this object is present. Two dozen pages behind three sidebars do not
+  // need an Algolia index that goes stale against a document that changed.
   collections: [
     {
       id: "guide",
@@ -20,6 +20,15 @@ export default defineConfig({
       // are frontmatter on the page itself; the research pages are generated from documents that
       // carry no frontmatter, which is why those carry theirs in this file instead.
       items: site.guide.map((slug) => `guide/${slug}`),
+    },
+    {
+      id: "usage",
+      label: "Usage",
+      defaultLink: `/usage/${site.usage[0]}`,
+      // Same as the guide: hand-written, so each page carries its own frontmatter and this is the
+      // ordering only. The order is the order you would run the commands in, with the quick start
+      // in front of them, rather than alphabetical -- a reader arriving here wants the sequence.
+      items: site.usage.map((slug) => `usage/${slug}`),
     },
     {
       id: "research",

@@ -108,3 +108,6 @@ each, and then a page on what the tool cannot do.
 
 There is also `subtrackt list`, which just tells you what subtitle tracks a file contains. Start
 there when you meet a new file.
+
+If you would rather run the thing than read about it, [Quick start](/usage/quick-start) is the
+same four commands with the installation in front of them, and one page per command after.

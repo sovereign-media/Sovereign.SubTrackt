@@ -154,6 +154,7 @@ describe("the generated site", () => {
         group.documents.map((doc) => `/research/${doc.file.replace(/\.md$/, "")}`),
       ),
       ...site.guide.map((slug: string) => `/guide/${slug}`),
+      ...site.usage.map((slug: string) => `/usage/${slug}`),
     ];
     expect(pages.map((page) => page.route).sort()).toEqual(expected.sort());
   });
@@ -196,8 +197,9 @@ describe("the generated site", () => {
   });
 });
 
-describe("the plain-language half", () => {
+describe("the hand-written half", () => {
   const guide = pages.filter((page) => page.collection === "guide");
+  const usage = pages.filter((page) => page.collection === "usage");
 
   it("quotes no character error rate, which is the research half's job", () => {
     for (const page of guide) {
@@ -212,10 +214,32 @@ describe("the plain-language half", () => {
     }
   });
 
-  it("reaches the research half, so the two sections are one site", () => {
-    const linked = guide.flatMap((page) => [
+  it("cites no issue number from the usage half either, for the same reason", () => {
+    for (const page of usage) {
+      expect(page.markdown, page.source).not.toMatch(/(?:^|\s)#\d+\b/);
+    }
+  });
+
+  it("reaches the research half, so the sections are one site", () => {
+    const linked = [...guide, ...usage].flatMap((page) => [
       ...page.markdown.matchAll(new RegExp(`${PREFIX}/research/([a-z-]+)`, "g")),
     ]);
     expect(new Set(linked.map((m) => m[1])).size).toBeGreaterThan(3);
+  });
+
+  // The usage half is a command reference, so the thing it must not do is silently stop covering a
+  // command. `--help` is the only other place the list exists, and a subcommand added there with no
+  // page here is exactly the drift a reader would find by hitting a gap.
+  it("has a page for every subcommand the binary offers", () => {
+    for (const command of ["list", "extract", "fit", "glyphs", "gen-reference"]) {
+      expect(
+        usage.map((page) => page.slug),
+        `no usage page documents \`subtrackt ${command}\``,
+      ).toContain(command);
+    }
+  });
+
+  it("opens the usage half with a quick start, which is what the root links at", () => {
+    expect(site.usage[0]).toBe("quick-start");
   });
 });
