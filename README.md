@@ -18,12 +18,18 @@ glyph set embedded** — on purpose, and the reasoning is in
 let `subtrackt fit` pick between them. Until you do, every glyph honestly comes back unmatched.
 
 **[sovereign-media.github.io/Sovereign.SubTrackt](https://sovereign-media.github.io/Sovereign.SubTrackt/)**
-is the same material with a way in. It carries a plain-language `How it works` written for somebody
-who has not read this file — what an image-based subtitle is, why an unmatched glyph is better news
-than a guessed one, and what the three commands do in the order you would run them — and the
-`docs/` corpus below, grouped and cross-linked rather than served as a directory listing. The
-research half is generated from `docs/*.md`, which stays canonical: every link on this page still
-resolves, and a document is still edited where it lives.
+is the same material with a way in, in three sections. `How it works` is plain language written
+for somebody who has not read this file — what an image-based subtitle is, why an unmatched glyph
+is better news than a guessed one, and what the commands do in the order you would run them.
+`Usage` is the task-oriented half: a quick start from installation to a subtitle file, then one
+page per command with every flag on it. `Research` is the `docs/` corpus below, grouped and
+cross-linked rather than served as a directory listing, and generated from `docs/*.md`, which
+stays canonical: every link on this page still resolves, and a document is still edited where it
+lives.
+
+The `Commands` section below and the site's `Usage` section cover the same surface for two
+different readers — this file is read on GitHub by somebody sizing the project up, and the site is
+read by somebody with a disc in front of them.
 
 ---
 
@@ -36,7 +42,7 @@ glibc version to match and no runtime to install — the artifact is the whole d
 **Linux**
 
 ```console
-$ tag=v0.0.2-alpha
+$ tag=v0.0.3-alpha
 $ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
 $ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
 $ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
@@ -46,7 +52,7 @@ $ install -m 755 subtrackt-$tag-x86_64-unknown-linux-musl /usr/local/bin/subtrac
 **Windows** (PowerShell)
 
 ```powershell
-$tag = 'v0.0.2-alpha'
+$tag = 'v0.0.3-alpha'
 $base = "https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag"
 Invoke-WebRequest "$base/subtrackt-$tag-x86_64-pc-windows-msvc.exe" -OutFile subtrackt.exe
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
@@ -65,7 +71,7 @@ Confirm what you installed, including which reference data it carries:
 
 ```console
 $ subtrackt --version
-subtrackt 0.0.2-alpha (reference set: empty, 0 glyphs)
+subtrackt 0.0.3-alpha (reference set: empty, 0 glyphs)
 ```
 
 To build from source instead, see [Building](#building).
@@ -286,7 +292,7 @@ both.
 
 ```
 NOTE
-Extracted by subtrackt 0.0.2-alpha on 2026-08-23
+Extracted by subtrackt 0.0.3-alpha on 2026-08-23
 reference set: arial-ri
 glyphs: 66370 matched, 68 unmatched, 7046 ambiguous (99.9% read)
 mean match distance: 11.7

@@ -3,8 +3,9 @@
 //
 // `docs/*.md`, at the repository root, is the research corpus. The README links into it twenty-odd
 // times, some with anchors, and every one of those URLs is one somebody may already have; moving
-// the documents here would break all of them. `content/guide/*.md`, beside this script, is the
-// hand-written plain-language half, and it is committed.
+// the documents here would break all of them. `content/<collection>/*.md`, beside this script, is
+// the hand-written half -- `guide/` explains it, `usage/` is the command reference -- and it is
+// committed.
 //
 // Both go through the same rewrite, and everything under `src/content/` is a build artefact:
 // gitignored, regenerated on every build, never edited.
@@ -40,8 +41,17 @@ import { visit } from "unist-util-visit";
 
 const SITE_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 export const DOCS_DIR = join(SITE_DIR, "..", "docs");
-export const GUIDE_DIR = join(SITE_DIR, "content", "guide");
 export const OUT_DIR = join(SITE_DIR, "src", "content");
+
+// The hand-written collections. Each is a `site.json` key holding a list of slugs and a directory
+// of the same name under `content/`, so adding a third one is adding it here and nowhere else in
+// this file.
+export const HANDWRITTEN = ["guide", "usage"];
+
+/** Where one hand-written collection's markdown lives. */
+export function handwrittenDir(collection) {
+  return join(SITE_DIR, "content", collection);
+}
 
 export const site = JSON.parse(
   await readFile(join(SITE_DIR, "site.json"), "utf8"),
@@ -116,8 +126,9 @@ const REFERENCE_DEFINITION = /^(\[[^\]\n]+\]:[ \t]*)(\S+)/gm;
  *
  * `source` names the page being rewritten, for error messages and for its own `#fragment`s.
  * `routes` maps every site route to its heading anchors. `research` is the set of research
- * filenames, empty for a guide page -- `reference-set.md` means a sibling document only inside the
- * research corpus, and a guide page writing that has made a mistake worth reporting.
+ * filenames, empty for a hand-written page -- `reference-set.md` means a sibling document only
+ * inside the research corpus, and a guide or usage page writing that has made a mistake worth
+ * reporting.
  */
 export function rewriteTarget(target, { source, route, routes, research }) {
   const bare = target.replace(/^<|>$/g, "");
@@ -215,10 +226,19 @@ export async function buildPages() {
   const docsOnDisk = (await readdir(DOCS_DIR))
     .filter((name) => name.endsWith(".md"))
     .sort();
-  const guideOnDisk = (await readdir(GUIDE_DIR))
-    .filter((name) => name.endsWith(".md"))
-    .sort();
-  const guideListed = site.guide.map((slug) => `${slug}.md`);
+
+  const listed = new Map(
+    HANDWRITTEN.map((id) => [id, site[id].map((slug) => `${slug}.md`)]),
+  );
+  const onDisk = new Map();
+  for (const id of HANDWRITTEN) {
+    onDisk.set(
+      id,
+      (await readdir(handwrittenDir(id)))
+        .filter((name) => name.endsWith(".md"))
+        .sort(),
+    );
+  }
 
   const problems = [
     ...docsOnDisk
@@ -227,12 +247,16 @@ export async function buildPages() {
     ...entries
       .filter((e) => !docsOnDisk.includes(e.file))
       .map((e) => `  site.json lists ${e.file}, which is not in docs/`),
-    ...guideOnDisk
-      .filter((n) => !guideListed.includes(n))
-      .map((n) => `  content/guide/${n} is not listed in site.json`),
-    ...guideListed
-      .filter((n) => !guideOnDisk.includes(n))
-      .map((n) => `  site.json lists guide/${n}, which is not in content/guide/`),
+    ...HANDWRITTEN.flatMap((id) => [
+      ...onDisk
+        .get(id)
+        .filter((n) => !listed.get(id).includes(n))
+        .map((n) => `  content/${id}/${n} is not listed in site.json`),
+      ...listed
+        .get(id)
+        .filter((n) => !onDisk.get(id).includes(n))
+        .map((n) => `  site.json lists ${id}/${n}, which is not in content/${id}/`),
+    ]),
   ];
   if (problems.length) {
     throw new Error(
@@ -242,16 +266,17 @@ export async function buildPages() {
   }
 
   const docs = await readSources(DOCS_DIR, docsOnDisk);
-  const guide = await readSources(GUIDE_DIR, guideListed);
+  const handwritten = new Map();
+  for (const id of HANDWRITTEN) {
+    handwritten.set(id, await readSources(handwrittenDir(id), listed.get(id)));
+  }
 
   // Every route first, with its anchors, so a link can be checked against a page that has not been
-  // rewritten yet -- including a forward reference from the guide into the research corpus.
+  // rewritten yet -- including a forward reference from the guide into the research corpus, and
+  // the cross-references the usage half makes in both directions.
   const routes = new Map();
   const headings = new Map();
-  for (const [collection, sources] of [
-    ["research", docs],
-    ["guide", guide],
-  ]) {
+  for (const [collection, sources] of [["research", docs], ...handwritten]) {
     for (const [name, markdown] of sources) {
       const parsed = readHeadings(markdown);
       const route = `/${collection}/${name.replace(/\.md$/, "")}`;
@@ -284,16 +309,23 @@ export async function buildPages() {
     });
   }
 
-  for (const slug of site.guide) {
-    const name = `${slug}.md`;
-    pages.push({
-      collection: "guide",
-      slug,
-      route: `/guide/${slug}`,
-      source: `content/guide/${name}`,
-      // Written by hand, so it carries its own frontmatter and nothing is prepended.
-      markdown: rewrite(guide.get(name), `content/guide/${name}`, `/guide/${slug}`),
-    });
+  for (const collection of HANDWRITTEN) {
+    for (const slug of site[collection]) {
+      const name = `${slug}.md`;
+      const source = `content/${collection}/${name}`;
+      pages.push({
+        collection,
+        slug,
+        route: `/${collection}/${slug}`,
+        source,
+        // Written by hand, so it carries its own frontmatter and nothing is prepended.
+        markdown: rewrite(
+          handwritten.get(collection).get(name),
+          source,
+          `/${collection}/${slug}`,
+        ),
+      });
+    }
   }
 
   return pages;

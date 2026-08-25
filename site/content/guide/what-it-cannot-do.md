@@ -101,5 +101,6 @@ you are automating against it.
 
 ---
 
-If none of the above is a blocker for you, go back to [what this is](/guide/what-this-is) and run
-the three commands. If one of them is, that is the point of this page — better to find out here.
+If none of the above is a blocker for you, [Quick start](/usage/quick-start) is the shortest way
+from here to a subtitle file. If one of them is, that is the point of this page — better to find
+out here.

@@ -154,6 +154,6 @@ them. It has been measured to improve lines and worsen none, which is why it is 
 than as background. The default does not, and the default is usually right, but material with
 unusually heavy outlines can read better with it.
 
-Everything else is in the README's command reference. What the pipeline does internally, stage by
-stage, is in [Architecture](/research/architecture); what it costs to run is in
+Every flag this command takes is on [its usage page](/usage/extract). What the pipeline does
+internally, stage by stage, is in [Architecture](/research/architecture); what it costs to run is in
 [What a run costs](/research/cost-baseline).
