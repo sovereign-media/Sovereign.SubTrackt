@@ -245,10 +245,37 @@ after   Ken, somebody just called!     <- the extraction, corrected
 want    Ken, somebodyjust called!      <- the sidecar, which has the glue
 ```
 
-The rest are `T` followed by a letter — `T reasUre`, `T o Us`, `T Wo`. `T` is the largest divergence
-in the whole table at 80% against 126%, its crossbar shares two bands with whatever follows, and no
-band-count rule separates it from the `j` case that the same rule exists to catch. That is
-[#226][issue-226].
+The rest are `T` followed by a letter — `T reasUre`, `T o Us`, `T Wo`.
+
+[#226][issue-226] asked whether moving the band boundary reaches them, and the answer is **no, and
+not for a reason about resolution.** Asking the same instrument for the pairs *inside* words, on Gone
+Girl's English track:
+
+| pair | box | ink | seen | right ink at | left ink at |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `- T` | 12% | **68%** | 20 | 37% | 95% |
+| `Y e` | 8% | **60%** | 34 | 100% | 36% |
+| `Y o` | 7% | **53%** | 197 | 100% | 37% |
+| `r .` | 15% | 57% | 161 | 69% | 8% |
+| `y .` | 19% | 53% | 158 | 72% | 8% |
+| `k e` | 12% | 36% | 195 | 2% | 36% |
+
+These are **within-word** pairs measuring 53% to 68% of a glyph width between their ink, against real
+word breaks at 76% to 88%. A `Y` followed by an `o` nests the `o` under its arm — and the arm is at
+100% of cap height while the `o` reaches 37%, so **they never share a row where their near edges
+are.** The honest distance at the rows they do share is between `Y`'s stem and `o`'s body, and that
+is genuinely wide.
+
+No banding recovers that, at any resolution, including row-exact: the ink is not close anywhere. The
+model — *distance between ink over shared rows* — is simply the wrong one for a kerned pair, and the
+same property that makes it right for `j` makes it wrong here. `j`'s hook is far from the letter
+before it **and looks it**; `Y`'s arm is far from the `o` and does not.
+
+What would work is a **closest approach in two dimensions** rather than a horizontal distance at
+shared rows, which is a different measurement with a vertical weighting to choose — and #225 is the
+standing evidence about choosing a constant here. It has not been built. The residue is 17 cues
+against 66 better, and the two-shared-band filter already removes every case where the two glyphs
+face each other over one band only, which is where the effect is largest.
 
 **Prediction 2 is refuted in the good direction** — it said the two-shared-bands rule would remove
 more than half the regression and still not reach parity. It removes 97% and clears parity.
@@ -269,7 +296,11 @@ never the obstacle; the tuning was.
 - **The four bands are an approximation of the row-exact measurement**, and the two have not been
   compared cell by cell. `xtask word-gap` computes the exact answer off the glyph masks; the shipped
   bands compute a coarse one off the label map. Everything the fix gains and everything it costs is
-  measured with the coarse one.
+  measured with the coarse one — though the residue above shows the approximation is not what limits
+  it, since the row-exact answer is wrong for those pairs too.
+- **`ink` is a horizontal distance over shared rows**, which is a model rather than a fact. It is
+  right for `j` and wrong for `Y o`, and nothing in this document distinguishes the two except by
+  naming them.
 - **One disc.** Three tracks of it, which is the right shape for the question — the language is the
   only variable — and still one disc.
 
