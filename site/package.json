@@ -8,7 +8,7 @@
   "scripts": {
     "content": "node scripts/build-content.mjs",
     "dev": "npm run content && vite dev --port 3000",
-    "build": "npm run content && vite build && node scripts/check-links.mjs",
+    "build": "npm run content && vite build && node scripts/check-links.mjs && node scripts/check-styles.mjs",
     "preview": "vite preview",
     "test": "npm run content && vitest run",
     "typecheck": "tsc --noEmit"

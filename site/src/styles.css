@@ -9,3 +9,141 @@
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'Geist Mono', monospace;
 }
+
+/* Inline code, without the backticks.
+ *
+ * `@tailwindcss/typography` styles a `<code>` span with `::before`/`::after { content: "`" }`, on
+ * the reasoning that an otherwise-unstyled span needs *some* marker that it is code. The markdown
+ * is correct and so is the HTML -- `--include-outline` really is a `<code>` element -- but the
+ * page renders it wearing its own source syntax, which is not what anybody writing the backticks
+ * expected to see.
+ *
+ * Two rules, and they belong together: the second gives code the marker the first takes away. If
+ * the chip below is ever dropped, put the backticks back rather than leaving code unmarked.
+ *
+ * `.prose code` rather than typography's own `:where()` selector on purpose. That selector scores
+ * zero on the `code` part deliberately, so it loses to anything at all; matching its shape would
+ * make this a source-order coin toss the next time the import list is reordered.
+ */
+.prose code::before,
+.prose code::after {
+  content: none;
+}
+
+.prose :not(pre) > code {
+  background-color: var(--color-default-100);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.3em;
+  font-weight: 500;
+  /* Typography sets .875em, and the chip's padding makes that read a size smaller than it is. */
+  font-size: 0.9em;
+  /* A code span in a table cell wraps, and a wrapped span is drawn as two boxes. `clone` gives the
+   * second box its own padding instead of leaving it flush against the text -- and the border this
+   * used to carry is gone for the same reason: an outlined box that wraps reads as two separate
+   * arguments rather than one that ran out of room. `--reference <FILE>` is one flag. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* A heading that is entirely code -- every page in the command reference opens with one -- is a
+ * heading, not a chip. At h1 size the background and padding draw a box around the whole title.
+ */
+.prose :is(h1, h2, h3, h4, h5, h6) code {
+  background-color: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* A code span inside a link keeps the link's colour, so the chip does not read as the plain text
+ * it is sitting next to. Without this a linked `list` is indistinguishable from an unlinked one.
+ */
+.prose a > code {
+  color: inherit;
+}
+
+/* Diagrams are clickable, and say so before they are clicked.
+ *
+ * The lightbox itself is in `src/components/lightbox.tsx`. The cursor is here rather than applied
+ * from the component, so an image is marked as enlargeable from the first paint rather than after
+ * hydration -- these pages are prerendered, and the interval between the two is when a reader is
+ * looking at the picture and deciding whether to click it.
+ */
+.prose img {
+  cursor: zoom-in;
+}
+
+.prose img:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 3px;
+}
+
+@keyframes lightbox-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-lightbox] {
+  animation: lightbox-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-lightbox] {
+    animation: none;
+  }
+}
+
+/* A link on every heading. The element is created in `src/components/heading-links.tsx`; this is
+ * everything about how it looks.
+ *
+ * Visible on hover and on keyboard focus, and only then -- a column of hash marks down the left of
+ * every page is a permanent cost for an occasional need. `focus-visible` is the half that matters:
+ * without it the link is reachable by keyboard and invisible while it is reached, which is worse
+ * than not having it.
+ */
+.heading-anchor {
+  margin-left: 0.4em;
+  color: var(--color-default-400);
+  font-weight: 400;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.prose :is(h2, h3, h4, h5, h6):hover > .heading-anchor,
+.heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  color: var(--color-primary-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heading-anchor {
+    transition: none;
+  }
+}
+
+/* Touch has no hover, so the link would be permanently invisible and permanently tappable. Show
+ * it there instead of hiding something that is on the page either way.
+ */
+@media (hover: none) {
+  .heading-anchor {
+    opacity: 1;
+  }
+}
+
+/* Where a heading lands when a fragment jumps to it.
+ *
+ * The header is sticky and 64px tall, and the inherited scroll margin is 40px -- so following one
+ * of these links, or one from `on this page`, put the heading *underneath* the header. The reader
+ * arrives at a section whose name is covered by the chrome.
+ */
+.prose :is(h1, h2, h3, h4, h5, h6)[id] {
+  scroll-margin-top: calc(var(--spacing-header) + 1.5rem);
+}

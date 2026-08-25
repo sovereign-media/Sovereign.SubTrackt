@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-router";
 import config from "virtual:prestige/config";
 import site from "../../site.json" with { type: "json" };
+import { HeadingLinks } from "../components/heading-links";
+import { Lightbox } from "../components/lightbox";
 import appCss from "../styles.css?url";
 
 const options: PrestigeShellProps = {
@@ -49,6 +51,12 @@ export const Route = createRootRoute({
         <PrestigeShell options={options}>
           <Outlet />
         </PrestigeShell>
+        {/* Outside the shell, and mounted once for the whole site rather than per page. The route
+            files that render a page are generated and gitignored, so this is the only place a
+            component can be added that every page has. It renders nothing until an image is
+            clicked, so the prerendered HTML is unchanged. */}
+        <Lightbox />
+        <HeadingLinks />
         <Scripts />
       </body>
     </html>
