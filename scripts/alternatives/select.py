@@ -15,19 +15,23 @@ best-agreeing candidate is then put through a shape check, and a title whose bes
 is dropped from the draw rather than scored. A track that puts false entries in the column the bench
 tells you to read poisons the one number you are told to read.
 
-Both thresholds are fractions of something measured rather than absolute counts, per the house rule:
-the same title ships at several resolutions and with sidecars of wildly different lengths.
+There are three checks, and the third was added because the first two are blind to a whole class of
+mismatch. Cue pairing and sound-cue counts catch a sidecar of the wrong *convention* -- SDH scored
+against dialogue-only, brackets against musical notes. They cannot catch two transcripts of the same
+film in the same convention from different releases, which pair by timing and carry the same
+bracketed lines while sharing almost no words. Insomnia is that case, and it survived both checks
+reading 77.2%. The third check is the one the constants below explain.
 
-**The shape check is not a filter on the outcome, and that distinction is the whole argument.** It
-reads structure -- how many lines open with a bracket, how many cues paired -- and both survive a
-garbled extraction, because brackets are structural and timings align even when the typeface does
-not fit. So a title whose text the selector reads badly is *kept*: The Negotiator passes the shape
-check at 25.5% CER and goes into the corpus, which is what stops this from being the circular
-selection `docs/library-accuracy.md` warns about. What gets dropped is a sidecar transcribing a
-different thing, never a title an engine finds hard.
+**None of the three is a filter on the outcome, and that distinction is the whole argument.** The
+first two read structure, which survives a garbled extraction. The third fires only when the matcher
+says it read the glyphs confidently at a good fit, so a title the reference set fits badly is kept no
+matter how badly it scores -- Excision is in the corpus at 22.9% on a fit of 30.5. **Titles an engine
+finds hard are kept; only sidecars transcribing a different thing are dropped.** That is what stops
+this from being the circular selection `docs/library-accuracy.md` warns about, where titles are
+chosen by the outcome being measured.
 
-Every rejection is written out beside the picks. A draw that silently walked past half the sample
-would read as "twenty titles from the library" when it is not.
+Every rejection is written out beside the picks and printed. A draw that silently walked past
+seventeen of forty records would read as "twenty titles from the library" when it is not.
 
 Usage:
     select.py --sweep sweep-results/ --count 20 --out picked.json
@@ -54,6 +58,28 @@ MIN_SOUND_CUE_AGREEMENT = 0.50
 # rather than evidence -- a track with three brackets says nothing about convention.
 SOUND_CUE_FLOOR = 20
 
+# The confident-read guard, and the numbers are `docs/library-accuracy.md`'s own. That document
+# measured the relationship on this exact library: a single Arial set fits 33 of 47 titles at a mean
+# match distance under 12, and those read 3.80% median CER -- but "12 of 47 titles read more than 99%
+# of their glyphs confidently, at a good fit, and still score over 15% CER", and it names *Insomnia*
+# at 77.3% with a fit of 10.3 as the case. "A title read confidently and scored badly is evidence
+# about two transcripts, not about the matcher."
+#
+# It is worth being clear about why this is not the circular filter the same document warns against.
+# The rule is CONDITIONAL on the matcher being sure. A title the reference set fits badly -- low read
+# percentage, high match distance -- is kept no matter how badly it scores, which is how Excision
+# stays in the corpus at 22.9% on a fit of 30.5. Only a title the matcher read confidently and that
+# still disagrees wholesale is dropped, and that can only mean the two sides are transcribing
+# different things. Checked by hand on the two it caught here: Insomnia pairs 1,213 extracted cues
+# against a 1,974-cue sidecar in block capitals, and The Negotiator's sidecar is a different cut with
+# the lines in a different order.
+#
+# The cost is stated rather than hidden: this admits titles using the selector's own confidence, so
+# a title no reference set can read is under-represented relative to one Arial merely finds hard.
+CONFIDENT_READ_PCT = 99.0
+GOOD_FIT_DISTANCE = 12.0
+CONFIDENT_READ_MAX_CER = 15.0
+
 
 def sound_cues(text):
     return sum(1 for line in text.splitlines() if SOUND_CUE.match(line))
@@ -67,7 +93,7 @@ def read(path):
         return ""
 
 
-def shape(extraction, sidecar_text, scored):
+def shape(extraction, sidecar_text, scored, glyphs):
     """Does this sidecar transcribe the same thing the track does?
 
     Returns (ok, reason). The reason is kept even when it passes, because the corpus records why a
@@ -78,13 +104,28 @@ def shape(extraction, sidecar_text, scored):
     if extracted and unpaired / extracted > MAX_UNPAIRED_FRACTION:
         return False, "unpaired {:.0%} of {} extracted cues".format(unpaired / extracted, extracted)
 
+    # The confident-read guard. Deliberately before the sound-cue check, because it catches the case
+    # that check cannot see: two transcripts of the same film, same conventions, different releases.
+    # Neither cue pairing nor bracket counts separate those; only the disagreement itself does, and
+    # it is only evidence about the sidecar once the matcher has said it read the glyphs.
+    read_pct = (glyphs or {}).get("read_pct")
+    fit = (glyphs or {}).get("fit")
+    cer = scored["track"]["cer"]
+    if (read_pct is not None and fit is not None
+            and read_pct > CONFIDENT_READ_PCT and fit < GOOD_FIT_DISTANCE
+            and cer > CONFIDENT_READ_MAX_CER):
+        return False, "read {:.1f}% of glyphs at fit {:.1f} and still scores {:.1f}% -- the two " \
+                      "sides are different transcripts".format(read_pct, fit, cer)
+
     mine, theirs = sound_cues(extraction), sound_cues(sidecar_text)
     if max(mine, theirs) >= SOUND_CUE_FLOOR:
         agreement = min(mine, theirs) / max(mine, theirs)
         if agreement < MIN_SOUND_CUE_AGREEMENT:
             return False, "sound cues {} in the track against {} in the sidecar".format(mine, theirs)
-        return True, "sound cues {} against {}, {} unpaired".format(mine, theirs, unpaired)
-    return True, "dialogue-only, {} unpaired of {}".format(unpaired, extracted)
+        return True, "sound cues {} against {}, {} unpaired, {:.1f}% CER at fit {:.1f}".format(
+            mine, theirs, unpaired, cer, fit or 0.0)
+    return True, "dialogue-only, {} unpaired of {}, {:.1f}% CER at fit {:.1f}".format(
+        unpaired, extracted, cer, fit or 0.0)
 
 
 def candidates(record, folder):
@@ -161,7 +202,7 @@ def main():
         cands = candidates(rec, folder_path)
         best = cands[0]
         extraction = read(rec.get("srt") or "")
-        ok, reason = shape(extraction, read(best["_path"]), best["_scored"])
+        ok, reason = shape(extraction, read(best["_path"]), best["_scored"], rec.get("glyphs"))
 
         spread = (cands[-1]["selector_track_cer_pct"] - cands[0]["selector_track_cer_pct"]
                   if len(cands) > 1 else 0.0)

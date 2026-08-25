@@ -104,16 +104,37 @@ scored for months against a sidecar carrying none of its 85 bracketed sound cues
 measured error was the missing cues. Airplane! is worse — the disc renders sound cues as brackets and
 its own SDH sidecar renders them as musical notes, so neither candidate matches and it cannot be
 scored at all. For six items that check was done by eye. For twenty it is `select.py`, and the
-best-agreeing candidate now has to pass a **shape check** before it is used: what fraction of the
-extraction's cues paired with something, and how far apart the two sides' sound-cue counts are. Both
-thresholds are fractions of something measured, per the house rule.
+best-agreeing candidate now has to pass a **shape check** before it is used. Three tests, and the
+third exists because the first two are blind to a whole class of mismatch:
 
-The distinction that makes this legitimate rather than circular is that the shape check reads
-*structure* and never text. Brackets are structural and timings align even when the typeface does
-not fit, so a garbled extraction still passes: The Negotiator is in the corpus at 25.5% selector CER
-and Excision at 22.9%. **Titles an engine finds hard are kept; only sidecars transcribing a different
-thing are dropped**, and every drop is printed with its reason, because a draw that silently walked
-past half the sample would read as twenty titles from the library when it is not.
+| test | catches | threshold |
+| :--- | :--- | :--- |
+| cues paired | a sidecar for a different edit | more than 10% of extracted cues unpaired |
+| sound-cue counts | SDH against dialogue-only, brackets against musical notes | the two sides within 2x, once either passes 20 |
+| confident read | two transcripts of the same film from **different releases** | over 99% of glyphs read at a fit under 12, and still over 15% CER |
+
+Every threshold is a fraction of something measured, per the house rule.
+
+The first two tests read *structure*, and structure survives a garbled extraction. What they cannot
+see is a sidecar in the same convention from a different release: it pairs by timing and carries the
+same bracketed lines while sharing almost no words. *Insomnia* is exactly that, and it passed both
+tests reading **77.2%** — 1,213 extracted cues against a 1,974-cue sidecar in block capitals.
+
+The third test is [`library-accuracy.md`](library-accuracy.md)'s own measurement turned into a rule.
+That document found "12 of 47 titles read more than 99% of their glyphs confidently, at a good fit,
+and still score over 15% CER", named *Insomnia* at 77.3% as the case, and concluded that "a title
+read confidently and scored badly is evidence about two transcripts, not about the matcher."
+
+**What makes this legitimate rather than circular is that the third test is conditional on the
+matcher being sure.** A title the reference set fits badly is kept no matter how badly it scores —
+Excision is in the corpus at 22.9% selector CER on a fit of 30.5. Titles an engine finds hard are
+kept; only sidecars transcribing a different thing are dropped. The cost is stated rather than
+hidden: admitting titles on the selector's own confidence under-represents a title no reference set
+can read, relative to one Arial merely finds hard.
+
+Seventeen of the forty records the draw walked were rejected, and each is printed with its reason.
+A draw that walked past that many silently would read as twenty titles from the library when it is
+not.
 
 ### Where the titles came from
 

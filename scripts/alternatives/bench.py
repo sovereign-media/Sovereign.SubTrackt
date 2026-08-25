@@ -412,7 +412,12 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('build')
     st = sub.add_parser('stage')
-    st.add_argument('--xtask', default=os.path.normpath('target/release/xtask'))
+    # `type=os.path.normpath` so an explicitly passed path is normalised too, not just the default.
+    # Windows' `CreateProcess` rejects a relative path spelled with forward slashes --
+    # `target/release/xtask` is not found while `target\release\xtask` is. `scripts/accuracy/sweep.py`
+    # records the same fix; normalising only the default leaves the trap set for anyone who passes
+    # the flag, which is what happened the first time this ran.
+    st.add_argument('--xtask', default='target/release/xtask', type=os.path.normpath)
     st.add_argument('--force', action='store_true')
     r = sub.add_parser('run')
     # The count for `cost` items only. Everything else runs once and this flag does not reach it,
