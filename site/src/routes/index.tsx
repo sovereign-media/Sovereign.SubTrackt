@@ -23,7 +23,7 @@ const SECTIONS = [
   {
     href: `${site.base}guide/${site.guide[0]}`,
     label: "How it works",
-    lede: "Seven short pages, assuming nothing. What an image-based subtitle is, why this isn't OCR, how it measures up against five other tools, and what it refuses to guess at.",
+    lede: "Eight short pages, assuming nothing. What an image-based subtitle is, why this isn't OCR, how it measures up against five other tools, what the pipeline does with a track, and what it refuses to guess at.",
     cta: "Start here to understand it",
   },
   {

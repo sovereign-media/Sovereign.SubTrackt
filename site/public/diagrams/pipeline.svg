@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 824" width="640" height="824" role="img" aria-labelledby="t d">
+<title id="t">The pipeline, stage by stage</title>
+<desc id="d">A container file enters at the top and a subtitle file leaves at the bottom, passing through eight stages: demux, decode, binarize, segment, vectorize, match, assemble and write. Each stage is shown with what it does in plain language and what comes out of it. The reference set joins the chain just before the match stage.</desc>
+<style>
+  text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif; }
+  .mono { font-family: ui-monospace, "Geist Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+  .bg { fill: #ffffff; }
+  .frame { fill: none; stroke: #e4e7ed; }
+  .card { fill: #f7f8fa; stroke: #dfe3ea; }
+  .io { fill: #ffffff; stroke: #c8cedb; stroke-dasharray: 4 3; }
+  .watch { fill: #e9effd; stroke: #7aa2f7; }
+  .stage { fill: #eef2f7; stroke: #d3dbe6; }
+  .gate { fill: #fdf3e6; stroke: #edd3a8; }
+  .band { fill: #e9effd; stroke: #c5d8fb; }
+  .note { fill: #f2f5f9; stroke: #dde3ec; }
+  .ink { fill: #1d2026; }
+  .mut { fill: #667085; }
+  .acc { fill: #2563eb; }
+  .accs { fill: #e9effd; stroke: #c5d8fb; }
+  .warn { fill: #b45309; }
+  .warnink { fill: #97650f; }
+  .good { fill: #15803d; }
+  .bad { fill: #b42318; }
+  .bar { fill: #97a1b2; }
+  .cell { fill: #1d2026; }
+  .grid { stroke: #d3d8e0; fill: none; }
+  .cut { fill: none; stroke: #2563eb; stroke-dasharray: 3 3; }
+  .rule { stroke: #e8ebf0; fill: none; }
+  .limit { stroke: #b42318; fill: none; stroke-dasharray: 4 3; }
+  .line { stroke: #b6bdc9; fill: none; }
+  .lf { fill: #b6bdc9; }
+  .head { fill: #1d2026; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #15171c; }
+    .frame { stroke: #2b2f38; }
+    .card { fill: #1c1f26; stroke: #30343e; }
+    .io { fill: #15171c; stroke: #414855; }
+    .watch { fill: #1b2436; stroke: #4d6699; }
+    .stage { fill: #1f242c; stroke: #363d49; }
+    .gate { fill: #2b2417; stroke: #4d3f22; }
+    .band { fill: #1b2436; stroke: #31425f; }
+    .note { fill: #1d222b; stroke: #2f353f; }
+    .ink { fill: #e5e8ee; }
+    .mut { fill: #98a1b0; }
+    .acc { fill: #7aa2f7; }
+    .accs { fill: #1b2436; stroke: #31425f; }
+    .warn { fill: #e0a458; }
+    .warnink { fill: #e0a458; }
+    .good { fill: #6cc08b; }
+    .bad { fill: #ef8a80; }
+    .bar { fill: #6a7381; }
+    .cell { fill: #e5e8ee; }
+    .grid { stroke: #363b45; }
+    .cut { stroke: #7aa2f7; }
+    .rule { stroke: #23272f; }
+    .limit { stroke: #ef8a80; }
+    .line { stroke: #4b515d; }
+    .lf { fill: #4b515d; }
+    .head { fill: #f0f2f6; }
+  }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path class="lf" d="M0 0 L10 5 L0 10 z"/>
+  </marker>
+</defs>
+
+<rect class="bg" x="0" y="0" width="640" height="824"/>
+<rect class="frame" x="0.5" y="0.5" width="639" height="823" rx="12"/>
+
+<text class="head" x="24" y="34" font-size="16" font-weight="600">The pipeline</text>
+<text class="mut" x="24" y="55" font-size="11.5">Eight stages, one pass over the file. The counts are from one real track.</text>
+<rect class="io" x="24" y="70" width="124" height="30" rx="8"/>
+<text class="ink mono" x="86" y="90" font-size="11.5" text-anchor="middle">movie.mkv</text>
+<path class="line" d="M86 100 L86 120" marker-end="url(#a)"/>
+<rect class="card" x="24" y="124" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="153" r="11"/>
+<text class="acc" x="48" y="157" font-size="11.5" text-anchor="middle" font-weight="700">1</text>
+<text class="ink" x="66" y="158" font-size="13.5" font-weight="500">demux</text>
+<text class="ink" x="168" y="148" font-size="12.5">Find the subtitle track in the file, and pull</text>
+<text class="ink" x="168" y="165" font-size="12.5">out its packets.</text>
+<text class="mut mono" x="616" y="158" font-size="11" text-anchor="end">1,644 packets</text>
+<path class="line" d="M86 182 L86 192" marker-end="url(#a)"/>
+<rect class="card" x="24" y="196" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="225" r="11"/>
+<text class="acc" x="48" y="229" font-size="11.5" text-anchor="middle" font-weight="700">2</text>
+<text class="ink" x="66" y="230" font-size="13.5" font-weight="500">decode</text>
+<text class="ink" x="168" y="220" font-size="12.5">Rebuild the pictures the player would have</text>
+<text class="ink" x="168" y="237" font-size="12.5">pasted over the video.</text>
+<text class="mut mono" x="616" y="230" font-size="11" text-anchor="end">822 pictures</text>
+<path class="line" d="M86 254 L86 264" marker-end="url(#a)"/>
+<rect class="card" x="24" y="268" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="297" r="11"/>
+<text class="acc" x="48" y="301" font-size="11.5" text-anchor="middle" font-weight="700">3</text>
+<text class="ink" x="66" y="302" font-size="13.5" font-weight="500">binarize</text>
+<text class="ink" x="168" y="292" font-size="12.5">Decide which pixels are ink and which are</text>
+<text class="ink" x="168" y="309" font-size="12.5">background.</text>
+<text class="mut mono" x="616" y="302" font-size="11" text-anchor="end">one mask each</text>
+<path class="line" d="M86 326 L86 336" marker-end="url(#a)"/>
+<rect class="card" x="24" y="340" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="369" r="11"/>
+<text class="acc" x="48" y="373" font-size="11.5" text-anchor="middle" font-weight="700">4</text>
+<text class="ink" x="66" y="374" font-size="13.5" font-weight="500">segment</text>
+<text class="ink" x="168" y="364" font-size="12.5">Cut the mask into separate shapes, putting</text>
+<text class="ink" x="168" y="381" font-size="12.5">accents back on their letters.</text>
+<text class="mut mono" x="616" y="374" font-size="11" text-anchor="end">22,851 shapes</text>
+<path class="line" d="M86 398 L86 408" marker-end="url(#a)"/>
+<rect class="card" x="24" y="412" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="441" r="11"/>
+<text class="acc" x="48" y="445" font-size="11.5" text-anchor="middle" font-weight="700">5</text>
+<text class="ink" x="66" y="446" font-size="13.5" font-weight="500">vectorize</text>
+<text class="ink" x="168" y="436" font-size="12.5">Scale each shape onto a 16 × 16 grid, and</text>
+<text class="ink" x="168" y="453" font-size="12.5">note which cells it fills.</text>
+<text class="mut mono" x="616" y="446" font-size="11" text-anchor="end">256 bits each</text>
+<path class="line" d="M86 470 L86 482" marker-end="url(#a)"/>
+<rect class="card" x="24" y="532" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="561" r="11"/>
+<text class="acc" x="48" y="565" font-size="11.5" text-anchor="middle" font-weight="700">6</text>
+<text class="ink" x="66" y="566" font-size="13.5" font-weight="500">match</text>
+<text class="ink" x="168" y="556" font-size="12.5">Compare that pattern with every shape it</text>
+<text class="ink" x="168" y="573" font-size="12.5">knows. Closest wins, if it is close enough.</text>
+<text class="mut mono" x="616" y="566" font-size="11" text-anchor="end">20,597 read, 17 not</text>
+<path class="line" d="M86 590 L86 600" marker-end="url(#a)"/>
+<rect class="card" x="24" y="604" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="633" r="11"/>
+<text class="acc" x="48" y="637" font-size="11.5" text-anchor="middle" font-weight="700">7</text>
+<text class="ink" x="66" y="638" font-size="13.5" font-weight="500">assemble</text>
+<text class="ink" x="168" y="628" font-size="12.5">Put the characters back in order, work out</text>
+<text class="ink" x="168" y="645" font-size="12.5">the word spaces, tag the leaning lines.</text>
+<text class="mut mono" x="616" y="638" font-size="11" text-anchor="end">822 cues</text>
+<path class="line" d="M86 662 L86 672" marker-end="url(#a)"/>
+<rect class="card" x="24" y="676" width="124" height="58" rx="9"/>
+<circle class="accs" cx="48" cy="705" r="11"/>
+<text class="acc" x="48" y="709" font-size="11.5" text-anchor="middle" font-weight="700">8</text>
+<text class="ink" x="66" y="710" font-size="13.5" font-weight="500">write</text>
+<text class="ink" x="168" y="700" font-size="12.5">Attach the times and write the subtitle file.</text>
+<text class="mut mono" x="616" y="710" font-size="11" text-anchor="end">SubRip or WebVTT</text>
+<rect class="accs" x="24" y="484" width="592" height="36" rx="8"/>
+<text class="acc mono" x="42" y="507" font-size="11.5">reference set</text>
+<text class="mut" x="134" y="507" font-size="11.5">joins here — the shapes it knows, and the one thing you have to build.</text>
+<path class="line" d="M86 520 L86 528" marker-end="url(#a)"/>
+<path class="line" d="M86 734 L86 750" marker-end="url(#a)"/>
+<rect class="io" x="24" y="754" width="124" height="30" rx="8"/>
+<text class="ink mono" x="86" y="774" font-size="11.5" text-anchor="middle">movie.en.srt</text>
+<text class="mut" x="168" y="774" font-size="11.5">Italic lines tagged, times attached, nothing invented.</text>
+<text class="mut" x="24" y="806" font-size="11">No stage knows about any other. That is what lets one be replaced, or fail, without the rest noticing.</text>
+</svg>

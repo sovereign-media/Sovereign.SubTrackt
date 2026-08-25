@@ -19,6 +19,10 @@ const PREFIX = site.base.replace(/\/$/, "");
 
 const HREF = /href="([^"]*)"/g;
 const ID = /\bid="([^"]*)"/g;
+// Images only. Every other `src` in the output is a bundler-generated script whose path this
+// script has no business asserting, and an image is the one a reader notices breaking.
+const SRC = /\bsrc="([^"]*)"/g;
+const IMAGE = /\.(?:svg|png|jpe?g|gif|webp|avif)$/i;
 
 async function walk(dir) {
   const found = [];
@@ -68,6 +72,32 @@ function fileFor(path) {
 const failures = [];
 let checked = 0;
 
+// The diagrams. `scripts/content.mjs` already refused a page embedding an image that is not in
+// `public/`; this is the other half, that Vite actually copied it out. A broken image renders as
+// a box on a page that built green, which is the same quiet rot the href walk exists to catch.
+//
+// The href walk below happens to catch a missing diagram too, and that is a coincidence worth not
+// relying on: React emits a `<link rel="preload" as="image" href="...">` for it in the head, so
+// the failure is reported by a browser hint rather than by anything about the page. Drop the hint
+// and the image goes unchecked. This loop reads the `<img>` itself.
+for (const page of pages) {
+  const from = relative(DIST, page).replaceAll("\\", "/");
+  for (const [, raw] of html.get(from).matchAll(SRC)) {
+    const src = unescapeAttribute(raw);
+    if (!IMAGE.test(src) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) continue;
+    if (!src.startsWith(`${PREFIX}/`)) {
+      failures.push(`${from}: image "${src}" is not site-absolute under the ${PREFIX} base`);
+      continue;
+    }
+    const target = src.slice(PREFIX.length).replace(/^\/+/, "");
+    if (!present.has(target)) {
+      failures.push(`${from}: image "${src}" points at nothing -- no ${target} was written`);
+      continue;
+    }
+    checked += 1;
+  }
+}
+
 for (const page of pages) {
   const from = relative(DIST, page).replaceAll("\\", "/");
   for (const [, raw] of html.get(from).matchAll(HREF)) {
@@ -110,4 +140,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`prestige: ${checked} internal links resolve across ${pages.length} pages`);
+console.log(`prestige: ${checked} internal links and images resolve across ${pages.length} pages`);

@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 516" width="640" height="516" role="img" aria-labelledby="t d">
+<title id="t">What happens to one subtitle picture</title>
+<desc id="d">Five panels. A decoded subtitle picture reading CAFE; the same word reduced to solid ink on a plain background; the same word cut into four shapes with the acute accent reattached to its letter; the letter F scaled onto a sixteen by sixteen grid of filled and empty cells; and a list of the nearest entries in the reference set with the distance to each.</desc>
+<style>
+  text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif; }
+  .mono { font-family: ui-monospace, "Geist Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+  .bg { fill: #ffffff; }
+  .frame { fill: none; stroke: #e4e7ed; }
+  .card { fill: #f7f8fa; stroke: #dfe3ea; }
+  .io { fill: #ffffff; stroke: #c8cedb; stroke-dasharray: 4 3; }
+  .watch { fill: #e9effd; stroke: #7aa2f7; }
+  .stage { fill: #eef2f7; stroke: #d3dbe6; }
+  .gate { fill: #fdf3e6; stroke: #edd3a8; }
+  .band { fill: #e9effd; stroke: #c5d8fb; }
+  .note { fill: #f2f5f9; stroke: #dde3ec; }
+  .ink { fill: #1d2026; }
+  .mut { fill: #667085; }
+  .acc { fill: #2563eb; }
+  .accs { fill: #e9effd; stroke: #c5d8fb; }
+  .warn { fill: #b45309; }
+  .warnink { fill: #97650f; }
+  .good { fill: #15803d; }
+  .bad { fill: #b42318; }
+  .bar { fill: #97a1b2; }
+  .cell { fill: #1d2026; }
+  .grid { stroke: #d3d8e0; fill: none; }
+  .cut { fill: none; stroke: #2563eb; stroke-dasharray: 3 3; }
+  .rule { stroke: #e8ebf0; fill: none; }
+  .limit { stroke: #b42318; fill: none; stroke-dasharray: 4 3; }
+  .line { stroke: #b6bdc9; fill: none; }
+  .lf { fill: #b6bdc9; }
+  .head { fill: #1d2026; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #15171c; }
+    .frame { stroke: #2b2f38; }
+    .card { fill: #1c1f26; stroke: #30343e; }
+    .io { fill: #15171c; stroke: #414855; }
+    .watch { fill: #1b2436; stroke: #4d6699; }
+    .stage { fill: #1f242c; stroke: #363d49; }
+    .gate { fill: #2b2417; stroke: #4d3f22; }
+    .band { fill: #1b2436; stroke: #31425f; }
+    .note { fill: #1d222b; stroke: #2f353f; }
+    .ink { fill: #e5e8ee; }
+    .mut { fill: #98a1b0; }
+    .acc { fill: #7aa2f7; }
+    .accs { fill: #1b2436; stroke: #31425f; }
+    .warn { fill: #e0a458; }
+    .warnink { fill: #e0a458; }
+    .good { fill: #6cc08b; }
+    .bad { fill: #ef8a80; }
+    .bar { fill: #6a7381; }
+    .cell { fill: #e5e8ee; }
+    .grid { stroke: #363b45; }
+    .cut { stroke: #7aa2f7; }
+    .rule { stroke: #23272f; }
+    .limit { stroke: #ef8a80; }
+    .line { stroke: #4b515d; }
+    .lf { fill: #4b515d; }
+    .head { fill: #f0f2f6; }
+  }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path class="lf" d="M0 0 L10 5 L0 10 z"/>
+  </marker>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+    <feGaussianBlur stdDeviation="0.7"/>
+  </filter>
+</defs>
+
+<rect class="bg" x="0" y="0" width="640" height="516"/>
+<rect class="frame" x="0.5" y="0.5" width="639" height="515" rx="12"/>
+
+<text class="head" x="24" y="34" font-size="16" font-weight="600">What happens to one shape</text>
+<text class="mut" x="24" y="55" font-size="11.5">Stages 2 to 6, on a single subtitle. Nothing here consults a dictionary, a language or a model.</text>
+<text class="acc" x="24" y="92" font-size="10.5" font-weight="600">1 · DECODED</text>
+<rect x="24" y="100" width="192" height="120" rx="8" fill="#0e0f12"/>
+<path class="line" d="M218 160.0 L230 160.0" marker-end="url(#a)"/>
+<text class="acc" x="232" y="92" font-size="10.5" font-weight="600">2 · BINARIZED</text>
+<rect class="card" x="232" y="100" width="192" height="120" rx="8"/>
+<path class="line" d="M426 160.0 L438 160.0" marker-end="url(#a)"/>
+<text class="acc" x="440" y="92" font-size="10.5" font-weight="600">3 · SEGMENTED</text>
+<rect class="card" x="440" y="100" width="192" height="120" rx="8"/>
+<g class="" font-size="34" lengthAdjust="spacingAndGlyphs" filter="url(#soft)" fill="#f4f5f7" stroke="#0e0f12" stroke-width="2.6" paint-order="stroke">
+  <text x="70" y="170" textLength="24">C</text>
+  <text x="97" y="170" textLength="24">A</text>
+  <text x="124" y="170" textLength="21">F</text>
+  <text x="148" y="170" textLength="23">É</text>
+</g>
+<g class="cell" font-size="34" lengthAdjust="spacingAndGlyphs">
+  <text x="278" y="170" textLength="24">C</text>
+  <text x="305" y="170" textLength="24">A</text>
+  <text x="332" y="170" textLength="21">F</text>
+  <text x="356" y="170" textLength="23">É</text>
+</g>
+<g class="cell" font-size="34" lengthAdjust="spacingAndGlyphs">
+  <text x="486" y="170" textLength="24">C</text>
+  <text x="513" y="170" textLength="24">A</text>
+  <text x="540" y="170" textLength="21">F</text>
+  <text x="564" y="170" textLength="23">É</text>
+</g>
+<rect class="cut" x="484" y="143" width="28" height="30" rx="2"/>
+<rect class="cut" x="511" y="143" width="28" height="30" rx="2"/>
+<rect class="cut" x="538" y="143" width="26" height="30" rx="2"/>
+<rect class="cut" x="562" y="131" width="28" height="42" rx="2"/>
+<text class="mut" x="24" y="238" font-size="11">One subtitle, rebuilt exactly as</text>
+<text class="mut" x="24" y="253" font-size="11">the player would have pasted it</text>
+<text class="mut" x="24" y="268" font-size="11">over the video.</text>
+<text class="mut" x="232" y="238" font-size="11">Ink, or background. No</text>
+<text class="mut" x="232" y="253" font-size="11">in-between value is left for a</text>
+<text class="mut" x="232" y="268" font-size="11">later stage to argue about.</text>
+<text class="mut" x="440" y="238" font-size="11">Four shapes, not five. The</text>
+<text class="mut" x="440" y="253" font-size="11">accent is found on its own, then</text>
+<text class="mut" x="440" y="268" font-size="11">put back on its letter.</text>
+<text class="acc" x="24" y="308" font-size="10.5" font-weight="600">4 · VECTORIZED</text>
+<rect class="card" x="24" y="316" width="192" height="120" rx="8"/>
+<text class="acc" x="232" y="308" font-size="10.5" font-weight="600">5 · MATCHED</text>
+<rect class="card" x="232" y="316" width="384" height="120" rx="8"/>
+<path class="line" d="M218 376.0 L230 376.0" marker-end="url(#a)"/>
+<g class="cell">
+  <rect x="96" y="340" width="48" height="12"/>
+  <rect x="96" y="376" width="36" height="12"/>
+  <rect x="96" y="340" width="12" height="78"/>
+</g>
+<g class="grid">
+  <path d="M72 328 h96 M72 334 h96 M72 340 h96 M72 346 h96 M72 352 h96 M72 358 h96 M72 364 h96 M72 370 h96 M72 376 h96 M72 382 h96 M72 388 h96 M72 394 h96 M72 400 h96 M72 406 h96 M72 412 h96 M72 418 h96 M72 424 h96"/>
+  <path d="M72 328 v96 M78 328 v96 M84 328 v96 M90 328 v96 M96 328 v96 M102 328 v96 M108 328 v96 M114 328 v96 M120 328 v96 M126 328 v96 M132 328 v96 M138 328 v96 M144 328 v96 M150 328 v96 M156 328 v96 M162 328 v96 M168 328 v96"/>
+  <rect x="72" y="328" width="96" height="96"/>
+</g>
+<text class="mut" x="252" y="342" font-size="10">NEAREST IN THE SET</text>
+<text class="mut" x="452" y="342" font-size="10" text-anchor="end">CELLS APART</text>
+<text class="ink mono" x="252" y="368" font-size="14" font-weight="600">F</text>
+<text class="good mono" x="452" y="368" font-size="13" text-anchor="end">8 ✓</text>
+<text class="ink mono" x="252" y="394" font-size="14">E</text>
+<text class="mut mono" x="452" y="394" font-size="13" text-anchor="end">23</text>
+<text class="ink mono" x="252" y="420" font-size="14">P</text>
+<text class="mut mono" x="452" y="420" font-size="13" text-anchor="end">29</text>
+<path class="rule" d="M482 332 v88"/>
+<text class="mut" x="502" y="364" font-size="10.5">Closest wins —</text>
+<text class="mut" x="502" y="380" font-size="10.5">but only if it is</text>
+<text class="mut" x="502" y="396" font-size="10.5">close enough.</text>
+<text class="mut" x="24" y="454" font-size="11">The F, scaled onto a fixed grid:</text>
+<text class="mut" x="24" y="469" font-size="11">256 cells, each filled or not.</text>
+<text class="mut" x="232" y="454" font-size="11">Compared against every shape the set knows. Distance is simply how</text>
+<text class="mut" x="232" y="469" font-size="11">many of the 256 cells disagree.</text>
+<text class="mut" x="24" y="498" font-size="11">The same shape recurs constantly, so an answer once worked out is remembered for the rest of the run.</text>
+</svg>

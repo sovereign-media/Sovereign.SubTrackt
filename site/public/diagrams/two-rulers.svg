@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 570" width="640" height="570" role="img" aria-labelledby="t d">
+<title id="t">The two ways the pipeline is measured</title>
+<desc id="d">Two panels. The ceiling: one font draws the pictures and builds the reference set, the pipeline reads them, and the result is scored against the words that were drawn in the first place. The floor: nine real disc tracks, each with a transcript typed by a person, read before and after a change, scored, and the lines the change made worse are counted. Beneath both, a note that neither instrument can say whether the reference set you picked is right for the disc in front of you.</desc>
+<style>
+  text { font-family: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif; }
+  .mono { font-family: ui-monospace, "Geist Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+  .bg { fill: #ffffff; }
+  .frame { fill: none; stroke: #e4e7ed; }
+  .card { fill: #f7f8fa; stroke: #dfe3ea; }
+  .io { fill: #ffffff; stroke: #c8cedb; stroke-dasharray: 4 3; }
+  .watch { fill: #e9effd; stroke: #7aa2f7; }
+  .stage { fill: #eef2f7; stroke: #d3dbe6; }
+  .gate { fill: #fdf3e6; stroke: #edd3a8; }
+  .band { fill: #e9effd; stroke: #c5d8fb; }
+  .note { fill: #f2f5f9; stroke: #dde3ec; }
+  .ink { fill: #1d2026; }
+  .mut { fill: #667085; }
+  .acc { fill: #2563eb; }
+  .accs { fill: #e9effd; stroke: #c5d8fb; }
+  .warn { fill: #b45309; }
+  .warnink { fill: #97650f; }
+  .good { fill: #15803d; }
+  .bad { fill: #b42318; }
+  .bar { fill: #97a1b2; }
+  .cell { fill: #1d2026; }
+  .grid { stroke: #d3d8e0; fill: none; }
+  .cut { fill: none; stroke: #2563eb; stroke-dasharray: 3 3; }
+  .rule { stroke: #e8ebf0; fill: none; }
+  .limit { stroke: #b42318; fill: none; stroke-dasharray: 4 3; }
+  .line { stroke: #b6bdc9; fill: none; }
+  .lf { fill: #b6bdc9; }
+  .head { fill: #1d2026; }
+  @media (prefers-color-scheme: dark) {
+    .bg { fill: #15171c; }
+    .frame { stroke: #2b2f38; }
+    .card { fill: #1c1f26; stroke: #30343e; }
+    .io { fill: #15171c; stroke: #414855; }
+    .watch { fill: #1b2436; stroke: #4d6699; }
+    .stage { fill: #1f242c; stroke: #363d49; }
+    .gate { fill: #2b2417; stroke: #4d3f22; }
+    .band { fill: #1b2436; stroke: #31425f; }
+    .note { fill: #1d222b; stroke: #2f353f; }
+    .ink { fill: #e5e8ee; }
+    .mut { fill: #98a1b0; }
+    .acc { fill: #7aa2f7; }
+    .accs { fill: #1b2436; stroke: #31425f; }
+    .warn { fill: #e0a458; }
+    .warnink { fill: #e0a458; }
+    .good { fill: #6cc08b; }
+    .bad { fill: #ef8a80; }
+    .bar { fill: #6a7381; }
+    .cell { fill: #e5e8ee; }
+    .grid { stroke: #363b45; }
+    .cut { stroke: #7aa2f7; }
+    .rule { stroke: #23272f; }
+    .limit { stroke: #ef8a80; }
+    .line { stroke: #4b515d; }
+    .lf { fill: #4b515d; }
+    .head { fill: #f0f2f6; }
+  }
+</style>
+<defs>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path class="lf" d="M0 0 L10 5 L0 10 z"/>
+  </marker>
+</defs>
+
+<rect class="bg" x="0" y="0" width="640" height="570"/>
+<rect class="frame" x="0.5" y="0.5" width="639" height="569" rx="12"/>
+
+<text class="head" x="24" y="34" font-size="16" font-weight="600">The two rulers</text>
+<text class="mut" x="24" y="55" font-size="11.5">Both answer “did that change help?”. Neither answers “is this track being read correctly?”.</text>
+<rect class="note" x="24" y="76" width="592" height="196" rx="10"/>
+<text class="acc" x="44" y="100" font-size="10.5" font-weight="600" letter-spacing="0.8">THE CEILING</text>
+<text class="head" x="44" y="123" font-size="14.5" font-weight="600">A fixture built on purpose</text>
+<circle class="accs" cx="56" cy="144" r="9"/>
+<text class="acc" x="56" y="148" font-size="11.5" text-anchor="middle" font-weight="700">1</text>
+<text class="ink" x="76" y="148" font-size="12">One font draws the pictures — and builds the reference set.</text>
+<circle class="accs" cx="56" cy="170" r="9"/>
+<text class="acc" x="56" y="174" font-size="11.5" text-anchor="middle" font-weight="700">2</text>
+<text class="ink" x="76" y="174" font-size="12">The pipeline reads them, exactly as it would read a disc.</text>
+<circle class="accs" cx="56" cy="196" r="9"/>
+<text class="acc" x="56" y="200" font-size="11.5" text-anchor="middle" font-weight="700">3</text>
+<text class="ink" x="76" y="200" font-size="12">Score the result against the words we drew in the first place.</text>
+<rect class="card" x="44" y="218" width="552" height="42" rx="8"/>
+<text class="mut" x="60" y="238" font-size="11">The wrong typeface is impossible here, so whatever error is left belongs to the tool</text>
+<text class="mut" x="60" y="253" font-size="11">rather than to the disc. Real material can only do worse — which makes this a ceiling.</text>
+<rect class="note" x="24" y="286" width="592" height="196" rx="10"/>
+<text class="acc" x="44" y="310" font-size="10.5" font-weight="600" letter-spacing="0.8">THE FLOOR</text>
+<text class="head" x="44" y="333" font-size="14.5" font-weight="600">Nine tracks off real discs</text>
+<circle class="accs" cx="56" cy="354" r="9"/>
+<text class="acc" x="56" y="358" font-size="11.5" text-anchor="middle" font-weight="700">1</text>
+<text class="ink" x="76" y="358" font-size="12">Real tracks, each with a transcript somebody typed by hand.</text>
+<circle class="accs" cx="56" cy="380" r="9"/>
+<text class="acc" x="56" y="384" font-size="11.5" text-anchor="middle" font-weight="700">2</text>
+<text class="ink" x="76" y="384" font-size="12">The pipeline reads all nine, before a change and after it.</text>
+<circle class="accs" cx="56" cy="406" r="9"/>
+<text class="acc" x="56" y="410" font-size="11.5" text-anchor="middle" font-weight="700">3</text>
+<text class="ink" x="76" y="410" font-size="12">Score both, and count the lines the change made worse.</text>
+<rect class="card" x="44" y="428" width="552" height="42" rx="8"/>
+<text class="mut" x="60" y="448" font-size="11">This is what prices a change on real material. Read the count of lines made worse, not</text>
+<text class="mut" x="60" y="463" font-size="11">the average: an average can improve on the whole while one disc quietly gets ruined.</text>
+<rect class="band" x="24" y="496" width="592" height="50" rx="9"/>
+<text class="ink" x="44" y="517" font-size="12">Neither can tell you the reference set you picked is right for the disc in front of you.</text>
+<text class="ink" x="44" y="535" font-size="12">Nothing can. That judgement is yours, and making it means reading a few cues.</text>
+</svg>

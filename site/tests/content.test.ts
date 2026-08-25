@@ -13,6 +13,7 @@ import {
   buildPages,
   checkCorpus,
   checkFrontmatter,
+  readAssets,
   readHeadings,
   rewriteFences,
   rewriteLinks,
@@ -32,6 +33,7 @@ function context(overrides: Record<string, unknown> = {}) {
       ["/guide/what-this-is", new Set<string>()],
     ]),
     repo: new Map([["docs/there.md", new Set(["a-heading"])]]),
+    assets: new Set(["/diagrams/there.svg"]),
     ...overrides,
   };
 }
@@ -61,6 +63,12 @@ describe("a link that resolves", () => {
   it("sends a source file to the repository without pretending to know its headings", () => {
     expect(rewrite("see [it](../crates/subtrackt-core/src/glyph.rs).")).toBe(
       `see [it](${site.repo}/blob/main/crates/subtrackt-core/src/glyph.rs).`,
+    );
+  });
+
+  it("prefixes an embedded diagram, which is a public/ file rather than a route", () => {
+    expect(rewrite("![flow](/diagrams/there.svg)")).toBe(
+      `![flow](${PREFIX}/diagrams/there.svg)`,
     );
   });
 
@@ -101,6 +109,13 @@ describe("a link that does not resolve", () => {
 
   it("is a failure when an in-page anchor names a heading that was renamed", () => {
     expect(() => rewrite("[x](#renamed-away)")).toThrowError(/no heading with that anchor/);
+  });
+
+  // The point of checking this at all: a missing image is not a build error anywhere else. It
+  // renders as a broken box on a page that compiled, which is the failure mode this file exists
+  // to prevent, and the one nobody notices until a reader reports it.
+  it("is a failure when a page embeds an image that is not in public/", () => {
+    expect(() => rewrite("![x](/diagrams/gone.svg)")).toThrowError(/not in public/);
   });
 
   it("is a failure when a site route names a page that is not in site.json", () => {
@@ -176,6 +191,19 @@ describe("the generated site", () => {
     for (const page of pages) {
       expect(page.markdown, page.source).not.toMatch(/]\((?!https?:)[^)]*\.md[)#]/);
       expect(page.markdown, page.source).not.toMatch(/]\(\.\.\//);
+    }
+  });
+
+  // Same argument as the corpus check: run over what is really on disk, so a diagram deleted or
+  // renamed fails on the pull request that did it rather than on the deploy after it.
+  it("embeds only diagrams that are really in public/", async () => {
+    const assets = await readAssets();
+    const embedded = pages.flatMap((page) => [
+      ...page.markdown.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g),
+    ].map((m) => ({ source: page.source, target: m[1] })));
+    for (const { source, target } of embedded) {
+      expect(target, source).toMatch(new RegExp(`^${PREFIX}/`));
+      expect(assets, source).toContain(target.slice(PREFIX.length));
     }
   });
 
@@ -308,6 +336,17 @@ describe("the hand-written half", () => {
       ),
     ]);
     expect(new Set(linked.map((m) => m[1])).size).toBeGreaterThan(3);
+  });
+
+  // A diagram is the one thing on this site a screen reader cannot fall back to the prose for, so
+  // the alt text is not decoration: it is the page for a reader who cannot see the picture. Empty
+  // alt text on a diagram carrying the argument would be a silent hole in the page.
+  it("describes every diagram it embeds, at length rather than in a word", () => {
+    for (const page of pages) {
+      for (const [, alt] of page.markdown.matchAll(/!\[([^\]]*)\]\([^)]+\)/g)) {
+        expect(alt.length, `${page.source}: "${alt}"`).toBeGreaterThan(40);
+      }
+    }
   });
 
   // The comparison is the measurement behind the claim the whole tool rests on, and it spent its

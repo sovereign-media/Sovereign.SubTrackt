@@ -16,6 +16,8 @@
 //   the router's basepath reaches its own `Link`s, and neither touches this. Doing it here lets a
 //   page be written with a plain `/guide/what-this-is`. A `../` target is a path into the
 //   repository and leaves for GitHub, which is how a page reaches `docs/` and the source tree.
+//   An image is site-absolute too and is not a route, so it is resolved against `public/` instead
+//   of against the route table -- same prefix, different thing to check it exists in.
 //
 //   Fenced code languages. Every shell transcript in this repository is tagged ```console, which
 //   GitHub understands and Prism does not -- and Prestige treats an unregistered language as a
@@ -44,6 +46,10 @@ import { visit } from "unist-util-visit";
 const SITE_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
 export const DOCS_DIR = join(SITE_DIR, "..", "docs");
 export const OUT_DIR = join(SITE_DIR, "src", "content");
+// Vite copies this directory to the root of the built site verbatim. A page embeds a diagram from
+// it as `/diagrams/pipeline.svg`, which is why an asset needs a rewrite rule of its own: it is
+// site-absolute like a route and is not a route, so the route table would refuse it.
+export const PUBLIC_DIR = join(SITE_DIR, "public");
 
 // The hand-written collections. Each is a `site.json` key holding a list of slugs and a directory
 // of the same name under `content/`, so adding a third one is adding it here and nowhere else in
@@ -116,15 +122,33 @@ const INLINE_LINK =
   /(!?\[(?:[^[\]\\]|\\.)*\])\(\s*(<[^>]*>|[^\s()]+)((?:\s+(?:"[^"]*"|'[^']*'))?)\s*\)/g;
 const REFERENCE_DEFINITION = /^(\[[^\]\n]+\]:[ \t]*)(\S+)/gm;
 
+// What an embedded asset looks like. Deliberately a closed list rather than "has an extension":
+// the point of the rule below is to separate an asset from a route, and a route has no extension,
+// so anything not named here stays a route and gets the route table's error message.
+const ASSET = /\.(?:svg|png|jpe?g|gif|webp|avif)$/i;
+
+/** Every file under `public/`, as the site-absolute path a page would write to embed it. */
+export async function readAssets(dir = PUBLIC_DIR, prefix = "") {
+  const found = new Set();
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      for (const nested of await readAssets(join(dir, entry.name), path)) found.add(nested);
+    } else found.add(path);
+  }
+  return found;
+}
+
 /**
  * Rewrite one link target from what it means in its source directory to what it means on the site.
  *
  * `source` names the page being rewritten, for error messages and for its own `#fragment`s.
  * `routes` maps every site route to its heading anchors. `repo` maps every repository path that
  * has checkable headings -- `docs/alternatives.md` and the like -- to that document's anchors, so
- * a link leaving for GitHub is still held to the same standard as one that stays.
+ * a link leaving for GitHub is still held to the same standard as one that stays. `assets` is what
+ * `public/` holds, for the diagrams a page embeds.
  */
-export function rewriteTarget(target, { source, route, routes, repo }) {
+export function rewriteTarget(target, { source, route, routes, repo, assets }) {
   const bare = target.replace(/^<|>$/g, "");
 
   // Absolute URLs already mean the same thing wherever they are read.
@@ -140,6 +164,21 @@ export function rewriteTarget(target, { source, route, routes, repo }) {
   const [path, ...rest] = bare.split("#");
   const fragment = rest.join("#");
   const suffix = fragment ? `#${fragment}` : "";
+
+  // A diagram, embedded from `public/`. Checked against the directory rather than against the
+  // route table, and checked at all for the reason every other target here is: a missing image
+  // renders as a broken box on a page that built cleanly, which is the quiet rot this file exists
+  // to prevent. It needs the same base prefix a route does -- nothing else in the build puts one
+  // on an href that came out of a document.
+  if (path.startsWith("/") && ASSET.test(path)) {
+    if (!assets.has(path)) {
+      throw new Error(
+        `${source}: embeds "${path}", which is not in public/. ` +
+          "An image is served from public/ and referenced by its path from the site root.",
+      );
+    }
+    return `${PREFIX}${path}`;
+  }
 
   // A site route, written the way both halves are told to write one.
   if (path.startsWith("/")) return withPrefix(source, path, fragment);
@@ -254,6 +293,7 @@ export async function buildPages() {
   }
 
   const docs = await readSources(DOCS_DIR, docsOnDisk);
+  const assets = await readAssets();
   const handwritten = new Map();
   for (const id of HANDWRITTEN) {
     handwritten.set(id, await readSources(handwrittenDir(id), listed.get(id)));
@@ -300,6 +340,7 @@ export async function buildPages() {
             route: `/${collection}/${slug}`,
             routes,
             repo,
+            assets,
           }),
         ),
       });
