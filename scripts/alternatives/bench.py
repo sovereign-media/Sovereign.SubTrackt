@@ -22,8 +22,18 @@ was produced, and leave scoring to a separate pass.
 not a subject of the benchmark, so it runs on the host in `analyse.py`, which also keeps the Rust
 toolchain out of the image.
 
+**Repeats are per item, not global** (#209). The first run of this benchmark took three repeats of
+everything and the results say what that bought: all 64 (engine, item) pairs were byte-identical
+across the three, so every accuracy figure published was the median of three identical numbers. The
+repeats were not wasted everywhere, though -- `pgstosrt` read 254.8 / 67.5 / 67.3 s on `deathrace2`,
+a 278% spread, with CPU-seconds moving with it (996 against 266), which is a four-fold difference in
+work done rather than stopwatch noise. So an item marked `cost` in `corpus.json` is repeated and is
+the only kind of item a timing figure may be drawn from; every other item runs once, which is what
+makes a twenty-title corpus cost three hours instead of nine.
+
 Usage:
     bench.py build                     # build the image
+    bench.py stage [--force]           # dump any missing corpus `.sup` from the media share
     bench.py run   [--repeats 3] [--only ID] [--items KEY,KEY]
     bench.py floor                     # the instrument's own floor
     bench.py cold-warm                 # (k): does the page cache reach this measurement?
@@ -226,6 +236,12 @@ def run(args):
     items = {i['key']: i for i in corpus['items']}
     wanted_items = args.items.split(',') if args.items else list(items)
 
+    # An item's repeat count is a property of the item, not of the invocation. `cost` items are
+    # repeated because a timing figure needs them to be; everything else runs once because the
+    # output is provably identical every time. See the module docstring.
+    def repeats_for(item):
+        return args.repeats if item.get('cost') else 1
+
     plan = []
     for engine in ENG.ENGINES:
         if args.only and engine['id'] != args.only:
@@ -240,7 +256,7 @@ def run(args):
                 plan.append((engine, items[key]))
 
     os.makedirs(RESULTS, exist_ok=True)
-    total = len(plan) * args.repeats
+    total = sum(repeats_for(item) for _, item in plan)
     done = 0
     started = time.time()
 
@@ -248,6 +264,8 @@ def run(args):
     # hits every engine equally instead of landing on whichever ran last.
     for repeat in range(1, args.repeats + 1):
         for engine, item in plan:
+            if repeat > repeats_for(item):
+                continue
             done += 1
             name = '{}--{}--{}'.format(engine['id'], item['key'], repeat)
             record_path = os.path.join(RESULTS, name + '.json')
@@ -265,6 +283,55 @@ def run(args):
             print('rc={} wall={} rss={}kB  [{:.0f}s elapsed]'.format(
                 record['rc'], record['wall_s'], record['max_rss_kb'], elapsed))
     print('\n{} units, {:.0f}s total'.format(total, time.time() - started))
+
+
+def media_path(root, folder):
+    """The largest `.mkv` in the title's folder, which is the feature rather than an extra.
+
+    Same rule as `scripts/bench/run.py:media_path`, and it has to be: the two benches must agree on
+    which file a folder means or a figure from one cannot be set beside a figure from the other.
+    """
+    directory = os.path.join(root, folder)
+    files = [f for f in os.listdir(directory) if f.lower().endswith('.mkv')]
+    if not files:
+        raise SystemExit('no .mkv in ' + directory)
+    return max((os.path.join(directory, f) for f in files), key=os.path.getsize)
+
+
+def stage(args):
+    """Populate `bench/corpus/` from the media share.
+
+    The corpus is not shareable and is not baked into the image, so it has always been built
+    locally -- but until #209 it was built by hand, which was tolerable for six items and is not for
+    twenty. `fixture.sup` is generated rather than dumped and is skipped here; `xtask make-fixture`
+    makes it.
+    """
+    corpus = load_corpus()
+    root = corpus['root']
+    os.makedirs(CORPUS, exist_ok=True)
+    for item in corpus['items']:
+        out = os.path.join(CORPUS, item['sup'])
+        if item.get('folder') is None:
+            print('  {:15s} generated, not dumped'.format(item['key']))
+            continue
+        if os.path.exists(out) and os.path.getsize(out) > 0 and not args.force:
+            print('  {:15s} cached'.format(item['key']))
+            continue
+        print('  {:15s} dumping...'.format(item['key']), flush=True)
+        # Retried because a read over SMB fails about 1.7% of the time and succeeds next attempt.
+        # #133 measured that; it is not a defect and it is not worth losing a long pass to.
+        for attempt in range(3):
+            cmd = [args.xtask, 'dump-sup', media_path(root, item['folder']), out]
+            if item.get('stream') is not None:
+                cmd += ['--stream', str(item['stream'])]
+            result = sh(cmd)
+            if os.path.exists(out) and os.path.getsize(out) > 0:
+                print('  {:15s} {:.1f} MB'.format(item['key'], os.path.getsize(out) / 1048576))
+                break
+            print('  {:15s} retry {}: {}'.format(
+                item['key'], attempt + 1, (result.stderr or '').strip()[:80]), flush=True)
+        else:
+            print('  {:15s} FAILED'.format(item['key']))
 
 
 def floor(args):
@@ -344,7 +411,12 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('build')
+    st = sub.add_parser('stage')
+    st.add_argument('--xtask', default=os.path.normpath('target/release/xtask'))
+    st.add_argument('--force', action='store_true')
     r = sub.add_parser('run')
+    # The count for `cost` items only. Everything else runs once and this flag does not reach it,
+    # because the repeat count of an accuracy item is a fact about the engines rather than a knob.
     r.add_argument('--repeats', type=int, default=3)
     r.add_argument('--only')
     r.add_argument('--items')
@@ -356,7 +428,9 @@ def main():
 
     if args.cmd == 'build':
         sys.exit(build())
-    if args.cmd == 'run':
+    if args.cmd == 'stage':
+        stage(args)
+    elif args.cmd == 'run':
         run(args)
     elif args.cmd == 'floor':
         floor(args)

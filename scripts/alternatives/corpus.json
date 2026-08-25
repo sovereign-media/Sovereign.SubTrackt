@@ -13,7 +13,25 @@
     "inter-engine gap smaller than that spread is not a result.",
     "",
     "kind: `scored` yields CER/WER. `smoke` claims no accuracy and asserts only that the",
-    "track survives its own shape. `arithmetic` is measured for cost and multiplied."
+    "track survives its own shape. `arithmetic` is measured for cost and multiplied.",
+    "",
+    "cost: the item is REPEATED, and is the only kind of item a timing figure may come",
+    "from. #209 widened this corpus from six items to twenty and paid for it by dropping",
+    "to one run each, which the first run's own results licensed: all 64 (engine, item)",
+    "pairs were byte-identical across three repeats, so every accuracy figure published",
+    "was the median of three identical numbers. Timing is the exception and it is not a",
+    "small one -- `pgstosrt` read 254.8 / 67.5 / 67.3 s on `deathrace2`, a 278% spread,",
+    "with CPU-seconds moving with it (996 against 266), which is a four-fold difference",
+    "in work done rather than stopwatch noise. So five items stay repeated and every",
+    "wall, CPU, %CPU and RSS figure in `docs/alternatives.md` is drawn from those five.",
+    "`bighero6` is one of them despite claiming no accuracy: it is carried for cost, and",
+    "the sovereign#328 cross-check is the reason it is in the corpus at all.",
+    "",
+    "Titles after the original six are drawn from the 47 scored by the library sweep,",
+    "using `scripts/accuracy/sample.py`'s hash-of-folder rule so the sample re-derives",
+    "rather than being hand-picked. NOT from the 21 the sidecar corroborates: that",
+    "restriction is circular, since it selects titles by the outcome being measured, and",
+    "`docs/library-accuracy.md` says so in those words."
   ],
   "root": "//nas/MEDIA/movies",
   "items": [
@@ -29,6 +47,7 @@
     },
     {
       "key": "clover",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "clover.sup",
@@ -55,6 +74,7 @@
     },
     {
       "key": "wanda",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "wanda.sup",
@@ -81,6 +101,7 @@
     },
     {
       "key": "gonegirl",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "gonegirl.sup",
@@ -107,6 +128,7 @@
     },
     {
       "key": "bighero6",
+      "cost": true,
       "kind": "smoke",
       "truth": "none",
       "sup": "bighero6.sup",
@@ -125,6 +147,7 @@
     },
     {
       "key": "deathrace2",
+      "cost": true,
       "kind": "arithmetic",
       "truth": "none",
       "sup": "deathrace2.sup",

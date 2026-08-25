@@ -192,6 +192,13 @@ def _spread(values):
     return max(clean) - min(clean)
 
 
+def _pct(values, percentile):
+    """Nearest-rank, on an already-sorted list. Twenty titles is too few to interpolate."""
+    if not values:
+        return None
+    return values[min(len(values) - 1, int(round(percentile / 100 * len(values) + 0.5)) - 1)]
+
+
 def load_scored():
     with open(os.path.join(RESULTS, 'scored.json'), encoding='utf-8') as fh:
         return json.load(fh)
@@ -215,24 +222,82 @@ def do_tables(args):
     def label(engine_id):
         return ENG.by_id(engine_id)['label']
 
-    print('\n## Accuracy — cue level (`all`) and track level, one pinned sidecar per title\n')
     scored_items = [k for k, v in items.items() if v['kind'] == 'scored']
-    header = '| engine | ' + ' | '.join(scored_items) + ' |'
-    print(header)
-    print('| :--- | ' + ' | '.join('---:' for _ in scored_items) + ' |')
-    for engine_id in order:
-        cells = []
-        for key in scored_items:
-            reps = grouped.get((engine_id, key), [])
-            got = [r['scored'] for r in reps if r.get('scored')]
-            if not got:
-                cells.append('—')
+    cost_items = [k for k, v in items.items() if v.get('cost')]
+
+    def cer(engine_id, key, field='track'):
+        got = [r['scored'] for r in grouped.get((engine_id, key), []) if r.get('scored')]
+        return _median([g[field]['cer'] for g in got]) if got else None
+
+    # The headline. A twenty-column grid is not a table anyone reads, and the reason for widening
+    # the corpus was never to publish twenty numbers per engine -- it was to turn "no competitor is
+    # good on all three" from an anecdote into a distribution. The grid survives as an appendix.
+    main_order = [e['id'] for e in ENG.ENGINES]
+    sens_order = [e['id'] for e in ENG.SENSITIVITY]
+
+    def distribution(engine_ids, heading, note):
+        print('\n## {}\n'.format(heading))
+        print('| engine | titles | median | p90 | best | worst |')
+        print('| :--- | ---: | ---: | ---: | ---: | ---: |')
+        for engine_id in engine_ids:
+            values = sorted(v for v in (cer(engine_id, k) for k in scored_items) if v is not None)
+            if not values:
                 continue
-            cue = _median([g['all']['cer'] for g in got])
-            trk = _median([g['track']['cer'] for g in got])
-            cells.append('{:.1f}% / {:.1f}%'.format(cue, trk))
-        if any(c != '—' for c in cells):
-            print('| {} | {}'.format(label(engine_id), ' | '.join(cells)) + ' |')
+            print('| {} | {} | {} | {} | {} | {} |'.format(
+                label(engine_id), len(values), _fmt(statistics.median(values), 1),
+                _fmt(_pct(values, 90), 1), _fmt(values[0], 1), _fmt(values[-1], 1)))
+        print('\n' + note)
+
+    distribution(
+        main_order,
+        'Accuracy — the distribution over {} scored titles'.format(len(scored_items)),
+        'Track-level CER. **p90 against median is the consistency column** — an engine that wins '
+        'titles and then reads one at 30% is not a tool anyone can point at a library.')
+
+    print('\n## Head to head — titles won, and titles too close to call\n')
+    # A gap smaller than the title's own sidecar spread is not a result; that rule predates this
+    # table and is why the corpus records `selector_spread_track_points` per item. What is new is
+    # that twenty titles let the inconclusive ones be counted rather than swallowing the verdict.
+    print('| subtrackt-fitted vs | wins | losses | too close to call |')
+    print('| :--- | ---: | ---: | ---: |')
+    for engine_id in main_order:
+        if engine_id == 'subtrackt-fitted':
+            continue
+        wins = losses = tied = 0
+        for key in scored_items:
+            mine, theirs = cer('subtrackt-fitted', key), cer(engine_id, key)
+            if mine is None or theirs is None:
+                continue
+            spread = items[key].get('selector_spread_track_points') or 0.0
+            if abs(mine - theirs) < spread:
+                tied += 1
+            elif mine < theirs:
+                wins += 1
+            else:
+                losses += 1
+        if wins or losses or tied:
+            print('| {} | {} | {} | {} |'.format(label(engine_id), wins, losses, tied))
+
+    distribution(
+        sens_order,
+        'Sensitivity arms — the same distribution, over the {} items they run on'.format(
+            len(ENG.SENSITIVITY_ITEMS)),
+        'Separated from the table above because these arms run on `{}` only, so their median is '
+        'not comparable with a main arm\'s and putting them in one table invites exactly that '
+        'comparison.'.format('`, `'.join(ENG.SENSITIVITY_ITEMS)))
+
+    print('\n## Appendix — cue level (`all`) and track level per title, one pinned sidecar each\n')
+    print('| item | sidecar spread | ' + ' | '.join(label(e).replace('|', '/') for e in main_order)
+          + ' |')
+    print('| :--- | ---: | ' + ' | '.join('---:' for _ in main_order) + ' |')
+    for key in scored_items:
+        cells = []
+        for engine_id in main_order:
+            cue, trk = cer(engine_id, key, 'all'), cer(engine_id, key)
+            cells.append('{:.1f}% / {:.1f}%'.format(cue, trk) if trk is not None else '—')
+        spread = items[key].get('selector_spread_track_points')
+        print('| {} | {} | {} |'.format(
+            key, _fmt(spread, 1) if spread is not None else '—', ' | '.join(cells)))
 
     print('\n## Cue accounting — extracted / release / unpaired (repeat 1)\n')
     print('| engine | item | extracted | release | unpaired |')
@@ -247,11 +312,17 @@ def do_tables(args):
             print('| {} | {} | {} | {} | {} |'.format(
                 label(engine_id), key, g['cues_extracted'], g['cues_release'], g['cues_unpaired']))
 
+    # Only `cost` items. Every other item runs once (#209), and a single-run wall figure is a
+    # lottery ticket for at least one engine in this table: `pgstosrt` spread 278% across three
+    # repeats of `deathrace2`, with CPU-seconds moving with it. Printing an unrepeated figure here
+    # would be exactly the quiet lie `bench.py`'s docstring is written against.
     print('\n## Time — median wall, spread, CPU seconds, %CPU\n')
-    print('| engine | item | wall s | spread s | cpu s | %cpu | rss MB | cgroup MB |')
-    print('| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |')
+    print('Drawn from the {} repeated `cost` items only: {}. No timing figure in this document '
+          'comes from an item measured once.\n'.format(len(cost_items), ', '.join(cost_items)))
+    print('| engine | item | wall s | spread s | cpu s | %cpu | rss MB | cgroup MB | n |')
+    print('| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |')
     for engine_id in order:
-        for key in items:
+        for key in cost_items:
             reps = grouped.get((engine_id, key), [])
             if not reps:
                 continue
@@ -264,12 +335,13 @@ def do_tables(args):
                 p = str(r.get('cgroup_peak_bytes', '')).strip()
                 if p.isdigit():
                     peaks.append(int(p))
-            print('| {} | {} | {} | {} | {} | {} | {} | {} |'.format(
+            print('| {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(
                 label(engine_id), key,
                 _fmt(_median(walls)), _fmt(_spread(walls)), _fmt(_median(cpus)),
                 _fmt(_median(pcts), 0),
                 _fmt((_median(rss) or 0) / 1024, 1),
-                _fmt((_median(peaks) or 0) / 1048576, 1) if peaks else '—'))
+                _fmt((_median(peaks) or 0) / 1048576, 1) if peaks else '—',
+                len(reps)))
 
     print('\n## Failures — attempted / completed / failed\n')
     tally = collections.defaultdict(lambda: [0, 0, 0])
@@ -300,15 +372,29 @@ def do_tables(args):
                 print('| {} | {} | {} | {} |'.format(
                     label(engine_id), key, m['replacement'], m['asterisk']))
 
+    # Scoped out loud. Since #209 most items run once, so byte-identity can only be *asserted* over
+    # the repeated ones -- and a determinism claim that quietly covered items measured a single time
+    # would be vacuous rather than merely narrow.
     print('\n## Determinism — SHA-256 of output across repeats\n')
-    print('| engine | item | distinct outputs |')
-    print('| :--- | :--- | ---: |')
+    pairs = disagreeing = 0
+    rows_out = []
     for engine_id in order:
-        for key in items:
+        for key in cost_items:
             reps = grouped.get((engine_id, key), [])
             digests = {r.get('out_sha256') for r in reps if r.get('out_sha256')}
+            if len(reps) < 2:
+                continue
+            pairs += 1
             if len(digests) > 1:
-                print('| {} | {} | **{}** |'.format(label(engine_id), key, len(digests)))
+                disagreeing += 1
+                rows_out.append('| {} | {} | **{}** |'.format(label(engine_id), key, len(digests)))
+    print('Checked over the repeated `cost` items only: **{} (engine, item) pairs**, {}.\n'.format(
+        pairs, '**{} with more than one distinct output**'.format(disagreeing) if disagreeing
+        else 'every one byte-identical across its repeats'))
+    if rows_out:
+        print('| engine | item | distinct outputs |')
+        print('| :--- | :--- | ---: |')
+        print('\n'.join(rows_out))
 
     print('\n## Alignment agreement — (scale, offset_ms) must be identical across engines\n')
     for key in scored_items:
@@ -352,6 +438,10 @@ def do_predictions(args):
     tesseract = [e['id'] for e in ENG.ENGINES if e['family'] == 'tesseract']
     competitors = [e['id'] for e in ENG.ENGINES if e['tool'] != 'subtrackt']
     scored_items = [k for k, v in items.items() if v['kind'] == 'scored']
+    # Predictions 1 and 2 are cost claims, so they read the repeated items and nothing else, for
+    # the reason `bench.py`'s docstring gives. #131 could iterate the whole corpus here because
+    # every item was repeated; since #209 most are not.
+    cost_items = [k for k, v in items.items() if v.get('cost')]
 
     def walls(engine_id, key):
         return [r.get('wall_s') for r in grouped.get((engine_id, key), [])]
@@ -361,7 +451,7 @@ def do_predictions(args):
 
     def rss_mb(engine_id):
         out = []
-        for key in items:
+        for key in cost_items:
             for r in grouped.get((engine_id, key), []):
                 if r.get('max_rss_kb'):
                     out.append(r['max_rss_kb'] / 1024)
@@ -374,7 +464,7 @@ def do_predictions(args):
           'ratio larger in CPU-seconds than in wall clock.**\n')
     print('| item | subtrackt-arial wall | fastest Tesseract wall | wall ratio | cpu ratio |')
     print('| :--- | ---: | ---: | ---: | ---: |')
-    for key in items:
+    for key in cost_items:
         mine = _median(walls('subtrackt-arial', key))
         mine_cpu = _median(cpus('subtrackt-arial', key))
         best_wall, best_id = None, None
@@ -393,7 +483,7 @@ def do_predictions(args):
     # 2. Memory.
     print('\n**2. subtrackt peak RSS under 60 MB; every .NET tool over 200 MB; every Tesseract '
           'tool over 300 MB; ratio at least 5x.**\n')
-    print('| engine | peak RSS MB (max over corpus) |')
+    print('| engine | peak RSS MB (max over the {} repeated items) |'.format(len(cost_items)))
     print('| :--- | ---: |')
     for e in ENG.ENGINES:
         values = rss_mb(e['id'])
@@ -423,8 +513,10 @@ def do_predictions(args):
             '{:.1f} ({})'.format(bt[1], bt[0]) if bt else '-',
             '{:.1f} ({})'.format(bc[1], bc[0]) if bc else '-',
             spread if spread is not None else '-'))
-    print('\nTrack-level CER, median of three repeats. **A gap smaller than that title\'s sidecar '
-          'spread is not a result** -- the spread is the instrument\'s own uncertainty.')
+    print('\nTrack-level CER, one run per title -- every engine\'s output is byte-identical across '
+          'repeats, which #209 measured over 50 (engine, item) pairs. **A gap smaller than that '
+          'title\'s sidecar spread is not a result**: the spread is the instrument\'s own '
+          'uncertainty.')
 
     # 9. The one the project would be most damaged by losing.
     print('\n**9. Nobody else tells you they failed: machine-readable "could not read" is zero '
@@ -461,6 +553,91 @@ def do_predictions(args):
         off = ['{} ({})'.format(k, v) for k, v in counts.items()
                if abs(v - modal) > modal * 0.01]
         print('| {} | {} | {} |'.format(key, modal, ', '.join(off) if off else 'none'))
+
+    _predictions_209(grouped, items, scored_items, cost_items, competitors)
+
+
+def _predictions_209(grouped, items, scored_items, cost_items, competitors):
+    """#209's predictions, committed to before the corpus widened. Same house rule as #131's."""
+
+    def cer(engine_id, key):
+        got = [r['scored'] for r in grouped.get((engine_id, key), []) if r.get('scored')]
+        return _median([g['track']['cer'] for g in got]) if got else None
+
+    def spread_of(engine_id):
+        values = sorted(v for v in (cer(engine_id, k) for k in scored_items) if v is not None)
+        return values
+
+    print('\n### #209 predictions, scored\n')
+
+    print('**1. The head-to-head resolves: some engine wins a majority of titles by margins that '
+          'survive the per-title sidecar spread.**\n')
+    print('| engine | titles won outright | titles too close to call |')
+    print('| :--- | ---: | ---: |')
+    for engine_id in [e['id'] for e in ENG.ENGINES]:
+        won = close = 0
+        for key in scored_items:
+            mine = cer(engine_id, key)
+            if mine is None:
+                continue
+            others = [v for v in (cer(o, key) for o in [e['id'] for e in ENG.ENGINES]
+                                  if o != engine_id) if v is not None]
+            if not others:
+                continue
+            spread = items[key].get('selector_spread_track_points') or 0.0
+            best_other = min(others)
+            if mine < best_other and (best_other - mine) >= spread:
+                won += 1
+            elif abs(mine - best_other) < spread:
+                close += 1
+        print('| {} | {} | {} |'.format(ENG.by_id(engine_id)['label'], won, close))
+
+    print('\n**2. subtrackt-arial degrades by more than 5 points of median CER against its '
+          'three-disc figure; subtrackt-fitted degrades by less than 2.**\n')
+    print('| arm | median CER over the wide corpus | over clover/wanda/gonegirl | delta |')
+    print('| :--- | ---: | ---: | ---: |')
+    anchors = [k for k in ('clover', 'wanda', 'gonegirl') if k in scored_items]
+    for engine_id in ('subtrackt-fitted', 'subtrackt-arial'):
+        wide = spread_of(engine_id)
+        old = sorted(v for v in (cer(engine_id, k) for k in anchors) if v is not None)
+        if not wide or not old:
+            continue
+        print('| {} | {} | {} | {} |'.format(
+            ENG.by_id(engine_id)['label'], _fmt(statistics.median(wide), 1),
+            _fmt(statistics.median(old), 1),
+            _fmt(statistics.median(wide) - statistics.median(old), 1)))
+
+    print('\n**3. No competitor is good on all of them either: every Tesseract wrapper has a p90 '
+          'more than 3x its median.**\n')
+    print('| engine | median | p90 | ratio |')
+    print('| :--- | ---: | ---: | ---: |')
+    for engine_id in competitors:
+        values = spread_of(engine_id)
+        if len(values) < 2:
+            continue
+        med, p90 = statistics.median(values), _pct(values, 90)
+        print('| {} | {} | {} | {} |'.format(
+            ENG.by_id(engine_id)['label'], _fmt(med, 1), _fmt(p90, 1),
+            _fmt(p90 / med, 1) if med else '—'))
+
+    print('\n**4. Determinism survives: the cost subset stays byte-identical across its repeats.** '
+          'See the determinism section of `tables`.\n')
+
+    print('**5. pgstosrt remains the only engine with a cost spread over 20% on the repeated '
+          'subset.**\n')
+    print('| engine | item | wall spread as % of median |')
+    print('| :--- | :--- | ---: |')
+    for engine_id in [e['id'] for e in ENG.all_engines()]:
+        for key in cost_items:
+            walls = [r.get('wall_s') for r in grouped.get((engine_id, key), [])
+                     if r.get('wall_s')]
+            if len(walls) < 2:
+                continue
+            med = statistics.median(walls)
+            pct_spread = (max(walls) - min(walls)) / med * 100 if med else 0
+            if pct_spread > 20:
+                print('| {} | {} | **{:.0f}%** |'.format(ENG.by_id(engine_id)['label'], key,
+                                                         pct_spread))
 
 
 def _fmt(value, places=2):
