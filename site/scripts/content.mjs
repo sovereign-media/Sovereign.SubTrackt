@@ -286,6 +286,8 @@ export async function buildPages() {
     for (const slug of site[collection]) {
       const name = `${slug}.md`;
       const source = `content/${collection}/${name}`;
+      const markdown = handwritten.get(collection).get(name);
+      checkFrontmatter(source, markdown);
       pages.push({
         collection,
         slug,
@@ -293,7 +295,7 @@ export async function buildPages() {
         source,
         // Written by hand, so it carries its own frontmatter and nothing is prepended.
         markdown: rewriteFences(
-          rewriteLinks(handwritten.get(collection).get(name), {
+          rewriteLinks(markdown, {
             source,
             route: `/${collection}/${slug}`,
             routes,
@@ -305,6 +307,33 @@ export async function buildPages() {
   }
 
   return pages;
+}
+
+/**
+ * Refuse a hand-written page whose frontmatter YAML would not parse.
+ *
+ * One case, and it is the one that keeps happening: `description: A note: what this is`. A `: ` in
+ * an unquoted scalar makes it a mapping, and the value has no key. What that costs is out of all
+ * proportion to the typo -- gray-matter throws inside the Vite plugin while vitest is still loading
+ * its config, so the whole suite reports as a startup error, every test in it is marked failed, and
+ * the stack names `js-yaml` rather than the page. Refused here, where the message can name the file
+ * and say what to do, and where it happens before either the build or the tests get going.
+ */
+export function checkFrontmatter(source, markdown) {
+  const matter = markdown.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!matter) {
+    throw new Error(`${source}: no frontmatter block. Prestige reads title, label, description.`);
+  }
+  for (const line of matter[1].split("\n")) {
+    const value = line.match(/^[A-Za-z][\w-]*: (.*)$/)?.[1];
+    if (value === undefined || /^["']/.test(value)) continue;
+    if (value.includes(": ")) {
+      throw new Error(
+        `${source}: frontmatter value ${JSON.stringify(value)} contains ": ", which YAML reads ` +
+          "as a mapping rather than as a colon. Quote the value, or reword without the colon.",
+      );
+    }
+  }
 }
 
 /**

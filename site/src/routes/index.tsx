@@ -54,15 +54,14 @@ function Home() {
           {site.title}
         </h1>
         <p className="mt-4 text-lg text-default-700">
-          Extract plain text from bitmap image-based subtitle streams — Blu-ray
-          PGS and DVD VOBSUB — without human intervention, and without a general
-          OCR engine.
+          Read the subtitles off a Blu-ray or DVD and get text back. No general
+          OCR engine, and nobody watching it run.
         </p>
         <p className="mt-4 text-default-500">
-          A shape it cannot read comes back as an unread glyph rather than as a
-          plausible guess, because an unmatched character is a fact a caller can
-          act on and a confident wrong one is not. It ships with no reference
-          glyph set embedded, on purpose — you build one from fonts you already
+          A shape it cannot read comes back unread rather than as a plausible
+          guess. An unmatched character is something the program calling it can
+          act on; a confident wrong one is not. It ships with no reference glyph
+          set embedded, on purpose, and you build one from fonts you already
           have.
         </p>
       </div>
@@ -86,9 +85,10 @@ function Home() {
       </div>
 
       <p className="mt-12 text-sm text-default-500">
-        Every decision above was measured before it was made. Fourteen
-        write-ups — typeface surveys, error censuses, accuracy across a real
-        library, and the approaches that were tried and failed — are in{" "}
+        Every decision above was measured before it was made. Fourteen write-ups
+        cover the typeface surveys, the error censuses, the accuracy across a
+        real library and the approaches that were tried and failed. They are
+        in{" "}
         <a className="underline" href={`${site.repo}/tree/main/docs`}>
           docs/
         </a>{" "}
