@@ -31,7 +31,7 @@ And two that stand alone:
 
 ```console
 $ subtrackt --version
-subtrackt 0.0.3-alpha (reference set: empty, 0 glyphs)
+subtrackt 1.0.0 (reference set: empty, 0 glyphs)
 ```
 
 Two different things decide what an extraction says, and they are fixed in different places: the
@@ -122,4 +122,5 @@ $ subtrackt extract "$input" \
 carry; the default gate turns a bad read into a non-zero exit; and `||` is where the whole design
 pays off, because a failure here is a *fact* about the material rather than a crash.
 
-Pin a version while the tool is in alpha. The command-line surface is not frozen.
+Pin a version if you are diffing extractions between runs. The command-line surface is frozen from
+`v1.0.0`, but accuracy work can change what a disc reads as without changing a flag.

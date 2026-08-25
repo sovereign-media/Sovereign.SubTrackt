@@ -94,10 +94,13 @@ Blu-ray. It is lower resolution and older, which is exactly the combination most
 differently — so it is the corner where you should be most inclined to check the output yourself.
 The first real measurement of it is [What VOBSUB reads at](/research/vobsub).
 
-## It is alpha
+## A frozen surface is not a frozen output
 
-Every release so far is a pre-release, and the command-line surface is not frozen. Pin a version if
-you are automating against it.
+From `v1.0.0` the command-line surface is stable: flags and output formats change on a major, not
+before. What that does not promise is that the same disc reads the same way forever. Accuracy work
+is the ongoing part of this project, so a minor release that reads a cue better has changed your
+output without changing a flag. Pin a version if you are diffing extractions rather than just
+running them.
 
 ---
 
