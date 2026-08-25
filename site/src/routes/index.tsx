@@ -55,15 +55,10 @@ function Home() {
           {site.title}
         </h1>
         <p className="mt-4 text-lg text-default-700">
-          Read the subtitles off a Blu-ray or DVD and get text back. No general
-          OCR engine, and nobody watching it run.
+          Glyph-based subtitle extraction, without a general OCR engine.
         </p>
         <p className="mt-4 text-default-500">
-          A shape it cannot read comes back unread rather than as a plausible
-          guess. An unmatched character is something the program calling it can
-          act on; a confident wrong one is not. It ships with no reference glyph
-          set embedded, on purpose, and you build one from fonts you already
-          have.
+          Read image-based subtitles from MKV containers at blistering speed, with a high-degree of accuracy. SubTrackt reads Blu-ray PGS and DVD VOBSUB streams, and outputs plain text.
         </p>
       </div>
 
