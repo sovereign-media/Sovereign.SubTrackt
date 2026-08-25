@@ -168,6 +168,14 @@ pub struct ExtractArgs {
     #[arg(long)]
     pub ignore_declared_script: bool,
 
+    /// Measure a word gap band by band down the line rather than between whole bounding boxes.
+    #[arg(long, overrides_with = "no_band_gaps")]
+    pub band_gaps: bool,
+
+    /// Measure a word gap between bounding boxes, which is what the tool did before #219.
+    #[arg(long, overrides_with = "band_gaps")]
+    pub no_band_gaps: bool,
+
     /// Measure a line whose glyphs are all one height against the scale the track is drawn at.
     #[arg(long, overrides_with = "no_borrow_track_scale")]
     pub borrow_track_scale: bool,
@@ -541,6 +549,11 @@ impl ExtractArgs {
             ..Config::default()
         };
         config.binarize.include_outline = self.include_outline;
+        if self.band_gaps {
+            config.layout.band_gaps = true;
+        } else if self.no_band_gaps {
+            config.layout.band_gaps = false;
+        }
         config
     }
 

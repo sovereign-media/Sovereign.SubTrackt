@@ -225,6 +225,24 @@ English defect.** The lost word gap before a tall narrow letter is 6 instances i
 and 142 across its Swedish and Norwegian — same disc, same bug, and only one of the three can rank a
 change.
 
+### Measuring one thing more truthfully can make the answer worse
+
+#222 is the case, and it is worth keeping because the instinct it defeats is a good one.
+
+#219 found that a word gap is measured between bounding **boxes**, and that this understates the
+space in front of a `j` by 29 points and a `T` by 46. Measuring between the **ink** instead removes
+69% of the defect on the tracks that have it — Gone Girl's glued `jag` goes from 80 to 25.
+
+It also makes **600 cues worse** across the nine-track bench, on every scored track. A full stop
+shares one band with the letter before it, that band holds the letter's narrow foot, and the honest
+distance there is genuinely wide — so `blunder.` becomes `blunder .`. The box gap was compressing
+those by accident, and #40's two decisiveness constants were fitted against a distribution that
+included the compression.
+
+**A measurement and the constants tuned against it are one system.** Improving half of it in
+isolation moves the population the other half was fitted to, and the bench is what says so. The
+machinery ships behind `--band-gaps`, off, the way `mark_weight_permille` does.
+
 ## Gates
 
 There are two, and they are two because #218 found that one of them could not be built out of the

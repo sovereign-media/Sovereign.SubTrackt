@@ -204,5 +204,8 @@ fn to_glyph(record: &subtrackt::GlyphRecord) -> subtrackt_core::Glyph {
         aspect: record.aspect,
         upright: subtrackt_core::UprightSpan::of_box(record.bounds),
         slant: subtrackt_core::Slant::UPRIGHT,
+        // A survey does not carry #219's bands -- they are read off the label map, which a survey
+        // does not keep -- so this asks for the fallback. Nothing here measures spacing.
+        bands: subtrackt_core::UprightBands::UNKNOWN,
     }
 }

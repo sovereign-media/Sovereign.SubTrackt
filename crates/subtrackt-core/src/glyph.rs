@@ -437,6 +437,117 @@ impl UprightSpan {
     }
 }
 
+/// How many bands a glyph's ink is measured in for spacing.
+///
+/// Four, and their boundaries are the two anchors the line already reports plus the midpoint
+/// between them: above the cap line, the upper half of the body, the lower half, and below the
+/// baseline. A fraction of a measured cap height rather than a typographic constant, for the reason
+/// `CLAUDE.md` gives — an x-height at 0.72 of cap is a fact about one typeface and this has to hold
+/// on every disc.
+pub const SPACING_BANDS: usize = 4;
+
+/// Where a glyph's deskewed ink stands, band by band down its line.
+///
+/// [`UprightSpan`] answers "how far left and right does this ink reach", and #219 measured what that
+/// costs: it is a *box*, so the gap between two boxes understates the space between two letters
+/// whenever one of them is widened by ink at a height the other does not occupy. On a real disc the
+/// word space in front of a `j` measures 62% of a glyph width against 91% between the ink, because
+/// `j`'s box is widened leftwards by a descender hook that sits below the baseline where the letter
+/// before it has nothing at all. `T` is the same the other way and worse, 80% against 126%.
+///
+/// So spacing asks the question per band and takes the narrowest answer over the bands **both**
+/// glyphs occupy. A band one of them does not reach is not a place they face each other, and a
+/// distance measured there would be between one letter and thin air.
+///
+/// Four bands rather than one row each, and the approximation is deliberate: a row-exact profile is
+/// a `Vec` per glyph, and every glyph of a stream is resident at once while segmentation runs. This
+/// is 40 bytes, fixed, and `xtask word-gap` measures the row-exact answer so the two can be
+/// compared on real material rather than assumed equal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UprightBands {
+    /// Deskewed left and right edges per band, in tenths of a pixel, top band first.
+    ///
+    /// A band with no ink carries an empty range, which is what [`Self::band`] reads as absent.
+    bands: [(i32, i32); SPACING_BANDS],
+    /// Whether the line's anchors were found at all.
+    ///
+    /// False where the line reported no cap line or no baseline, and a caller then falls back to
+    /// [`UprightSpan`] — which is what spacing used before this existed. Banding a line whose
+    /// anchors were never measured would be dividing it at a fabricated height.
+    known: bool,
+}
+
+impl UprightBands {
+    /// A glyph on a line whose anchors could not be found.
+    pub const UNKNOWN: Self = Self { bands: [Self::EMPTY_BAND; SPACING_BANDS], known: false };
+
+    /// What a band with no ink in it carries. Inverted on purpose: no real span can be.
+    pub const EMPTY_BAND: (i32, i32) = (i32::MAX, i32::MIN);
+
+    /// Build from per-band edges, in tenths of a pixel.
+    #[must_use]
+    pub const fn new(bands: [(i32, i32); SPACING_BANDS]) -> Self {
+        Self { bands, known: true }
+    }
+
+    /// Whether the line's anchors were found.
+    #[must_use]
+    pub const fn known(self) -> bool {
+        self.known
+    }
+
+    /// One band's edges, or `None` where this glyph has no ink in it.
+    #[must_use]
+    pub const fn band(self, at: usize) -> Option<(i32, i32)> {
+        if !self.known || at >= SPACING_BANDS {
+            return None;
+        }
+        let (left, right) = self.bands[at];
+        if left > right {
+            None
+        } else {
+            Some((left, right))
+        }
+    }
+
+    /// Which band a plane row falls in, given the line's anchors.
+    ///
+    /// `cap_top` and `baseline` are plane rows and y grows downward, so the bands run top to bottom:
+    /// 0 above the cap line, 1 and 2 the two halves of the body, 3 below the baseline.
+    #[must_use]
+    pub fn band_of(row: u32, cap_top: u32, baseline: u32) -> usize {
+        if row < cap_top {
+            return 0;
+        }
+        if row >= baseline {
+            return SPACING_BANDS - 1;
+        }
+        if row < cap_top + (baseline - cap_top) / 2 {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// The narrowest space between two glyphs over the bands they both occupy.
+    ///
+    /// `None` when either side is unmeasured or they share no band — an apostrophe beside a comma
+    /// never face each other, and a horizontal distance between them is not a thing that exists.
+    /// The caller falls back to the box, which is the answer it had before.
+    #[must_use]
+    pub fn gap_to(self, next: Self) -> Option<i32> {
+        let mut narrowest: Option<i32> = None;
+        for at in 0..SPACING_BANDS {
+            let (Some((_, mine)), Some((theirs, _))) = (self.band(at), next.band(at)) else {
+                continue;
+            };
+            let span = theirs - mine;
+            narrowest = Some(narrowest.map_or(span, |best: i32| best.min(span)));
+        }
+        narrowest
+    }
+}
+
 /// How far the text line a glyph stands on leans, in tenths of a percent of a slope.
 ///
 /// The fifth thing a glyph carries that its own shape cannot say, and the only one that is a
@@ -510,6 +621,13 @@ pub struct Glyph {
     pub aspect: InkAspect,
     /// Where its ink stands once its line's slant is divided out, which its box gets wrong.
     pub upright: UprightSpan,
+    /// The same, band by band down the line, which is what spacing measures against.
+    ///
+    /// #219: a box gap understates the space in front of a `j` by 29 points and in front of a `T`
+    /// by 46, because both boxes are widened by ink at a height the neighbouring letter does not
+    /// occupy. [`UprightBands::UNKNOWN`] on a line whose anchors were never found, and the caller
+    /// then falls back to [`Self::upright`].
+    pub bands: UprightBands,
     /// How far the line it stands on leans, which is the only thing here that is not about it.
     pub slant: Slant,
 }
@@ -673,5 +791,96 @@ mod tests {
         assert!(!close.is_unambiguous(6));
         assert!(clear.is_unambiguous(6));
         assert!(!GlyphMatch::unmatched(90).is_unambiguous(0));
+    }
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    /// A glyph with ink in the bands named, spanning `left..right` in tenths within each.
+    fn banded(spans: [(i32, i32); SPACING_BANDS]) -> UprightBands {
+        UprightBands::new(spans)
+    }
+
+    const NONE: (i32, i32) = UprightBands::EMPTY_BAND;
+
+    #[test]
+    fn a_band_with_no_ink_is_absent_rather_than_zero_width() {
+        // The distinction the whole type turns on. A band a glyph does not reach is not a place the
+        // two letters face each other, and a distance measured there would be between one letter
+        // and thin air.
+        let glyph = banded([NONE, (0, 100), (0, 100), NONE]);
+        assert_eq!(glyph.band(0), None);
+        assert_eq!(glyph.band(1), Some((0, 100)));
+        assert_eq!(glyph.band(3), None);
+    }
+
+    #[test]
+    fn an_unmeasured_line_reports_no_bands_at_all() {
+        // A line with no cap line and no baseline cannot be divided at a measured height, and
+        // dividing it at a fabricated one is what `CLAUDE.md` opens by forbidding. The caller falls
+        // back to the box, which is what it used before any of this.
+        for at in 0..SPACING_BANDS {
+            assert_eq!(UprightBands::UNKNOWN.band(at), None);
+        }
+        assert!(!UprightBands::UNKNOWN.known());
+        assert_eq!(UprightBands::UNKNOWN.gap_to(banded([(0, 10); SPACING_BANDS])), None);
+    }
+
+    #[test]
+    fn the_gap_is_the_narrowest_over_the_bands_both_glyphs_reach() {
+        // #219's mechanism, in the small. The left glyph reaches right in the upper band -- a `T`'s
+        // crossbar -- and its stem is far to the left below. The right glyph is a plain stem. The
+        // narrowest of the two is what a reader sees, and the box would have reported it alone.
+        let bar = banded([NONE, (0, 100), (0, 20), NONE]);
+        let stem = banded([NONE, (140, 160), (140, 160), NONE]);
+        assert_eq!(bar.gap_to(stem), Some(40), "the upper band, where the crossbar reaches");
+    }
+
+    #[test]
+    fn a_band_the_other_glyph_does_not_reach_never_widens_the_gap() {
+        // The `j` case. Its descender hook reaches left in the bottom band, where the letter before
+        // it has no ink at all -- so that band is not consulted, and the gap is measured against
+        // the stem instead of against the hook.
+        let letter = banded([NONE, (0, 100), (0, 100), NONE]);
+        let jay = banded([NONE, (200, 220), (200, 220), (150, 220)]);
+        assert_eq!(jay.band(3), Some((150, 220)), "the hook is there");
+        assert_eq!(
+            letter.gap_to(jay),
+            Some(100),
+            "and it is not what the space is measured to"
+        );
+    }
+
+    #[test]
+    fn two_glyphs_sharing_no_band_have_no_measurable_gap() {
+        // An apostrophe above a comma. The caller falls back to the box, and #222 is what happens
+        // when it does not: a full stop shares one band with the letter before it, the letter's
+        // narrow foot, and the honest distance there reads as a word break.
+        let high = banded([(0, 100), (0, 100), NONE, NONE]);
+        let low = banded([NONE, NONE, (200, 300), (200, 300)]);
+        assert_eq!(high.gap_to(low), None);
+    }
+
+    #[test]
+    fn a_row_is_banded_by_the_lines_own_anchors_and_not_by_a_typographic_constant() {
+        // Four bands from two measured anchors plus the midpoint between them. An x-height at 0.72
+        // of cap is a fact about one typeface; a fraction of a measured cap height is not, which is
+        // the rule `CLAUDE.md` states for every threshold in this project.
+        let (cap_top, baseline) = (100, 200);
+        assert_eq!(UprightBands::band_of(80, cap_top, baseline), 0, "above the cap line");
+        assert_eq!(
+            UprightBands::band_of(120, cap_top, baseline),
+            1,
+            "upper half of the body"
+        );
+        assert_eq!(UprightBands::band_of(180, cap_top, baseline), 2, "lower half");
+        assert_eq!(UprightBands::band_of(220, cap_top, baseline), 3, "below the baseline");
+        assert_eq!(
+            UprightBands::band_of(150, cap_top, baseline),
+            2,
+            "the midpoint goes below"
+        );
     }
 }

@@ -38,7 +38,7 @@
 //! leaning right at the top reports a **negative** shear. On two real discs it reads -0.155 and
 //! -0.160 against Arial Italic's own -0.173.
 
-use subtrackt_core::{SPAN_TENTHS, UprightSpan};
+use subtrackt_core::{SPACING_BANDS, SPAN_TENTHS, UprightBands, UprightSpan};
 
 use crate::ccl::LabelMap;
 use crate::group::GroupedGlyph;
@@ -162,6 +162,52 @@ pub fn upright_span(map: &LabelMap, glyph: &GroupedGlyph, shear: f64, pivot: u32
     // a pixel either way is nothing beside a word gap; a span that ate a column would be the same
     // class of error this whole type exists to remove.
     UprightSpan::new(round_to_tenths(lo, f64::floor), round_to_tenths(hi, f64::ceil))
+}
+
+/// As [`upright_span`], measured separately in each of the line's four spacing bands.
+///
+/// #219. The span above is a box, and a box gap understates the space between two letters whenever
+/// one of them is widened by ink at a height the other does not occupy -- by 29 points in front of
+/// a `j`, whose descender hook reaches left below the baseline, and by 46 in front of a `T`, whose
+/// crossbar reaches right at cap height. Measuring per band and taking the narrowest answer over
+/// the bands both glyphs reach is what removes that.
+///
+/// `cap_top` and `baseline` are the line's own anchors, so the bands are a fraction of a *measured*
+/// cap height. A shear of zero is the honest answer for a line that does not lean, and it is what
+/// [`UprightSpan::of_box`] already does for the same case -- this is not a fabricated slant.
+#[must_use]
+pub fn upright_bands(
+    map: &LabelMap,
+    glyph: &GroupedGlyph,
+    shear: f64,
+    pivot: u32,
+    cap_top: u32,
+    baseline: u32,
+) -> UprightBands {
+    let mut lo = [f64::MAX; SPACING_BANDS];
+    let mut hi = [f64::MIN; SPACING_BANDS];
+    for part in &glyph.parts {
+        map.for_each(part.label, part.bounds, |x, y| {
+            // The band the pixel's own row falls in. Its corners are expanded below the way
+            // `upright_span` expands them, and a corner that strays a fraction of a row into the
+            // next band widens this one instead -- which errs towards a *narrower* gap, the same
+            // direction the outward rounding errs in.
+            let band = UprightBands::band_of(y, cap_top, baseline);
+            let (x, y) = (f64::from(x), f64::from(y));
+            for (cx, cy) in [(x, y), (x + 1.0, y), (x, y + 1.0), (x + 1.0, y + 1.0)] {
+                let sheared = cx - shear * (cy - f64::from(pivot));
+                lo[band] = lo[band].min(sheared);
+                hi[band] = hi[band].max(sheared);
+            }
+        });
+    }
+    UprightBands::new(std::array::from_fn(|at| {
+        if hi[at] <= lo[at] {
+            UprightBands::EMPTY_BAND
+        } else {
+            (round_to_tenths(lo[at], f64::floor), round_to_tenths(hi[at], f64::ceil))
+        }
+    }))
 }
 
 /// A sheared coordinate in tenths of a pixel, rounded the given way.
