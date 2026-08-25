@@ -13,7 +13,7 @@ runtime, no model files and no system dependencies.
 > this. **Output** is text either way — SubRip or WebVTT.
 
 **Status: 1.0.** The pipeline runs end to end on real media and the command-line surface is frozen:
-flags and output formats change on a major, not before. What it still does not carry is a
+flags and output formats change on a major, not before. What it does not carry is a
 **reference glyph set** — on purpose. You generate one from fonts you already have and let
 `subtrackt fit` pick between them. Until you do, every glyph honestly comes back unmatched, and
 [Reference sets](https://sovereign-media.github.io/Sovereign.SubTrackt/guide/reference-sets) has the
@@ -25,7 +25,7 @@ reasoning.
 
 **[sovereign-media.github.io/Sovereign.SubTrackt](https://sovereign-media.github.io/Sovereign.SubTrackt/)**
 
-Everything that was once in this file is there, in two sections:
+The documentation is there, in two sections:
 
 - **[How it works](https://sovereign-media.github.io/Sovereign.SubTrackt/guide/what-this-is)** —
   eight short pages assuming nothing. What an image-based subtitle is, why an unmatched glyph is
@@ -37,11 +37,7 @@ Everything that was once in this file is there, in two sections:
   a release binary, building a reference set, reading a track. Then one page per command with every
   flag on it, and worked examples of whole jobs.
 
-The prose lives there rather than here because the two readers want opposite things: this file is
-read top to bottom by somebody sizing the project up, and the site is read a page at a time by
-somebody with a disc in front of them. Serving both from one file made it 700 lines and neither.
-
-The research corpus stays in this repository, unpublished and canonical, in [`docs/`](docs/) — the
+The research corpus lives in this repository, unpublished and canonical, in [`docs/`](docs/) — the
 surveys, the measurements and the decisions the numbers above came out of.
 
 ---
