@@ -29,7 +29,7 @@ const SECTIONS = [
   {
     href: `${site.base}usage/${site.usage[0]}`,
     label: "Usage",
-    lede: "Install it, build a reference set, read a track. Then one page per command, with every flag.",
+    lede: "Install it, build a reference set, read a track. Then one page per command with every flag, and worked examples of whole jobs.",
     cta: "Start here to run it",
   },
 ];
