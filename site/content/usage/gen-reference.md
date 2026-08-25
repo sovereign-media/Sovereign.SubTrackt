@@ -82,10 +82,9 @@ One set, several cuts, every character contributing an entry from each. On a rea
 the difference between reading the italic act well and reading it badly, and the italic act is
 often a small fraction of the runtime and a large fraction of the errors.
 
-Where you do not have the italic cut, the pipeline compensates differently. It measures how far a
-line leans and samples along that slant, two stages before the matcher, and switches that off the
-moment a set carries italic entries. The four-way comparison is in
-[The slant](../docs/italic-slant.md).
+Without the italic cut the pipeline measures how far a line leans and samples along that slant,
+two stages before the matcher, then switches that off once a set carries italic entries. The
+four-way comparison is in [The slant](../docs/italic-slant.md).
 
 ## Why this is a subcommand and not a script
 
@@ -114,12 +113,9 @@ the italic cut in it, and you will want that distinction when a title reads oddl
 
 ## Why nothing is shipped
 
-This is the design decision people push back on hardest, and it is not laziness. A shipped set
-would have to be built from *some* font, and most discs were not authored in it. A near-miss set
-does not fail loudly. It finds a plausible nearest entry for nearly everything and produces a file
-that looks complete and is quietly wrong.
-
-[Reference sets](/guide/reference-sets) makes the argument in full, and
-[Which set should ship](../docs/reference-set.md) has the measurement behind it.
+Because a shipped set would have to come from *some* font, most discs were not authored in it, and
+a near-miss set fails invisibly rather than loudly.
+[Reference sets](/guide/reference-sets#why-nothing-ships-embedded) makes the argument;
+[Which set should ship](../docs/reference-set.md) has the measurement.
 
 Next: [`fit`](/usage/fit), which decides which of your candidates reads a given title best.

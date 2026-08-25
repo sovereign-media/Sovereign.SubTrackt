@@ -133,16 +133,13 @@ Drop `--report` and `-o` and the subtitle goes to standard output, so it pipes.
 
 ## 7. Read a few cues
 
-This is a real step, it takes a minute, and skipping it is the most common way to end up with a bad
-file and not know.
+A real step, and skipping it is the most common way to end up with a bad file and not know.
 
-Open the output and read the first page. Not for accuracy, for sanity. You are looking for the
-signature of a near-miss typeface, which is not gibberish but words that are almost right: `Iater`,
-`rnodern`, `hoIiday`. A wrong set produces text that reads fine at a glance.
+Open the output and read the first page. You are looking for words that are almost right — `Iater`,
+`rnodern`, `hoIiday` — which is what a near-miss typeface produces, and it reads fine at a glance.
 
-If it looks right you are done, and the `.subtref` is now a property of that title, so keep it
-beside the film. If it does not, [Reading a track](/guide/reading-a-track) has the failures in order
-of how often each one is the answer.
+If it looks right, keep the `.subtref` beside the film and you are done. If not,
+[Reading a track](/guide/reading-a-track#when-a-track-reads-badly) has the failures in order.
 
 ## The whole thing
 

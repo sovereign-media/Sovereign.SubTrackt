@@ -1,112 +1,61 @@
 ---
 title: What this is
 label: What this is
-description: What a bitmap subtitle track is, why it is a picture rather than text, and what comes out the other side.
+description: What a bitmap subtitle track is, why it is a picture rather than text, and what the pipeline does with one.
 ---
 
 # What this is
 
-SubTrackt reads the subtitles off a Blu-ray or DVD and turns them into a text file.
+SubTrackt reads the subtitles off a Blu-ray or DVD and gives you a text file.
 
-There is more work in that sentence than it looks. This page unpacks it, and by the end you will
-know what the tool is for, why it has to exist, and what it hands you.
+## The problem
 
-## Subtitles come in two kinds
+A subtitle file you download is text. Open it in an editor and there are the words, with a start
+and end time on each.
 
-A subtitle file you download for a film is **text**. Open it in a text editor and you can read it:
-a line of words, a start time, an end time, over and over. A computer can search it, translate it,
-restyle it or feed it to anything, because the words are in the file.
+A subtitle track on a disc usually isn't. It's a sequence of pictures: for each subtitle, a small
+image of the words already drawn, plus the times to show and hide it. Your player doesn't draw the
+subtitle, it pastes a picture over the video.
 
-A subtitle track on a **disc** is usually not that. It is a sequence of **pictures**.
+There's no letter `a` anywhere in that file. There's a shape a human reads as one.
 
-For each subtitle the disc carries a small image of the words already drawn, with the typeface,
-colour, outline and screen position baked in, plus the time to put it up and the time to take it
-down. Your player never draws the subtitle. It pastes a picture over the video.
+Discs do it that way so they look the same on every player ever built. Text would need each player
+to hold the font and lay the line out itself, and they'd all do it slightly differently, or be
+missing the font, or be missing the letters some language needs. Drawing it once at authoring time
+sidesteps all of that.
 
-Nowhere in that file is there a letter `a`. There is an arrangement of pixels that a human reads as
-an `a`.
+Good decision for a disc. Awkward for everything downstream, which now has no words: no search, no
+translation, no re-timing, no web player, no accessibility tooling. Getting the words back means
+looking at the pictures and working out what letters they are.
 
-## Why a disc does it that way
+You'll meet two formats. PGS on Blu-ray, VOBSUB on DVD. Different details, same idea.
 
-Because the disc has to look the same on every player ever built.
+## What it does with one
 
-If the disc carried text, every player would need the right font, and would have to lay the line
-out, break it, position it and draw it. Every player would do that slightly differently, or would
-be missing the font, or would be missing the letters some language needs. Studios did not want a
-subtitle that looks one way on a set-top box in one country and another way on a games console
-somewhere else, and they very much did not want one that comes out as empty boxes.
-
-So the studio draws the subtitle once, when the disc is authored, and ships the drawing. Every
-player gets it pixel for pixel, because every player is only copying pixels. That is the right call
-for a disc, and it is why this tool has to exist.
-
-You will meet two formats: **PGS** on Blu-ray and **VOBSUB** on DVD. They differ in the details and
-are the same idea.
-
-## What that costs you
-
-Everything downstream that wanted words gets none.
-
-You cannot search the subtitles. You cannot re-time or restyle them without redrawing them. You
-cannot feed them to a translation system, an index, a search engine or an accessibility tool. You
-cannot put them on a web player that expects a text track. A media library that wants to say "this
-film contains this line of dialogue" has nothing to look at.
-
-Getting words back means something has to **look at the pictures and decide what letters they are**.
-That is the whole job, and it is what SubTrackt does.
-
-## What it actually does
-
-Given a disc rip, SubTrackt:
-
-1. Finds the subtitle track inside the file and pulls out its packets.
-2. Turns those packets back into the pictures the player would have shown.
+1. Finds the subtitle track and pulls out its packets.
+2. Rebuilds the pictures the player would have shown.
 3. Decides which pixels are ink and which are background.
-4. Cuts each picture into individual character shapes, separating the letters and reattaching
-   accents to the letters they belong to.
-5. Compares each shape against a set of shapes it already knows, and takes the closest one if
-   anything is close enough.
-6. Puts the characters back in order, works out where the word spaces go, attaches the times and
-   writes the result out.
+4. Cuts each picture into character shapes, reattaching accents to their letters.
+5. Compares each shape against a set of shapes it knows, and takes the closest one if anything is
+   close enough.
+6. Reassembles the characters, works out the word spaces, attaches the times, writes it out.
 
-Everything else is arranged around step 5, which is what the next two pages are about:
-[why it is a comparison rather than a guess](/guide/why-not-ocr), and [what the set of known shapes
-is and where you get one](/guide/reference-sets).
+Step 5 is the interesting one and the subject of [the next page](/guide/why-not-ocr). The set of
+known shapes is something [you build](/guide/reference-sets); nothing ships embedded.
 
-## What comes out
+Out the other end comes SubRip (`.srt`) or WebVTT (`.vtt`), italic lines tagged, and on request a
+count of what couldn't be read.
 
-A subtitle file, in **SubRip** (`.srt`) or **WebVTT** (`.vtt`), the two formats everything reads.
-Lines the disc drew in a leaning typeface come out marked as italic.
+## What it won't touch
 
-And, if you ask for it, **a count of what could not be read**. That count is the reason to use this
-tool over another one, and the next page is about why.
+Tracks that are already text — `S_TEXT/UTF8`, ASS/SSA, WebVTT and the rest. Nothing to recognise,
+so you want a muxer instead. [`list`](/usage/list) won't even show them.
 
-## What it is not for
+Subtitles burned into the video image, because there's no track to read.
 
-**Tracks that are already text.** Some containers carry a text subtitle track alongside the video:
-SubRip, ASS/SSA, WebVTT and the rest. There is nothing to recognise in those, because the words are
-already there. SubTrackt will not list them and will not touch them. If your track is text you want
-a tool that copies it out, not this one.
+MP4, which it refuses by name rather than guessing at the container.
 
-**Burned-in subtitles.** If the words are part of the video image rather than a separate track,
-there is no subtitle track to read and this tool has nothing to work with.
+## Getting going
 
-## The three commands
-
-In the order you would run them:
-
-```console
-$ subtrackt gen-reference /usr/share/fonts ./sets      # once: learn what letters look like
-$ subtrackt fit movie.mkv --references ./sets -o movie.subtref   # per title: which typeface?
-$ subtrackt extract movie.mkv --reference movie.subtref -o movie.en.srt   # per title: read it
-```
-
-The first is a one-off that builds a library of candidates from fonts you already have. The other
-two are what you run for each film. The rest of this section covers those three commands, one page
-each, then how it measures up against other tools, then what it cannot do.
-
-There is also `subtrackt list`, which tells you what subtitle tracks a file contains. Start there
-when you meet a new file.
-
-If you would rather run the thing than read about it, [Quick start](/usage/quick-start) is the same
-four commands with the installation in front of them, and one page per command after.
+[Quick start](/usage/quick-start) is install, build a set, read a track. The rest of this section is
+why it works the way it does, and you don't need any of it to run the thing.

@@ -1,113 +1,77 @@
 ---
 title: Why not OCR
 label: Why not OCR
-description: The thesis. An OCR engine always answers; a glyph matcher is allowed to say it does not know, and that is worth more than accuracy.
+description: The thesis. An OCR engine always answers; a glyph matcher can say it doesn't know, and that turns out to be worth more.
 ---
 
 # Why not OCR
 
-Turning pictures of words into words is a solved problem with a name: **optical character
-recognition**. There are good OCR engines, they are free, and pointing one at a subtitle image
-works.
+Reading pictures of words is a solved problem with a name: optical character recognition. Good
+engines exist, they're free, and pointing one at a subtitle image works.
 
-So why does this exist? Not because OCR is bad. Because OCR answers a question nobody asked, and
-will not answer the one that matters.
+So why this?
 
-## An OCR engine always answers
+## OCR always answers
 
-Show a general OCR engine a shape it has never seen. An unusual typeface, a character from a
-language it was not trained on, a letter the disc drew badly, two letters that happen to touch. It
-will still return a letter. It has to, because that is what it is for. It finds the most plausible
-reading and hands it back with a confidence number attached.
+Show an OCR engine a shape it's never seen — an odd typeface, a language it wasn't trained on, a
+letter the disc drew badly, two letters touching — and it returns a letter anyway. It has to. It
+finds the most plausible reading and attaches a confidence number.
 
-The confidence number feels like it solves this. It does not.
+The confidence number looks like the answer to this, and isn't. It's the engine's opinion of its
+own work, and it's least reliable exactly where it's most wrong. An unfamiliar shape scores high
+when it happens to resemble something common. A whole track read in the wrong typeface comes back
+looking calm. You can't set a threshold on it, because it doesn't mean the same thing twice.
 
-A confidence number is the engine's opinion of its own work, and the cases where it is most wrong
-are the cases where its opinion is worth least. A shape that is genuinely unfamiliar can score high
-because it happens to resemble something common. A whole track read in the wrong typeface can come
-back looking calm. You cannot set a threshold on it, because the number does not mean the same
-thing twice.
+What you get is a file full of real-looking words, some of which nobody wrote, and nothing marking
+which.
 
-What you get is a subtitle file full of real-looking words, some of which nobody ever wrote, and
-**nothing in the output tells you which**.
+## Why that matters here
 
-## Why that is the whole problem
+If someone reads the output before it ships, it barely does. They'll spot `Iater` and fix it.
 
-If a person is going to read the result before it ships, none of this matters much. They will spot
-`Iater` for `later` and fix it.
+This is built for the case where nobody reads it: thousands of titles, no human in the loop,
+straight into a library. There a plausible wrong line is worse than no line, because everything
+downstream treats it as real. It gets indexed, searched, translated and displayed as though someone
+wrote it.
 
-This tool is built for the case where nobody is going to: thousands of titles, processed without a
-human in the loop, results going straight into a library. There, a plausible wrong line is worse
-than no line at all, because everything downstream treats it as a right one. It gets indexed,
-searched, translated and displayed as though somebody had written it.
-
-An automated pipeline does not need a tool that is usually right. It needs a tool that can tell it
-when it was not.
+An unattended pipeline doesn't need a tool that's usually right. It needs one that says when it
+wasn't.
 
 ## What this does instead
 
-SubTrackt is not an OCR engine. It is a **glyph matcher**, and the difference is that it has a
-fixed, finite list of shapes it knows.
+It's a glyph matcher rather than an OCR engine, which means it has a fixed list of shapes it knows.
 
-Each shape cut out of a subtitle picture is measured and compared against every entry in that list.
-The closest entry wins, but only if it is close *enough*. If the nearest known shape is still too
-far away, the answer is **no match**.
+Every shape cut out of a subtitle gets measured and compared against that list. Closest entry wins,
+but only if it's close *enough*. If the nearest known shape is still too far away, the answer is no
+match.
 
-That is the design, and it trades three things for one.
+You give up three things:
 
-It gives up:
+- characters that aren't in the list, since there's no guessing at unfamiliar shapes
+- typefaces too far from the one the list was built from
+- always producing output
 
-- Any character not in the list. There is no guessing at what a strange shape probably was.
-- Any typeface too far from the one the list was built from.
-- The comfort of always producing output.
+and get one back: a failure you can see. An unread character is a specific character at a specific
+time in a specific line. It's counted, it's in the report, and you can make the run stop when there
+are too many.
 
-It buys **a failure you can see**. An unread character is a specific character, at a specific time,
-in a specific line. It is counted. It appears in the report. Ask for it and the run will stop
-outright when there are too many.
+## Why that trade is worth making
 
-## A fact you can act on
+A confidence score is a number to argue about. An unmatched glyph is an event, so whatever called
+SubTrackt can do something about it:
 
-A confidence score is a number to argue about. An unmatched glyph is an event, and because it is an
-event the thing calling SubTrackt can *do* something:
+- ship the text, the track read clean
+- try a different reference set, this one's the wrong typeface
+- fall back to burning the original pictures into the video, which is ugly but correct
+- queue it for a person, since it's one of the few that need one
 
-- Ship the text, because the track read cleanly.
-- Try a different reference set, because this one is not the right typeface.
-- Give up on text for this title and fall back to burning the original pictures into the video,
-  which is ugly but correct.
-- Put it in a queue for a person, because it is one of the few that need one.
+All four need the tool to have been honest about failing, and none of them is available to
+something holding a file of confident sentences.
 
-All four are decisions, and all four need the tool to have been honest about failing. None of them
-is available to a caller holding a file of confident sentences.
+## The catch
 
-## The side effect: it is fast
+Built from the material's own typeface, a set reads at least as well as a general OCR engine and
+more evenly across titles. Built from a generic one that doesn't match, it reads clearly worse.
+Refusing to guess only helps when the shapes you know are the right ones.
 
-There is a second consequence, and it was not the goal.
-
-Comparing a shape against a few hundred known shapes is arithmetic, a handful of machine
-instructions per comparison. Nothing loads a model, starts a session, looks for an accelerator or
-reserves memory. And the same letter in the same film is the same shape every time, so after the
-first few cues almost every character is answered from a cache without any comparison at all.
-
-Reading a feature film's entire subtitle track takes seconds, from one small program with nothing
-installed alongside it. That is not why the design was chosen, but it is why it is cheap to run
-over a large library.
-
-## The honest version
-
-Two things have to be said plainly, because the argument above is easy to overstate.
-
-**With a reference set built from the material's own typeface, this reads at least as well as a
-general OCR engine, and more evenly across titles.** With a generic set that does not match the
-material, it reads *worse*, and clearly worse. Refusing to guess is only a virtue when the shapes
-you do know are the right ones.
-
-**Nothing here can tell you which of those you are in without you looking.** The report says how
-much was read, not how much was read *correctly*, and those are different questions. The page on
-[fitting a title](/guide/fitting-a-title) is about that gap, and [what it cannot
-do](/guide/what-it-cannot-do) is the full list.
-
-So the claim is a narrow one: when this tool fails, it says so, and says where. Everything else was
-traded for that.
-
-All of the above was measured against five other tools reading the same bytes, and the next page,
-[How it compares](/guide/how-it-compares), is what that found.
+[How it compares](/guide/how-it-compares) has both numbers.
