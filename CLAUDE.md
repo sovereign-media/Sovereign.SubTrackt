@@ -217,6 +217,31 @@ English defect.** The lost word gap before a tall narrow letter is 6 instances i
 and 142 across its Swedish and Norwegian — same disc, same bug, and only one of the three can rank a
 change.
 
+## Gates
+
+There are two, and they are two because #218 found that one of them could not be built out of the
+other. `docs/script-guard.md` has it.
+
+The **threshold gate** counts: a track whose matched fraction falls below `--min-matched` is refused
+after the read. The **script guard** compares two declarations before the read: the container named a
+language, the language has a known script, and the reference set holds not one character of it.
+
+The rule they came from is the one to remember when the next gate is proposed here:
+
+> **A wrong script and a wrong typeface are the same event to everything downstream — the set cannot
+> spell this track — and nothing computed from the read can name which.**
+
+Seven statistics have now been measured against a question of this shape and none separates; six are
+in `docs/fit-confidence.md`. The seventh was `fit`, and it looked convincing — 26.5 to 37.3 on five
+non-Latin tracks against 11.8 to 14.3 on eleven Latin ones, same disc. **The control killed it**:
+the same English track read with six wrong typefaces scores 23.1 to 34.9, a band that *contains* the
+non-Latin one. A statistic that separates on the material you sampled has not separated.
+
+So a new gate here has to bring evidence from outside the read, and it has to refuse on a fact.
+Every uncertainty resolves to a pass — untagged streams, unknown tags, languages written in two
+scripts — because a wrong refusal costs a caller an expensive fallback on a track that would have
+read, and a missed one costs only what the pipeline already did.
+
 ## Scope
 
 Stages are traits in `subtrackt-core::stage`. No stage crate depends on another stage crate; the

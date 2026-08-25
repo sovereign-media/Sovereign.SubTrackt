@@ -14,7 +14,8 @@ use std::time::Instant;
 
 use subtrackt_core::progress::{Phase, Progress, Silent};
 use subtrackt_core::{
-    Error, GlyphMatcher, LineMetrics, MarkSlope, Rect, Result, Segmenter, SubtitleImage, TextTrack,
+    Error, GlyphMatcher, LineMetrics, MarkSlope, Rect, Result, Script, Segmenter, SubtitleImage,
+    TextTrack,
 };
 use subtrackt_demux::{StreamInfo, SubtitleSource};
 use subtrackt_glyph::binarize::{Binarizer, BinaryMask};
@@ -115,6 +116,45 @@ impl Outcome {
     }
 }
 
+/// Refuse a track whose declared language the reference set holds no character for.
+///
+/// #218. Three things have to be true before this objects, and each one is a fact rather than a
+/// judgement: the container **declared** a language, that language has a **known** script, and the
+/// set holds **not one** character of it. Any of the three failing is a pass.
+///
+/// The asymmetry is deliberate and it is the whole design. A wrong refusal costs a caller an
+/// expensive fallback on a track that would have read; a missed refusal costs what the pipeline
+/// already does today, which is to hand the existing threshold gate a track it will probably catch.
+/// So every uncertainty resolves to a pass:
+///
+/// - an **untagged** stream passes, and 658 files in the library carry one — #180 found the muxer
+///   leaves the default untagged, and the whole English bench would be refused otherwise;
+/// - an **unrecognised** tag passes, because a table that refused what it had not seen would refuse
+///   every new tag before anyone noticed;
+/// - a language written in **two** scripts is not in the table at all, so Serbian and Azerbaijani
+///   pass — the discs surveyed carry their Latin cut.
+///
+/// What it will not do is grow a threshold. A set missing four of Swedish's six required characters
+/// still reads Swedish far better than nothing, and `docs/fit-confidence.md` records seven
+/// measurements of what happens when a gate here is a fraction.
+fn declared_script_agrees(
+    declared: Option<&str>,
+    reference: &subtrackt_glyph::ReferenceSet,
+) -> Result<()> {
+    let Some(tag) = declared else { return Ok(()) };
+    let Some(script) = Script::of_language(tag) else {
+        return Ok(());
+    };
+    if reference.spells(script) {
+        return Ok(());
+    }
+    Err(Error::ScriptMismatch {
+        declared: tag.to_owned(),
+        script,
+        reference_set: reference.name().to_owned(),
+    })
+}
+
 /// Runs the extraction pipeline.
 pub struct Pipeline {
     config: Config,
@@ -183,6 +223,11 @@ impl Pipeline {
         let mut source = subtrackt_demux::open(path)?;
 
         let stream = self.choose_stream(source.as_ref())?;
+        // Before a packet is decoded, because the answer does not depend on any of them and a
+        // caller told to fall back to burn-in should not have waited for a whole track first.
+        if self.config.check_declared_script {
+            declared_script_agrees(stream.language.as_deref(), &self.reference())?;
+        }
         source.select(stream.index)?;
 
         let mut decoder = subtrackt_decode::decoder_for(stream.codec.ffmpeg_name())?;
@@ -1148,6 +1193,96 @@ mod tests {
             plane_width: 1920,
             plane_height: 1080,
             codec_private: Vec::new(),
+        }
+    }
+
+    /// A reference set holding exactly these characters, with vectors nothing will ever scan.
+    ///
+    /// The guard reads the character column and nothing else, so the vectors are deliberately
+    /// identical: a test that needed real shapes would be testing the matcher instead.
+    fn set_of(name: &str, characters: &str) -> subtrackt_glyph::ReferenceSet {
+        use subtrackt_core::{FeatureVector, InkAspect, LineMetrics, MarkSlope};
+        use subtrackt_glyph::reference::{ReferenceEntry, Style};
+        subtrackt_glyph::ReferenceSet::new(
+            name,
+            characters
+                .chars()
+                .map(|character| ReferenceEntry {
+                    character,
+                    style: Style::Regular,
+                    features: FeatureVector::EMPTY,
+                    metrics: LineMetrics::UNKNOWN,
+                    mark: MarkSlope::NONE,
+                    aspect: InkAspect::UNKNOWN,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn an_untagged_stream_is_never_refused_by_the_script_guard() {
+        // 658 files in the library carry an untagged stream, and #180 found why: the muxer leaves
+        // the default untagged, so the untagged one is usually the English one. A guard that
+        // refused these would refuse the whole bench.
+        let latin = set_of("latin", "abcDEF");
+        assert!(declared_script_agrees(None, &latin).is_ok());
+    }
+
+    #[test]
+    fn a_tag_the_table_does_not_know_is_never_refused() {
+        // The direction every uncertainty here resolves in. A wrong refusal costs a caller an
+        // expensive fallback on a track that would have read; a missed one costs what the pipeline
+        // already does today.
+        let latin = set_of("latin", "abcDEF");
+        for tag in ["xyz", "und", "qaa", "srp"] {
+            assert!(declared_script_agrees(Some(tag), &latin).is_ok(), "{tag} was refused");
+        }
+    }
+
+    #[test]
+    fn a_cyrillic_track_against_a_set_with_no_cyrillic_in_it_is_refused() {
+        // #218's whole case. Today this track is refused only because 17% of Cyrillic happens to
+        // fall outside a distance threshold, which is margin rather than design.
+        let latin = set_of("arial-ri", "abcDEF");
+        let refused = declared_script_agrees(Some("rus"), &latin);
+        assert!(
+            matches!(&refused, Err(Error::ScriptMismatch { declared, script, reference_set })
+                if declared == "rus"
+                    && *script == Script::Cyrillic
+                    && reference_set == "arial-ri"),
+            "got {refused:?}"
+        );
+    }
+
+    #[test]
+    fn one_character_of_the_declared_script_is_enough_because_this_is_not_a_threshold() {
+        // The property that keeps the guard from turning into the fraction it was built to replace.
+        // A set holding a single Cyrillic letter cannot read Russian well -- but *how* well is the
+        // question `docs/fit-confidence.md` has seven failed measurements of, and this refuses to
+        // ask it. It answers only whether the two were ever comparable.
+        let mostly_latin = set_of("mixed", "abcDEF\u{430}");
+        assert!(declared_script_agrees(Some("rus"), &mostly_latin).is_ok());
+    }
+
+    #[test]
+    fn a_set_of_nothing_but_digits_and_punctuation_spells_no_language_at_all() {
+        // Why `Script::of_char` returns None for shared characters rather than calling them Latin.
+        // Every reference set ever generated holds ASCII punctuation, so the other answer would
+        // make every set claim to spell every alphabetic language.
+        let punctuation = set_of("punctuation", "0123456789.,!?-");
+        assert!(declared_script_agrees(Some("eng"), &punctuation).is_err());
+        assert!(declared_script_agrees(Some("rus"), &punctuation).is_err());
+    }
+
+    #[test]
+    fn a_latin_track_against_a_latin_set_passes_even_when_the_set_cannot_spell_it() {
+        // Vietnamese is the case that makes the guard's scope explicit. It is Latin script, the set
+        // holds 26 of the 134 characters it needs, and it reads 81.8% of its glyphs -- so this
+        // guard passes it and the threshold gate refuses it. Two gates, two different facts, and
+        // widening this one to cover the second would make it the fraction it exists to replace.
+        let latin = set_of("arial-ri", "abcDEF");
+        for tag in ["swe", "vie", "spa", "pt-BR"] {
+            assert!(declared_script_agrees(Some(tag), &latin).is_ok(), "{tag} was refused");
         }
     }
 

@@ -270,6 +270,7 @@ closed, which is what closed #1 — kept here so the answers are findable from t
 | Whether one vector per character survives style variation | — | #14 — it does not. `docs/glyph-stability.md` |
 | What studios actually author against | — | #8 — PGS surveyed, VOBSUB not. `docs/library-survey.md` |
 | Which languages a reference set can spell | `subtrackt_glyph::font::charset` | #189 — a third of the library's Latin tracks, and 150 of 213 absent characters rehome silently rather than failing. `docs/language-coverage.md` |
+| Whether a track is even in the set's script | `subtrackt_core::script` | #218 — no statistic over the read can tell a wrong script from a wrong typeface; the container's tag can. `docs/script-guard.md` |
 
 **One thing outlived the epic.** §4 warned that a title in an unexpected typeface "degrades to
 garbage rather than to nothing, which is worse than the status quo". Fitting the set per title
