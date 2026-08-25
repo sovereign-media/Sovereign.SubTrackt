@@ -18,6 +18,7 @@ mod dump;
 mod fit;
 mod fixture;
 mod fontid;
+mod gapsweep;
 mod geometry;
 mod language;
 mod mark;
@@ -170,6 +171,7 @@ fn main() -> anyhow::Result<()> {
         Some("srt-score") => return disc::run(&args[1..]),
         Some("dump-sup") => return dump::run(&args[1..]),
         Some("cue-images") => return cueimage::run(&args[1..]),
+        Some("gap-sweep") => return gapsweep::run(&args[1..]),
         Some("glyph-geometry") => return geometry::run(&args[1..]),
         Some("language-coverage") => return language::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
@@ -207,5 +209,8 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask slant <media> <reference.subtref> <release.srt>");
     eprintln!("  xtask width-sweep <media> <reference.subtref> <release.srt> [--post-correct]");
     eprintln!("  xtask word-gap [font.ttf] [--px N]");
+    eprintln!(
+        "  xtask gap-sweep <media> <reference.subtref> [release.srt] [--glued WORD] \n[--widths a,b] [--clusters a,b] [--shared a,b]"
+    );
     std::process::exit(2);
 }

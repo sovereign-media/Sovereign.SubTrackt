@@ -536,15 +536,37 @@ impl UprightBands {
     /// The caller falls back to the box, which is the answer it had before.
     #[must_use]
     pub fn gap_to(self, next: Self) -> Option<i32> {
+        self.gap_to_over(next, 1)
+    }
+
+    /// As [`Self::gap_to`], answering only where the two glyphs share at least `least` bands.
+    ///
+    /// #225's candidate, and the population it exists for is one pair: a full stop has ink in a
+    /// single band, so the only band it shares with the letter before it holds that letter's narrow
+    /// foot. The honest distance there is genuinely wide, and #222 measured what happens when
+    /// `split_threshold` is handed it — `blunder.` becomes `blunder .`, on every disc.
+    ///
+    /// Requiring two shared bands hands that pair back to the box, which had it right by accident.
+    /// It is a *population* filter and not a threshold: a pair either faces the other over enough
+    /// of the line to be worth measuring or it does not, and no setting of it can reach a gap that
+    /// moved because the rest of the line's distribution did.
+    #[must_use]
+    pub fn gap_to_over(self, next: Self, least: u32) -> Option<i32> {
         let mut narrowest: Option<i32> = None;
+        let mut shared = 0u32;
         for at in 0..SPACING_BANDS {
             let (Some((_, mine)), Some((theirs, _))) = (self.band(at), next.band(at)) else {
                 continue;
             };
+            shared += 1;
             let span = theirs - mine;
             narrowest = Some(narrowest.map_or(span, |best: i32| best.min(span)));
         }
-        narrowest
+        if shared < least.max(1) {
+            None
+        } else {
+            narrowest
+        }
     }
 }
 

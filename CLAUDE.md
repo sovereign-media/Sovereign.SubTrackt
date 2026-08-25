@@ -225,23 +225,28 @@ English defect.** The lost word gap before a tall narrow letter is 6 instances i
 and 142 across its Swedish and Norwegian — same disc, same bug, and only one of the three can rank a
 change.
 
-### Measuring one thing more truthfully can make the answer worse
+### Measuring one thing more truthfully moves what everything else was tuned against
 
-#222 is the case, and it is worth keeping because the instinct it defeats is a good one.
+#219, #222 and #225 are one story, and it is worth keeping because the instinct it defeats is good.
 
-#219 found that a word gap is measured between bounding **boxes**, and that this understates the
-space in front of a `j` by 29 points and a `T` by 46. Measuring between the **ink** instead removes
-69% of the defect on the tracks that have it — Gone Girl's glued `jag` goes from 80 to 25.
+A word gap was measured between bounding **boxes**, which understates the space in front of a `j` by
+29 points and a `T` by 46. Measuring between the **ink** removes 69% of the defect on the tracks that
+have it -- and made **600 cues worse** across the bench, because a *third* population appeared in the
+line's gap distribution: a full stop shares one band with the letter before it, that band holds the
+letter's narrow foot, and the honest distance there reads as a word break.
 
-It also makes **600 cues worse** across the nine-track bench, on every scored track. A full stop
-shares one band with the letter before it, that band holds the letter's narrow foot, and the honest
-distance there is genuinely wide — so `blunder.` becomes `blunder .`. The box gap was compressing
-those by accident, and #40's two decisiveness constants were fitted against a distribution that
-included the compression.
+**Sweeping the two constants did not fix it.** #40's floors sit where two populations separate, and a
+floor raised far enough to suppress the third refuses real word breaks -- at 80% of median glyph
+width one bench track reads 6.8% CER against 1.3%.
 
-**A measurement and the constants tuned against it are one system.** Improving half of it in
-isolation moves the population the other half was fitted to, and the bench is what says so. The
-machinery ships behind `--band-gaps`, off, the way `mark_weight_permille` does.
+**Removing the population did.** Requiring two shared bands before the ink measurement answers hands
+the punctuation pairs back to the box, which had them right by accident: 600 worse cues become 17,
+against 66 better, with character error down or level everywhere. `docs/word-gap.md` has all three
+passes.
+
+The rule worth carrying: **a measurement and the constants tuned against it are one system.** When
+improving half of it regresses, the question is which *population* moved rather than which threshold
+to turn -- and the answer is more often a filter than a number.
 
 ## Gates
 

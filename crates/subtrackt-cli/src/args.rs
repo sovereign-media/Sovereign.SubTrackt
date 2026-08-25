@@ -172,7 +172,10 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "no_band_gaps")]
     pub band_gaps: bool,
 
-    /// Measure a word gap between bounding boxes, which is what the tool did before #219.
+    /// Measure a word gap between whole bounding boxes, which is what the tool did before #225.
+    ///
+    /// Words fuse in front of a `j`, a `y` or a `T`, which is the defect #219 measured -- 80 glued
+    /// instances on one Swedish track against six on the English one beside it.
     #[arg(long, overrides_with = "band_gaps")]
     pub no_band_gaps: bool,
 
