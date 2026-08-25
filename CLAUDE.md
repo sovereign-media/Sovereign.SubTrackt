@@ -201,8 +201,10 @@ non-English track in the library, so a CER is not on offer:
   figure, gate or census downstream can see.
 - `scripts/language/census.py` — reads an extraction as its declared language and counts what that
   orthography cannot spell. No sidecar, no alignment, no dictionary.
+- `scripts/language/lexicon.py` — builds a word list for a language out of the library's own
+  sidecars, which `census.py --lexicon` uses for the word layer. `docs/word-reader.md`.
 
-Two rules came out of it, both the hard way:
+Three rules came out of it, all the hard way:
 
 - **A census figure is a floor, never a rate.** It cannot see a real word read as a different real
   word. Quoting one as an error rate is the invented-data failure this document opens with.
@@ -211,6 +213,12 @@ Two rules came out of it, both the hard way:
   call a real word impossible — a false entry in the only column it prints, which is the sidecar
   lesson `scripts/bench/roster.json` records at length. Swedish `é` was left out on the first pass
   and the Norwegian census flagged `én` nine times.
+- **A reader's own false-positive rate is measured, never assumed.** `lexicon.py calibrate` scores
+  each source sidecar against the others, so every miss is definitionally a false positive. Built
+  out of eight films, a word list calls **one word in six** of real Swedish impossible — which makes
+  an unattested rate worthless and a one-edit repair rate worth two to three times its floor. The
+  English track is the control that proves it: it clears its own three floors by 0.14, 0.85 and 0.02
+  points, on a track the pipeline reads at 1.4% character error.
 
 And one finding worth carrying into unrelated work: **a non-English track is a better test of an
 English defect.** The lost word gap before a tall narrow letter is 6 instances in Gone Girl's English
