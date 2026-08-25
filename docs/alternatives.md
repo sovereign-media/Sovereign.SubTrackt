@@ -50,11 +50,39 @@ records that extracting the rip and extracting the dump produce byte-identical s
 demux difference can contaminate an accuracy or a timing figure. Nothing here is given an `.mkv`.
 
 Each measurement is one container: `--network none`, fixed `--cpus` and `--memory`, corpus mounted
-read-only, outputs to a tmpfs and copied out only after `time -v` has exited. Strictly serial, three
-repeats round-robin by repeat so drift hits every engine equally. `scripts/alternatives/` holds the
-harness; `bench.py` has the four reasons it is a sibling of `scripts/accuracy/sweep.py` rather than a
-flag on it, the first of which is that `sweep.py` defaults to four workers and a stopwatch inside a
-parallel script is how a benchmark starts lying quietly.
+read-only, outputs to a tmpfs and copied out only after `time -v` has exited. Strictly serial, and
+round-robin by repeat so drift hits every engine equally. `scripts/alternatives/` holds the harness;
+`bench.py` has the four reasons it is a sibling of `scripts/accuracy/sweep.py` rather than a flag on
+it, the first of which is that `sweep.py` defaults to four workers and a stopwatch inside a parallel
+script is how a benchmark starts lying quietly.
+
+### One run for accuracy, five items repeated for cost
+
+The first version of this benchmark repeated every unit three times. Its own results say what that
+bought: **all 64 (engine, item) pairs came back byte-identical**, so every accuracy figure it
+published was the median of three identical numbers. Widening the corpus at that rate would have
+cost nine hours to learn nothing.
+
+The repeats were not worthless, though — they were in the wrong place. One engine's cost is
+genuinely unstable:
+
+| unit | wall, three runs | spread |
+| :--- | :--- | ---: |
+| `pgstosrt--deathrace2` | 254.8 / 67.5 / 67.3 s | **278%** |
+| `pgstosrt--clover` | 108.2 / 42.5 / 43.4 s | **152%** |
+| `pgstosrt--wanda` | 254.7 / 235.6 / 77.9 s | **75%** |
+
+CPU-seconds move with wall — 996 s against 266 s on Death Race 2 — so this is a four-fold difference
+in work actually done rather than stopwatch noise, and PgsToSrt's `OMP_THREAD_LIMIT=1` arm is stable
+at 8.5%, which points at thread scheduling. Every other engine's median spread is 2.6%. A flat
+`--repeats 1` would have published that engine's cost as a lottery ticket, wrong by up to 3.8x, with
+nothing in the data to reveal it.
+
+So the repeat count is a property of the item. Five items carry `cost: true` in `corpus.json` and are
+repeated; **every wall, CPU, %CPU and RSS figure in this document is drawn from those five and from
+nowhere else**, and the tables name the count behind each. Every other item runs once. The
+determinism section says over how many pairs it checked, because a byte-identity claim covering items
+measured a single time would be vacuous rather than merely narrow.
 
 Scoring runs on the host, outside every timed region, through the same `xtask srt-score` that
 produced every accuracy figure this project has published. **One instrument for every row** is the
@@ -70,6 +98,39 @@ flatters it most, which is the most effective way to produce a wrong ranking tha
 So the sidecar was chosen **once**, by one engine (`subtrackt-arial`), before any other engine ran,
 and then frozen into `corpus.json` with its SHA-256. What the selector saw is recorded beside the
 choice, and the spread between candidates is the instrument's own uncertainty on that title.
+
+**The best-agreeing sidecar is not good enough on its own, and #175 is why.** A Fish Called Wanda was
+scored for months against a sidecar carrying none of its 85 bracketed sound cues; more than half its
+measured error was the missing cues. Airplane! is worse — the disc renders sound cues as brackets and
+its own SDH sidecar renders them as musical notes, so neither candidate matches and it cannot be
+scored at all. For six items that check was done by eye. For twenty it is `select.py`, and the
+best-agreeing candidate now has to pass a **shape check** before it is used: what fraction of the
+extraction's cues paired with something, and how far apart the two sides' sound-cue counts are. Both
+thresholds are fractions of something measured, per the house rule.
+
+The distinction that makes this legitimate rather than circular is that the shape check reads
+*structure* and never text. Brackets are structural and timings align even when the typeface does
+not fit, so a garbled extraction still passes: The Negotiator is in the corpus at 25.5% selector CER
+and Excision at 22.9%. **Titles an engine finds hard are kept; only sidecars transcribing a different
+thing are dropped**, and every drop is printed with its reason, because a draw that silently walked
+past half the sample would read as twenty titles from the library when it is not.
+
+### Where the titles came from
+
+The six original items were chosen years apart for particular reasons. The rest are drawn from the
+fifty-title library sample behind [`library-accuracy.md`](library-accuracy.md), by that document's
+own hash-of-folder rule — ordering independent of year, size, codec and of anything the pipeline
+does — so the draw re-derives rather than being hand-picked.
+
+Not from the 21 titles the sidecar corroborates. That restriction reads as the careful choice and is
+the opposite: `library-accuracy.md` calls it *circular*, "since it selects titles by the outcome
+being measured", and a corpus assembled that way would flatter every engine by an amount nobody
+could estimate.
+
+VOBSUB titles are skipped. Every engine here reads the same flat `.sup`, which holds PGS and nothing
+else, and handing one engine an `.mkv` while the rest get a `.sup` would reintroduce exactly the
+demux difference this corpus exists to exclude. The other codec is measured on `scripts/bench/`,
+where #140 put two entries for that reason.
 
 ### Output normalisation, in the harness and never in the scorer
 
@@ -513,11 +574,22 @@ measured: a database that is nobody's typeface reads nothing at all.
 
 ```console
 $ python scripts/alternatives/bench.py build
+$ python scripts/alternatives/bench.py stage          # dump the corpus `.sup`s from the share
 $ python scripts/alternatives/bench.py floor
 $ python scripts/alternatives/bench.py cold-warm
-$ python scripts/alternatives/bench.py run --repeats 3
+$ python scripts/alternatives/bench.py run            # one run per item, three on the `cost` five
 $ python scripts/alternatives/analyse.py score
 $ python scripts/alternatives/analyse.py tables
+$ python scripts/alternatives/analyse.py predictions
+```
+
+Re-deriving the corpus itself, which only needs doing when the sample changes:
+
+```console
+$ scripts/accuracy/inventory.py --csv image-based-subs-report.csv --out inventory.json
+$ scripts/accuracy/sample.py --inventory inventory.json --out sample.json --count 50
+$ scripts/accuracy/sweep.py --inventory sample.json --out sweep/ --reference arial-ri.subtref
+$ python scripts/alternatives/select.py --sweep sweep/ --count 20 --out picked.json
 ```
 
 The corpus is not shareable and is not baked into the image: `bench/corpus/` is populated locally

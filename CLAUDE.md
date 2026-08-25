@@ -163,6 +163,17 @@ Two rules the roster exists to hold, both learned by breaking them:
   characters, so neither of its sidecars matches and it is a `smoke` entry now. **Check a new
   entry's sidecar against its extraction's shape before trusting the number**, and the check is one
   command: score against every candidate and read the spread.
+
+  **The rule has a second instrument now, and there it is code.** #209 widened the alternatives
+  corpus to twenty titles, which is too many to check by eye, so `scripts/alternatives/select.py`
+  runs the check: cues paired, and sound-cue counts on both sides, both as fractions rather than
+  counts. It reads structure and never text — brackets are structural and timings align even when
+  the typeface does not fit — so a title an engine reads badly is *kept* and only a sidecar
+  transcribing a different thing is dropped. That is the line worth holding: filter on the sidecar's
+  convention, never on the score, or the corpus selects titles by the outcome being measured.
+
+  It rejects about a third of what it walks past, and prints every rejection with its reason. A draw
+  that quietly skipped them would read as a sample of the library when it is not.
 - **A track with no scoreable sidecar still earns a place.** `smoke` entries claim no accuracy and
   assert only that the track survives its own shape — which is the whole point of the 106-cue forced
   track, where every per-line median has no population to work from.
