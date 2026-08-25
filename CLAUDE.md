@@ -178,6 +178,23 @@ Two rules the roster exists to hold, both learned by breaking them:
   assert only that the track survives its own shape — which is the whole point of the 106-cue forced
   track, where every per-line median has no population to work from.
 
+  **And a sidecar of the right convention can still be the wrong cut.** #175 checked convention —
+  SDH against SDH — and King Kong passes that check on both sides. What it does not pass is the cut:
+  the disc is a Blu-ray, its only English sidecar is a WEB-DL, and 529 of 1,704 cues pair by start
+  time onto a neighbour's line. That read as **21.3% CER** for the bench's whole life, and five
+  documents quote the number as if it described the read. The same extraction scores **6.0%** with
+  cue boundaries ignored.
+
+  The tell is not the CER, which looks like any other bad read. It is that **the cue-level figure is
+  a function of the pairing tolerance and the track-level one is not** — 8.9% at 500 ms rising to
+  27.1% at 8 s, against 6.0% at every setting, where Gone Girl reads 1.3% in both columns at every
+  setting. `run.py` refuses the cue-level number below `PAIRED_ENOUGH` and reports the track-level
+  one, saying so on the row.
+
+  Three of nine entries have now been caught by a version of this rule. **The bench's own sidecars
+  are the part of it least likely to have been checked, because nothing fails when they are wrong** —
+  it reports a number, and the number is what you were going to read.
+
 Adding a track is cheap; adding one that duplicates another's coverage costs attention, which is the
 expensive half. #133 has the survey the seven were chosen from: SDH is ~75% of the library and the
 bench had none of it until then. #140 added the eighth and ninth for the same reason — every figure

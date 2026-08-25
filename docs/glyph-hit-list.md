@@ -109,6 +109,17 @@ could watch it. It is on the `--report` line now, as a share:
 King Kong is the one to watch. It is also the PGS track with the worst CER on the bench at 21.3%,
 and one glyph in seven there is being matched without the feature that separates `o` from `O`.
 
+> **[#229]: that 21.3% was never a read.** 529 of the track's 1,704 cues pair by start time onto a
+> neighbour's text, because the disc is a Blu-ray and its only English sidecar is a WEB-DL. The
+> same extraction scores **6.0%** with cue boundaries ignored, and the cue-level figure moves from
+> 8.9% to 27.1% purely by widening the pairing tolerance from 500 ms to 8 s — while the track-level
+> figure is 6.0% at every setting. The bench scores this entry track-level now.
+>
+> The counter above is unaffected: 14% unmeasured lines is a count over the read, and no sidecar
+> touches it. What changes is the sentence beside it. King Kong still has the most headroom of any
+> PGS track on the bench, by a distance — 6.0% against 0.3% to 1.3% — but 6.0% and 21.3% point at
+> different work, and #184 acted on the larger one.
+
 ## The library agrees, and says which population each ranking describes
 
 #119 re-extracted the 47-title corpus and rebuilt its census on the track-level alignment too, so
@@ -163,6 +174,9 @@ rest moves: it is transcript divergence rather than misreading, and one title su
    §"The scale a line cannot find in itself" has the table. **The gain did not land here**: King
    Kong's 21.3% is 2,404 insertions against 147 substitutions, so the disc with the worst counter
    had the least scored headroom on the bench, and Training Day took 3.1% to 2.8% instead.
+   [#229] later found where those 2,404 insertions come from -- 529 cues paired onto a neighbour's
+   text, not a misread -- which does not change where the gain landed but does change what the
+   disc's headroom is. It reads 6.0% track-level, not 21.3%.
 4. **Case pairs, 811 errors**, near their floor.
 
 Two of #118's three total failures are fixed — `:` by [#130] and `"` and `♪` by [#168]. This file is
@@ -176,4 +190,5 @@ what is left of that issue.
 [#140]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/140
 [#168]: https://github.com/sovereign-media/Sovereign.SubTrackt/pull/168
 [#169]: https://github.com/sovereign-media/Sovereign.SubTrackt/pull/169
+[#229]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/229
 [`InkAspect`]: https://github.com/sovereign-media/Sovereign.SubTrackt/blob/main/crates/subtrackt-core/src/glyph.rs

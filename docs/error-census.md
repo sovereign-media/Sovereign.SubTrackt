@@ -958,6 +958,18 @@ case-pair substitutions on that track to win back, and they are the same 11 afte
 this is a second instance: the track whose *counter* was worst had the least scored headroom of any
 track on the bench.
 
+> **#229 named where the 2,404 insertions come from, and the diagnosis above was half right.** They
+> are not text the sidecar does not carry. They are text a *different cue* carries: 529 of the
+> track's 1,704 cues pair by start time onto a neighbour's line, because the disc is a Blu-ray and
+> the only English sidecar in its folder is a WEB-DL. With cue boundaries ignored the same
+> extraction reads **6.0%**, and the cue-level figure runs from 8.9% to 27.1% purely by widening the
+> pairing tolerance from 500 ms to 8 s, while the track-level figure does not move at all.
+>
+> So the paragraph's conclusion stands and its premise is stronger than it knew: this track had the
+> least scored headroom on the bench because most of its scored error was not its error. The bench
+> reports it track-level now. What it does **not** change is the sentence above about the nine cues
+> made worse — those were read off the text, not off the score.
+
 The 9 that got worse split into two kinds, and only one of them is this change deciding anything:
 
 - **Two on Training Day**, both `[DIAL TONE BUZZES]` → `[UIAL TONE BUZZES]`, are borrowed lines whose
