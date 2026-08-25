@@ -1,0 +1,182 @@
+# The space in front of a `j` measures a quarter narrower than it is
+
+[#219][issue-219]. Gone Girl fuses `jag` to the word in front of it **80 times** in Swedish and
+`jeg` **62 times** in Norwegian. Its English track — same disc, same typeface, same layout engine,
+same authoring — fuses `you` **six times**.
+
+Six instances is noise the bench cannot rank a change by, which is why this defect has been in the
+pipeline the whole time and has never been measurable. It is not a Scandinavian bug. It is an
+English bug that only a non-English track has enough of to see.
+
+**The gap the assembler measures is between bounding boxes. The gap a reader sees is between ink.
+For most letters those are the same number. For `j` they differ by 29 points.**
+
+[issue-219]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/219
+[issue-189]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/189
+[issue-121]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/121
+[issue-40]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40
+
+## The instrument
+
+`xtask word-gap` needs no sidecar, no dictionary and no ground truth, which is what lets it run on
+the Swedish and Norwegian tracks at all. For every pair of glyphs standing next to each other on a
+line it records two distances:
+
+- the **box** gap, `next.x - previous.right()`, which is what `SpatialAssembler` measures and what
+  `split_threshold` classifies;
+- the **ink** gap, the narrowest horizontal distance between the two glyphs' own ink over the rows
+  they share — `None` where they share no row at all, because two glyphs that never face each other
+  have no horizontal distance worth naming.
+
+Each line supplies its own median glyph width and its own split threshold, so every gap is scored
+against the line it came from, and a gap is a word break if that line's threshold says so. No
+external evidence enters at any point.
+
+## What a word space actually measures
+
+Gone Girl's English track, 11,398 word breaks. Both columns are percentages of the line's median
+glyph width; `left ink at` is the height of the letter's leftmost ink above the baseline, as a
+percentage of cap height.
+
+| letter | box | ink | within | breaks | left ink at |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `j` | **62%** | **91%** | 35% | 66 | **−23%** |
+| `w` | 67% | 75% | 4% | 819 | 71% |
+| `y` | 69% | 80% | 8% | 573 | 71% |
+| `A` | 70% | 76% | 4% | 102 | 2% |
+| `t` | 75% | 81% | 12% | 1,424 | 68% |
+| `a` | 76% | 80% | 16% | 901 | 20% |
+| `o` | 76% | 83% | 14% | 423 | 37% |
+| `T` | 80% | **126%** | 12% | 41 | 95% |
+| `h` | 84% | 84% | 16% | 687 | 50% |
+| `b` | 84% | 84% | 23% | 479 | 50% |
+| `n` | 84% | 85% | 24% | 278 | 37% |
+| `i` | 88% | 88% | 20% | 482 | 50% |
+| `k` | 88% | 88% | 21% | 191 | 50% |
+| `r` | 88% | 88% | 23% | 201 | 37% |
+| `N` | 95% | 95% | 29% | 89 | 50% |
+| `I` | 100% | 100% | 29% | 234 | 50% |
+
+Every one of those break-class gaps is the same physical thing: the space a studio set between two
+words. It does not get narrower in front of a `j`.
+
+**Where `box` equals `ink`, the letter is safe.** `h`, `b`, `i`, `k`, `r`, `n`, `I`, `N` — upright
+stems whose leftmost ink is a vertical edge — read 84% to 100% on both columns and never glue.
+
+**Where `box` is smaller than `ink`, the space is being measured short**, and the four letters at
+the top of the table are `j`, `w`, `y` and `A` — which are precisely the letters this defect was
+found in. `ifyou`, `hearyou`, `knowyou`, `protectyou`.
+
+`T` is the extreme case and it goes the same way: its box gap reads 80% while its ink gap reads
+**126%**, a 46-point understatement, because its crossbar makes the box wide while at the baseline
+there is nothing there at all.
+
+Swedish and Norwegian put the same three letters at the top of their own tables:
+
+| | `j` box / ink | `A` box / ink | `T` box / ink |
+| :--- | :--- | :--- | :--- |
+| English | 62% / 91% | 70% / 76% | 80% / 126% |
+| Swedish | 65% / 91% | 68% / 74% | 82% / 115% |
+| Norwegian | 65% / 88% | 65% / 73% | 73% / 103% |
+
+## The mechanism, and where #219 had it half right
+
+#219 predicted the ranking would follow "how high the leftmost ink starts". It does not, and the
+correction is the useful part: **it is a property of the pair, not of the letter.**
+
+The box gap and the ink gap agree exactly when both facing edges are vertical and at the same
+height. They diverge when one glyph's box is widened by ink at a height the other glyph does not
+occupy — and it does not matter which direction. `j`'s box reaches left because of a descender hook
+below the baseline; `T`'s reaches right because of a crossbar at cap height. Both understate.
+
+The pair table on the Swedish track says it directly. `right ink at` is the preceding letter's
+rightmost ink, `left ink at` the following letter's leftmost:
+
+| pair | box | ink | breaks | right ink at | left ink at |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `e` `j` | 57% | 84% | 20 | 34% | −23% |
+| `n` `j` | 65% | 92% | 29 | 27% | −23% |
+| `r` `e` | 68% | 84% | 88 | 69% | 36% |
+| `r` `d` | 65% | 80% | 312 | 69% | 37% |
+| `t` `d` | 72% | 88% | 122 | 2% | 37% |
+| `t` `o` | 72% | 88% | 34 | 2% | 37% |
+
+`r` is a high shoulder meeting round letters that begin at x-height. `t` is a tail that curves at
+the baseline meeting the same. `e j` is the worst pair on the track at 57% against 84% — a
+27-point understatement, and it is the shape of `Närjag`.
+
+### The ink is separated; the boxes are not
+
+That answers #219's second question outright. This is a **layout** defect, not a segmentation one:
+by the time `is_space` decides, the two glyphs are still cleanly apart — 91% of a glyph width apart,
+in front of a `j` — and the number handed to the decision is 62%. Nothing needs to be re-segmented.
+The measurement is looking at the wrong rectangle.
+
+The `within` column is the other half of why it fires. The split threshold has to find a boundary
+between two populations, and for `j` the break class falls to 62% while the within-word class rises
+to 35%. The two ends close on each other at once, which is exactly the condition
+[#40][issue-40]'s decisiveness tests exist to detect and cannot when the gap distribution is drawn
+from a whole line.
+
+## The fixture is nearly blind to it, and the one thing it catches is the mechanism
+
+`xtask word-gap` also renders 676 lines — one per ordered pair of lowercase letters,
+`HonP Lnop anan onon`, with the pair under test flanked by two control breaks in neutral company —
+and reads them back against a reference set generated from the same font. Ground truth by
+construction: the spaces are where they were put.
+
+At 56px, **603 pairs keep their space and exactly one loses it.**
+
+That one is `f` `j`. Its facing edges are 121 percentage points apart — `f`'s hook at 98% of cap
+height, `j`'s hook at −23% — which is the **largest offset in the entire 676-pair grid**, and it is
+the only cell in the grid where the offset exceeds 100.
+
+| offset between facing edges | lost | of | rate |
+| :--- | ---: | ---: | ---: |
+| 0–19% | 0 | 257 | 0% |
+| 20–39% | 0 | 208 | 0% |
+| 40–59% | 0 | 81 | 0% |
+| 60–79% | 0 | 51 | 0% |
+| 80–99% | 0 | 6 | 0% |
+| **120–139%** | **1** | 1 | **100%** |
+
+So the fixture reproduces the mechanism and cannot price it. A clean render at a comfortable size
+sets its word space wide enough that only the single most extreme pair in the alphabet falls
+through, while the disc loses 142 spaces across two tracks. That is the same lesson
+[`language-coverage.md`](language-coverage.md) records from the other end and the one the fixture's
+own documentation states: **treat the generated fixture as a ceiling.** It kills proposals; it does
+not accept them.
+
+It is also worth recording *why* the fixture had to be rendered at 56px. At 33px — the library
+survey's median glyph height — 471 of 676 pairs came back unreadable, not because of spacing but
+because the matcher could not read the letters. The first version of the harness was worse still:
+its line was `nonP Lnon anan onon`, all x-height, so the line had no cap line for
+`metrics::measure_all` to work from, every glyph was matched on shape alone, and it read back as
+`?O?? ??O? ???? O?O?` — 651 pairs discarded. **A synthetic line has to be given an ascender
+deliberately**, because a real subtitle line always has one.
+
+## What this does not claim
+
+- **It does not say how many spaces are lost.** The box-versus-ink table is over the breaks that
+  *survived*; the ones that did not are not in it, because a lost break is not classified as a
+  break. The 80 and 62 glued instances are counted separately, by looking for `jag` and `jeg` fused
+  to a preceding word, and that count is specific to two words in two languages.
+- **It does not price a fix**, and the fix is not free. The ink gap needs each glyph's row extents,
+  which the pipeline computes during segmentation and throws away —
+  `Config::glyph_masks` keeps them and is off by default because a feature film is tens of thousands
+  of glyphs. What to keep, what it costs, and what it moves on the bench is its own question with
+  its own prediction.
+- **One disc.** Three tracks of it, which is the right shape for the question — the language is the
+  only variable — and still one disc.
+
+## Reproducing
+
+```console
+$ cargo run --release -p xtask -- dump-sup "...Gone Girl...mkv" swe.sup --stream 13
+$ cargo run --release -p xtask -- word-gap C:/Windows/Fonts/arial.ttf --px 56 \
+      --media swe.sup --reference arial-ri.subtref
+```
+
+The fixture half runs on the font alone and takes a second. The disc half needs a `.sup` and a
+reference set, and turns `Config::glyph_masks` on for the pass — it is the only command in the tree
+that has a reason to.
