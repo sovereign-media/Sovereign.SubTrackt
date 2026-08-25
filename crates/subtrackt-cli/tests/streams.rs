@@ -106,6 +106,44 @@ fn a_redirected_run_leaves_neither_escapes_nor_frames_in_the_log() {
     }
 }
 
+/// Replace every `<digits>.<digit>s` duration with `Ns`, so two runs of `--report` can be compared
+/// byte for byte without comparing their clocks.
+///
+/// #199. The two runs below are separate processes, and `--report` prints wall-clock durations at
+/// one decimal place -- so on a loaded runner one run's `segment` phase lands on the far side of
+/// the 0.05s rounding boundary and the other does not, and a test about *stream routing* fails for
+/// a reason that has nothing to do with streams. It flaked on Linux and Windows alike. Masking
+/// rather than dropping the line keeps the rest of it -- the phase names, their order, the
+/// separators, the resident-memory figures -- under the assertion, because that is the part that
+/// would actually differ if `--plain` landed somewhere a redirect does not.
+fn without_durations(stream: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stream);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_ref();
+    while let Some(s) = rest.find('s') {
+        // A duration is the digits and one decimal place immediately before an `s`. Walk back over
+        // them rather than reaching for a regex, which would be this crate's first new dependency.
+        let head = &rest[..s];
+        let digits = head.len() - head.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        let stripped = &head[..head.len() - digits];
+        let is_duration = digits == 1
+            && stripped.ends_with('.')
+            && stripped[..stripped.len() - 1].ends_with(|c: char| c.is_ascii_digit());
+        if is_duration {
+            let whole = &stripped[..stripped.len() - 1];
+            let start = whole.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+            out.push_str(&head[..start]);
+            out.push_str("Ns");
+        } else {
+            out.push_str(head);
+            out.push('s');
+        }
+        rest = &rest[s + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[test]
 fn plain_is_byte_identical_to_a_redirected_run() {
     // `--plain` exists for the case detection gets wrong -- a CI runner with a pty allocated, a
@@ -114,9 +152,17 @@ fn plain_is_byte_identical_to_a_redirected_run() {
     let redirected = extract(&["--report"]);
     let plain = extract(&["--report", "--plain"]);
     assert_eq!(redirected.stdout, plain.stdout);
+    assert_eq!(without_durations(&redirected.stderr), without_durations(&plain.stderr));
+}
+
+#[test]
+fn masking_durations_leaves_every_other_byte_of_a_report_alone() {
+    // The mask is only safe if it is narrow. `0.0s` goes; `MiB`, the cue counts, the percentages
+    // and the phase names all stay, because those are what the test above exists to compare.
+    let line = "decode 0.0s; segment 12.5s; total 0.1s; resident 0.2 MiB images; cache 99%; cues 6";
     assert_eq!(
-        String::from_utf8_lossy(&redirected.stderr),
-        String::from_utf8_lossy(&plain.stderr)
+        without_durations(line.as_bytes()),
+        "decode Ns; segment Ns; total Ns; resident 0.2 MiB images; cache 99%; cues 6"
     );
 }
 
