@@ -269,7 +269,11 @@ def do_tables(args):
             if mine is None or theirs is None:
                 continue
             spread = items[key].get('selector_spread_track_points') or 0.0
-            if abs(mine - theirs) < spread:
+            # `<=`, not `<`. A title with one candidate sidecar has a spread of 0.0, and with `<` a
+            # gap of exactly zero fell through to the else and was recorded as a loss -- which is how
+            # `subtrackt-fitted` first showed 9 losses to `subtrackt-arial` while producing output
+            # byte-identical to it on all 26 items. Two engines that agree exactly have not lost.
+            if abs(mine - theirs) <= spread:
                 tied += 1
             elif mine < theirs:
                 wins += 1
@@ -375,11 +379,17 @@ def do_tables(args):
     # Scoped out loud. Since #209 most items run once, so byte-identity can only be *asserted* over
     # the repeated ones -- and a determinism claim that quietly covered items measured a single time
     # would be vacuous rather than merely narrow.
+    #
+    # Every item that HAS repeats, not just the `cost` five: the corpus was six items with three
+    # repeats each before this issue, so `fixture` still carries its second and third runs. Those
+    # are real measurements and deleting them to tidy the directory would be throwing away evidence
+    # for the very claim this section makes.
+    repeated = sorted({key for (_, key), reps in grouped.items() if len(reps) > 1})
     print('\n## Determinism — SHA-256 of output across repeats\n')
     pairs = disagreeing = 0
     rows_out = []
     for engine_id in order:
-        for key in cost_items:
+        for key in repeated:
             reps = grouped.get((engine_id, key), [])
             digests = {r.get('out_sha256') for r in reps if r.get('out_sha256')}
             if len(reps) < 2:
@@ -586,9 +596,9 @@ def _predictions_209(grouped, items, scored_items, cost_items, competitors):
                 continue
             spread = items[key].get('selector_spread_track_points') or 0.0
             best_other = min(others)
-            if mine < best_other and (best_other - mine) >= spread:
+            if mine < best_other and (best_other - mine) > spread:
                 won += 1
-            elif abs(mine - best_other) < spread:
+            elif abs(mine - best_other) <= spread:
                 close += 1
         print('| {} | {} | {} |'.format(ENG.by_id(engine_id)['label'], won, close))
 

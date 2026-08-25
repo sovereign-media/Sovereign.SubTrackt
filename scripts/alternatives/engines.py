@@ -89,6 +89,31 @@ ENGINES = [
         'cmd': '{S} extract {sup} --reference {C}/sets/liberation-ri.subtref -o {OUT} --plain',
         'corrector': 'default-on',
     },
+    {
+        'id': 'subtrackt-fitted-wide',
+        'tool': 'subtrackt',
+        'family': 'glyph-match',
+        'label': 'subtrackt, fitted from 128 candidates',
+        # #209 added this arm because the six-candidate arm turned out not to be an arm at all: on
+        # all 26 items `subtrackt-fitted` produced output byte-identical to `subtrackt-arial`. `fit`
+        # chose Arial every single time, which is not a finding about fitting -- it is a finding
+        # about a candidate directory holding six sets, five of which are the wrong shape for any of
+        # this material. An arm that never diverges from another arm is measuring nothing.
+        #
+        # So this one scores every font on the machine, 128 of them, which is the nearest thing to
+        # the question the fitted arm was always supposed to answer: point it at a title you know
+        # nothing about and let it choose. Excision is the case that motivated it -- 2,666 glyphs
+        # subtrackt could not read, on a track pgsrip read cleanly.
+        #
+        # `fit` is inside the timed region here for the same reason it is in the six-candidate arm,
+        # and the cost of scanning 128 candidates rather than 6 is a real cost a user would pay. If
+        # this arm wins on accuracy and loses on speed, both halves are the result.
+        'cmd': _sh(
+            '{S} fit {sup} --references {C}/refs-wide -o /tmp/fitted-wide.subtref --plain',
+            '{S} extract {sup} --reference /tmp/fitted-wide.subtref -o {OUT} --plain',
+        ),
+        'corrector': 'default-on',
+    },
 
     # -----------------------------------------------------------------------------------------
     # Subtitle Edit's converter, three engines.
