@@ -1084,6 +1084,103 @@ The lesson is one the project keeps relearning in new forms: a representation th
 things is a fault only if something else can tell them apart. The letterbox merge looked like the
 fault. It was the record.
 
+## A feature that separates every pair it was asked about, and decides nothing
+
+[#232][issue-232] went looking for why `Five` reads as `FÍve`, expecting the merged base-plus-mark
+box to be telling #37's term that an `i` is a capital. The diagnosis it asked for first found
+something else, and the something else looked like the best axis this project has measured.
+
+`xtask glyph-geometry` has always printed a row nothing consumed: **ink pixels divided by height**,
+which is a glyph's *mean* width where [`InkAspect`] is its *extent*. For a solid bar the two are one
+number. They come apart wherever a glyph has a hole in it, and the largest confusion family here is
+made of glyphs with holes.
+
+Normalised against the glyph's own height — [`InkAspect`]'s own measured choice, re-measured here
+rather than inherited — the best single threshold, over glyphs labelled by what the release says
+they were:
+
+| pair | 10 Cloverfield Lane | Gone Girl | A Fish Called Wanda |
+| :--- | ---: | ---: | ---: |
+| `i` / `I` | **0.0%** | **0.9%** | **0.0%** |
+| `i` / `l` | **0.0%** | **1.6%** | **0.0%** |
+| `l` / `I` | **0.0%** | **2.2%** | 14.7% |
+
+Against what the pipeline has: `InkAspect` reads the same `i`/`I` population at **17.8%** on Gone
+Girl, and `docs/glyph-hit-list.md` measured `l`/`I` at 17.0% there and 15.2% on Wanda.
+
+Two things about that table are worth keeping whatever happens to the feature.
+
+**On Wanda the standard deviation is zero on both classes.** That disc is the one
+`docs/glyph-hit-list.md` describes as having no axis at all — *"the disc draws `l` and `I` at five
+pixels at the 25th, 50th and 75th percentile alike"*, and *"no threshold does better than ignoring
+the measurement"*. On mean width its `i` reads 10.20 and its `l` reads 11.90, sd 0.00 on each. The
+information was in the ink the whole time; extent is what could not see it.
+
+**And it is fusion-resistant, which nothing designed it to be.** Gone Girl's `l` population runs out
+to 27 pixels of ink width with a standard deviation of **3.92**, because a fifth of the class is
+fused to a neighbour. A fusion adds box and adds proportionally little ink, so the same glyphs have
+a standard deviation of **0.70** here. That is the exact contamination `glyph-hit-list.md` names as
+what defeats the threshold on that disc rather than the axis.
+
+### Built, swept, and it moves nothing
+
+`StemWidth` was added to the core, to `Weights`, to the matcher and the clusterer together, and to
+the reference format as version 5 with a back-compatibility test. `xtask stem-sweep` ran the whole
+pipeline at nine settings against four discs, the shape #110 established for a matcher weight.
+
+The column to read is the confusion the term separates. On The Karate Kid, where `l → I` is the
+disc's largest error:
+
+| weight | CER | `l → I` | unread | cues worse |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 2.2% | **638** | 67 | 0 |
+| 40 | 2.2% | **638** | 67 | 0 |
+| 90 | 2.2% | **638** | 77 | 11 |
+| 190 | 2.3% | **638** | 100 | 42 |
+
+**638 at every setting.** Not reduced, not worsened — untouched, while the cost climbs. The other
+three discs say the same thing: Gone Girl is 1.4% from 0 to 190 and 1.7% with 66 cues worse at 300;
+Wanda moves 1.8% to 1.7% and puts 2 cues in the worse column from weight 60 up; Cloverfield is flat
+until 300, where it loses 10 cues. Priced across the whole bench at 190, Training Day goes from 1.9%
+to **4.6%** and its read fraction from 99.7% to 97.8% — the term rejecting glyphs it should have
+been deciding.
+
+### Why, as far as the measurement can say
+
+The reference side and the disc side do not agree about the value for one character, and the
+disagreement is the size of the signal. `xtask glyph-geometry --font` on Cloverfield: the disc draws
+`I` at **14.29%** of cap height and Arial's own outlines predict **13.11%**, a gap of 1.18 points —
+against an `l`-to-`I` separation of 2.4 points on the disc that needs it most. Half the signal is
+spent before the comparison starts.
+
+That is #113's class of defect exactly — *a term measured one way on the disc and another in the
+set* — and it is why the calibration row now exists in `glyph-geometry` beside the cap-relative one:
+the matcher compares a glyph to an entry, and a reader compares characters to each other, and those
+are not the same question.
+
+### What this says, and it is not that the axis is bad
+
+Two rules meet here and the second is new.
+
+`docs/glyph-stability.md` has recorded since #48 that **"ambiguous" and "wrong" are not the same
+set** — a statistic over the reference set cannot say which glyphs land on the wrong entry. This is
+the converse and it costs more to learn: **"separable" and "decisive" are not the same set either.**
+A labelled distribution with zero variance and disjoint classes is a fact about what the disc drew.
+Turning it into a match needs a reference side that agrees, and nothing about the separation implies
+one exists.
+
+So the axis is live and the term is not. What it wants is a reference value taken from *this disc*
+rather than from an outline — which is [#233][issue-233], and this is the sharpest argument for it
+the project has: a feature that is perfectly separable on the material and unusable against a
+rendered set is precisely the case an adapted set exists to serve.
+
+**Nothing ships but the instrument.** `glyph-geometry` keeps two new rows — the own-height axis on
+the disc side, and the same quantity on both sides in the calibration table — so the next attempt
+starts from a measurement rather than from this document.
+
+[issue-232]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/232
+[issue-233]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/233
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,
