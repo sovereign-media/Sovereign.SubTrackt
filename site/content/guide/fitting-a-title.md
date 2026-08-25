@@ -36,6 +36,15 @@ It decides which of the sets you gave it is closest to this material, and where 
 is among your candidates it generally finds it. That's worth having: the gap between the right set
 and a plausible wrong one is not subtle.
 
+*Excision* is the measurement of "not subtle". Given six candidates — none of them the bold weight
+the film is actually drawn in — `fit` picked Arial regular and the film read 24.8%. Given a folder of
+128 typefaces it picked Arial Bold, and the film read 11.4%. Same matcher, same disc, same seconds of
+scanning; the only difference was whether the answer was in the folder.
+
+Which is the other half of the lesson: **`fit` can only choose from what you give it.** It found the
+right answer instantly once that answer existed as a candidate, and it could not have told you it was
+missing beforehand.
+
 It doesn't decide whether the winner is any *good*. The score is relative — it ranks candidates
 against each other and says nothing about whether the best of them is close enough to trust. Give
 it ten typefaces when the disc was drawn in an eleventh and you still get a winner, still ranked

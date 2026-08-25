@@ -361,10 +361,32 @@ cut alone misses.
 adding bold *by default* rather than for never adding it. A track with bold in it would want the
 same measurement run again.
 
+### That track turned up, and it is expensive
+
+[#209][issue-209] widened the competitor corpus to 24 titles and found one: **Excision (2012) is set
+in Arial Bold throughout.** Read with the regular-plus-italic set this section recommends, it scores
+**24.8% CER with 2,666 unreadable glyphs** — more than every other title in that corpus combined, and
+the worst result this project has published. `fit` given a directory containing the bold cut ranks
+`arialbd` at a mean distance of **11.5** against **30.5** for the regular cut, with 99.6% of glyphs
+read against 90.1%, and the title reads **11.4% with 52** unreadable glyphs.
+
+So the caveat above was the right shape and the wrong size. Bold is not a rounding error a title
+either has or does not have in passing; it is a cut a whole film can be authored in, and a set
+without it fails that film outright rather than degrading. In the competitor comparison it is the
+entire difference between winning the accuracy column and losing it.
+
+It does not change what ships *by default* — 0.2 points and 660 extra ambiguous glyphs is still the
+wrong trade for the 23 titles that have no bold. It changes what a **candidate directory** should
+contain, which is a different question: `fit` costs 2.2 CPU-seconds to scan 128 candidates instead of
+6 and 2 MB of peak RSS, so there is no reason for a cut to be missing from the pool it chooses from.
+
+[issue-209]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/209
+
 ### What ships
 
-`gen-reference --italic <font>` and `--bold <font>`. **Generate regular plus italic; leave bold
-out** unless a title needs it. Nothing changes in the matcher, the format or the fitting — the
+`gen-reference --italic <font>` and `--bold <font>`. **Generate regular plus italic for a single
+set; put every cut you have into the directory `fit` chooses from.** A single set carries the trade
+above; a candidate pool carries none of it, because only the winner is used. Nothing changes in the matcher, the format or the fitting — the
 combined set is an ordinary `.subtref` and `subtrackt fit` scores it like any other.
 
 Cap height is measured per cut rather than once, because an italic and an upright of one typeface do

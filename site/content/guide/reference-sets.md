@@ -52,6 +52,13 @@ $ subtrackt gen-reference Arial.ttf arial.subtref --italic Ariali.ttf --bold Ari
 Worth more than it sounds. Flashbacks, radio voices, foreign dialogue and song lyrics are often a
 small slice of the runtime and a large slice of the errors.
 
+**And a whole film can be set in one of the other cuts.** *Excision* (2012) is drawn in Arial Bold
+throughout. Read with a set built from Arial regular and italic it scores 24.8% with 2,666 characters
+it couldn't read — worse than every other film in [the comparison](/guide/how-it-compares) put
+together, and the single worst result this tool has published. The disc isn't unusual and the
+matcher isn't at fault: it was handed the wrong drawing of every letter. Add `--bold` and the same
+film reads 11.4% with 52.
+
 Without the italic cut the pipeline measures how far each line leans and compensates, then switches
 that off as soon as a set carries italic entries. [The slant](../docs/italic-slant.md) compares the
 four combinations.
