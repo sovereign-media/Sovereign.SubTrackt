@@ -709,6 +709,10 @@ fn part_glyph(
         // span would report between them is near zero either way, and the outer edges — the ones a
         // word break is measured against — are the parent's own, which the box has right.
         upright: subtrackt_core::UprightSpan::of_box(bounds),
+        // Unknown for the same reason, one step further. #219's bands are read off a *labelled
+        // component* too, and a part has no label of its own -- so there is nothing to band. A pair
+        // involving one falls back to the box, which is what every pair did before #219.
+        bands: subtrackt_core::UprightBands::UNKNOWN,
     })
 }
 
@@ -1159,6 +1163,28 @@ impl ImageSegmenter {
                         .map_or(subtrackt_core::Slant::UPRIGHT, |(shear, _)| {
                             subtrackt_core::Slant::new(permille(*shear))
                         }),
+                    // #219. The same deskewed ink as `upright`, measured in four bands down the
+                    // line instead of once, so spacing can ask the question in each and take the
+                    // narrowest answer over the bands both glyphs reach. Unknown on a line whose
+                    // anchors were not found -- the bands are fractions of a measured cap height,
+                    // and dividing a line at a fabricated one is the failure `CLAUDE.md` opens
+                    // with. A shear of zero for a line that does not lean is the same answer
+                    // `UprightSpan::of_box` gives, not an invented slant.
+                    bands: lines.get(glyph.line).and_then(|line| line.ok()).map_or(
+                        subtrackt_core::UprightBands::UNKNOWN,
+                        |anchors| {
+                            let (shear, pivot) =
+                                shears.get(&glyph.line).copied().unwrap_or((0.0, 0));
+                            slant::upright_bands(
+                                &labels,
+                                glyph,
+                                shear,
+                                pivot,
+                                anchors.cap_top,
+                                anchors.baseline,
+                            )
+                        },
+                    ),
                 })
             })
             .collect::<Result<Vec<_>>>()

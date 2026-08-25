@@ -112,6 +112,33 @@ pub struct LayoutRules {
     pub split_min_cluster_percent: u32,
     /// A gap wider than this multiple of the line's median inter-glyph gap, in percent, is a space.
     pub space_gap_percent: u32,
+    /// Whether a gap is measured band by band down the line rather than between whole boxes.
+    ///
+    /// **Off**, and #222 is why. The measurement is more truthful and the classification is worse.
+    ///
+    /// #219 established the defect: a box gap understates the space between two letters whenever
+    /// one of them is widened by ink at a height the other does not occupy -- 29 points in front of
+    /// a `j`, 46 in front of a `T` -- which is why Gone Girl fuses `jag` to the word before it 80
+    /// times in Swedish and `jeg` 62 times in Norwegian against six `you` in its English track.
+    /// Turning this on removes **69%** of both: 80 to 25, and 62 to 19.
+    ///
+    /// It also breaks the English bench, on every scored track, and the mechanism is the one #222
+    /// predicted in advance. A full stop has ink in one band only, so the single band it shares with
+    /// the letter before it is the letter's narrow foot, and the honest distance between them is
+    /// genuinely wide. `He said they were God's second blunder.` becomes `... blunder .`. The box
+    /// gap compressed those to nothing *by accident*, and `split_threshold`'s two decisiveness
+    /// constants -- 50% of median glyph width, 200% of the low cluster -- were fitted against a
+    /// distribution that included the compression.
+    ///
+    /// So this ships off, in the shape `MatchThresholds::mark_weight_permille` already has: the
+    /// machinery is the instrument that measured the question, and turning it on is one flag once
+    /// those two constants have been swept against ink gaps rather than box gaps.
+    ///
+    /// Falls back to [`UprightSpan`](subtrackt_core::UprightSpan) wherever the bands are unknown --
+    /// a line whose anchors were not found, a part cut out of a fused component, a glyph pair that
+    /// shares no band at all. The fallback is not a degraded path; it is exactly what every gap is
+    /// measured by today.
+    pub band_gaps: bool,
     /// Character substituted for a glyph the matcher could not identify.
     pub placeholder: char,
     /// Whether a leading `-` is followed by a space even when the gap alone would not warrant one.
@@ -132,6 +159,7 @@ impl Default for LayoutRules {
             split_min_width_percent: 50,
             split_min_cluster_percent: 200,
             space_gap_percent: 250,
+            band_gaps: false,
             placeholder: '\u{fffd}',
             preserve_speaker_dash: true,
             ambiguity_margin: 8,
@@ -163,7 +191,7 @@ impl SpatialAssembler {
     fn render_line(&self, line: &[(&Glyph, GlyphMatch)]) -> (String, Vec<Option<GlyphMatch>>) {
         let gaps: Vec<u32> = line
             .windows(2)
-            .map(|pair| gap(pair[0].0, pair[1].0))
+            .map(|pair| gap(pair[0].0, pair[1].0, self.rules))
             .collect();
         // The yardstick the decisiveness test measures against. A word space is a sizeable
         // fraction of a character; a kerning gap is not, and no ratio between two *gaps* can tell
@@ -330,11 +358,17 @@ fn glyph_width(glyph: &Glyph) -> u32 {
 /// the place to start using it: every rule below ranks gaps, and a negative gap ranks below a zero
 /// one in exactly the way a clamped one does. What #121 changes is how *many* of them are down
 /// there, not what happens to the ones that are.
-fn gap(this: &Glyph, next: &Glyph) -> u32 {
-    let tenths = this.upright.gap_to(next.upright).unwrap_or_else(|| {
-        let boxes = i64::from(next.bounds.x) - i64::from(this.bounds.right());
-        i32::try_from(boxes * i64::from(SPAN_TENTHS)).unwrap_or(i32::MAX)
-    });
+fn gap(this: &Glyph, next: &Glyph, rules: LayoutRules) -> u32 {
+    let banded = rules
+        .band_gaps
+        .then(|| this.bands.gap_to(next.bands))
+        .flatten();
+    let tenths = banded
+        .or_else(|| this.upright.gap_to(next.upright))
+        .unwrap_or_else(|| {
+            let boxes = i64::from(next.bounds.x) - i64::from(this.bounds.right());
+            i32::try_from(boxes * i64::from(SPAN_TENTHS)).unwrap_or(i32::MAX)
+        });
     u32::try_from(tenths).unwrap_or(0)
 }
 
@@ -546,6 +580,47 @@ mod tests {
         }
     }
 
+    /// The same glyph, with its ink declared band by band rather than as one box.
+    ///
+    /// Spans are in tenths of a pixel, matching `UprightBands`. `EMPTY_BAND` is a band the glyph
+    /// does not reach at all.
+    fn banded(x: u32, width: u32, spans: [(i32, i32); subtrackt_core::SPACING_BANDS]) -> Glyph {
+        Glyph {
+            bands: subtrackt_core::UprightBands::new(spans),
+            ..glyph(x, width, 0)
+        }
+    }
+
+    #[test]
+    fn a_gap_is_measured_between_boxes_unless_the_bands_are_asked_for() {
+        // The default, and it is the default because #222 measured the alternative costing 600
+        // worse cues across the nine-track bench. `docs/word-gap.md` has both halves.
+        let empty = subtrackt_core::UprightBands::EMPTY_BAND;
+        let body = [empty, (0, 100), (0, 100), empty];
+        let far = [empty, (400, 500), (400, 500), empty];
+        let (this, next) = (banded(0, 10, body), banded(20, 10, far));
+
+        let boxes = LayoutRules { band_gaps: false, ..LayoutRules::default() };
+        let bands = LayoutRules { band_gaps: true, ..LayoutRules::default() };
+        assert_eq!(gap(&this, &next, boxes), 100, "the box gap, in tenths");
+        assert_eq!(
+            gap(&this, &next, bands),
+            300,
+            "the band gap, which is three times as wide"
+        );
+    }
+
+    #[test]
+    fn a_pair_with_no_shared_band_falls_back_to_the_box_rather_than_to_nothing() {
+        // The apostrophe-beside-a-comma case. There is no height at which they face each other, so
+        // there is no ink distance to report -- and the caller has to answer anyway.
+        let empty = subtrackt_core::UprightBands::EMPTY_BAND;
+        let high = banded(0, 10, [(0, 100), (0, 100), empty, empty]);
+        let low = banded(20, 10, [empty, empty, (200, 300), (200, 300)]);
+        let bands = LayoutRules { band_gaps: true, ..LayoutRules::default() };
+        assert_eq!(gap(&high, &low, bands), 100, "the box gap, unchanged");
+    }
+
     fn glyph(x: u32, width: u32, line: usize) -> Glyph {
         Glyph {
             bounds: Rect::new(x, 0, width, 10),
@@ -557,6 +632,9 @@ mod tests {
             mark: subtrackt_core::MarkSlope::NONE,
             aspect: subtrackt_core::InkAspect::UNKNOWN,
             upright: subtrackt_core::UprightSpan::of_box(Rect::new(x, 0, width, 10)),
+            // Unknown, so every existing spacing test still exercises the box path it was written
+            // against. #219's bands are opted into by the tests that are about them.
+            bands: subtrackt_core::UprightBands::UNKNOWN,
             slant: subtrackt_core::Slant::UPRIGHT,
         }
     }

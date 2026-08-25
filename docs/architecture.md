@@ -271,7 +271,7 @@ closed, which is what closed #1 — kept here so the answers are findable from t
 | What studios actually author against | — | #8 — PGS surveyed, VOBSUB not. `docs/library-survey.md` |
 | Which languages a reference set can spell | `subtrackt_glyph::font::charset` | #189 — a third of the library's Latin tracks, and 150 of 213 absent characters rehome silently rather than failing. `docs/language-coverage.md` |
 | Whether a track is even in the set's script | `subtrackt_core::script` | #218 — no statistic over the read can tell a wrong script from a wrong typeface; the container's tag can. `docs/script-guard.md` |
-| What a word gap is measured between | `subtrackt_text::layout` | #219 — boxes, not ink; in front of a `j` that understates the space by 29 points. `docs/word-gap.md` |
+| What a word gap is measured between | `subtrackt_text::layout` | #219 — boxes, not ink; in front of a `j` that understates the space by 29 points. #222 measured the correction at 600 worse cues and shipped it off. `docs/word-gap.md` |
 | Whether an extraction is words of its own language | — | #217 — a word list out of the library's own sidecars, and a false-positive floor of one word in six. `docs/word-reader.md` |
 
 **One thing outlived the epic.** §4 warned that a title in an unexpected typeface "degrades to

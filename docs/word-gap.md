@@ -15,6 +15,7 @@ For most letters those are the same number. For `j` they differ by 29 points.**
 [issue-189]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/189
 [issue-121]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/121
 [issue-40]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/40
+[issue-222]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/222
 
 ## The instrument
 
@@ -155,17 +156,67 @@ its line was `nonP Lnon anan onon`, all x-height, so the line had no cap line fo
 `?O?? ??O? ???? O?O?` — 651 pairs discarded. **A synthetic line has to be given an ascender
 deliberately**, because a real subtitle line always has one.
 
+## The fix, measured and shipped off
+
+[#222][issue-222] built it. `UprightBands` carries a glyph's deskewed ink in **four bands** down its
+line — above the cap line, the two halves of the body, below the baseline — and `--band-gaps`
+measures a word gap as the narrowest distance over the bands both glyphs reach. The bands are
+fractions of the line's own measured cap height, never a typographic constant, and a line whose
+anchors were not found reports them unknown and falls back to the box.
+
+**It removes 69% of the defect.** Gone Girl's glued `jag` goes from 80 instances to 25 and its
+glued `jeg` from 62 to 19. `Greatfish!` becomes `Great fish!`.
+
+**And it breaks the English bench, on every scored track:**
+
+| track | CER before | CER after | better | worse |
+| :--- | ---: | ---: | ---: | ---: |
+| cloverfield | 0.4% | 0.6% | 7 | 55 |
+| gonegirl | 1.4% | 1.6% | 23 | 165 |
+| wanda | 1.3% | 1.8% | 8 | 124 |
+| kingkong | 21.3% | 21.5% | 9 | 58 |
+| karate-kid | 1.8% | 2.3% | 10 | 122 |
+| training-day | 1.9% | 2.2% | 3 | 76 |
+
+**600 cues worse.** #222 predicted the mechanism in advance and named the character:
+
+> At least one regression appears in a pair that shares few rows — an apostrophe or a full stop
+> beside a letter — because that is the case the box gap handles by accident.
+
+```
+He said they were God's second blunder.   ->   ... second blunder .
+So, you're Wanda's brother.               ->   ... Wanda's brother .
+```
+
+A full stop has ink in one band only. The single band it shares with the letter before it holds
+that letter's narrow foot, so the honest distance between them is genuinely wide — and
+`split_threshold` reads wide as a word break. **The box gap was compressing those gaps by accident,
+and #40's two decisiveness constants — 50% of median glyph width, 200% of the low cluster's median
+— were fitted against a distribution that included the compression.** Making one measurement more
+truthful moved the population the other two were tuned against.
+
+Spaces are lost as well as gained, for the same reason: `The dog` becomes `Thedog` on a line whose
+threshold rose faster than its word gaps did.
+
+So it ships **off**, in the shape `MatchThresholds::mark_weight_permille` already has — the
+machinery is the instrument that measured the question, and turning it on is one flag once those
+two constants have been swept against ink gaps rather than box gaps.
+
+One thing #222 got wrong in the useful direction: **the memory cost is nothing.** Four bands is 40
+fixed bytes per glyph and the bench's resident glyph figures do not move — Gone Girl reads 220.4 MiB
+either way. The issue had priced a row-exact profile at 8 MB and a full mask copy at more; the
+approximation costs neither, and it was never the obstacle.
+
 ## What this does not claim
 
 - **It does not say how many spaces are lost.** The box-versus-ink table is over the breaks that
   *survived*; the ones that did not are not in it, because a lost break is not classified as a
   break. The 80 and 62 glued instances are counted separately, by looking for `jag` and `jeg` fused
   to a preceding word, and that count is specific to two words in two languages.
-- **It does not price a fix**, and the fix is not free. The ink gap needs each glyph's row extents,
-  which the pipeline computes during segmentation and throws away —
-  `Config::glyph_masks` keeps them and is off by default because a feature film is tens of thousands
-  of glyphs. What to keep, what it costs, and what it moves on the bench is its own question with
-  its own prediction.
+- **The four bands are an approximation of the row-exact measurement**, and the two have not been
+  compared cell by cell. `xtask word-gap` computes the exact answer off the glyph masks; the shipped
+  bands compute a coarse one off the label map. Everything the fix gains and everything it costs is
+  measured with the coarse one.
 - **One disc.** Three tracks of it, which is the right shape for the question — the language is the
   only variable — and still one disc.
 
