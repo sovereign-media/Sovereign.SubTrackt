@@ -13,7 +13,38 @@
     "inter-engine gap smaller than that spread is not a result.",
     "",
     "kind: `scored` yields CER/WER. `smoke` claims no accuracy and asserts only that the",
-    "track survives its own shape. `arithmetic` is measured for cost and multiplied."
+    "track survives its own shape. `arithmetic` is measured for cost and multiplied.",
+    "",
+    "cost: the item is REPEATED, and is the only kind of item a timing figure may come",
+    "from. #209 widened this corpus from 6 items to 26, 24 of them scored, and paid for",
+    "it by dropping to one run each -- which the first run's own results licensed: all",
+    "64 (engine, item)",
+    "pairs were byte-identical across three repeats, so every accuracy figure published",
+    "was the median of three identical numbers. Timing is the exception and it is not a",
+    "small one -- `pgstosrt` read 254.8 / 67.5 / 67.3 s on `deathrace2`, a 278% spread,",
+    "with CPU-seconds moving with it (996 against 266), which is a four-fold difference",
+    "in work done rather than stopwatch noise. So five items stay repeated and every",
+    "wall, CPU, %CPU and RSS figure in `docs/alternatives.md` is drawn from those five.",
+    "`bighero6` is one of them despite claiming no accuracy: it is carried for cost, and",
+    "the sovereign#328 cross-check is the reason it is in the corpus at all.",
+    "",
+    "Titles after the original six are drawn by `select.py` from the fifty-title library",
+    "sample, in `scripts/accuracy/sample.py`'s hash-of-folder order so the draw",
+    "re-derives rather than being hand-picked. NOT from the 21 titles the sidecar",
+    "corroborates: that restriction is circular, since it selects titles by the outcome",
+    "being measured, and `docs/library-accuracy.md` says so in those words.",
+    "",
+    "The draw walked 40 records to find 20. Seventeen were rejected because their best",
+    "sidecar does not transcribe what the track does, three had no scoreable sidecar at",
+    "all, and `select.py` prints every one with its reason. Two rejections are worth",
+    "knowing about because neither cue pairing nor sound-cue counts can see them: the",
+    "*Insomnia* case, where a sidecar of the same convention comes from a different",
+    "release, pairs by timing and shares almost no words -- 1,213 extracted cues against",
+    "a 1,974-cue sidecar in block capitals, reading 77.2%. Those are caught by the",
+    "confident-read test, which is `docs/library-accuracy.md`'s own measurement made into",
+    "a rule and fires only when the matcher says it read the glyphs. A title the",
+    "reference set fits badly is kept however badly it scores: `excision` is here at",
+    "22.9% selector CER on a fit of 30.5."
   ],
   "root": "//nas/MEDIA/movies",
   "items": [
@@ -29,6 +60,7 @@
     },
     {
       "key": "clover",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "clover.sup",
@@ -55,6 +87,7 @@
     },
     {
       "key": "wanda",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "wanda.sup",
@@ -81,6 +114,7 @@
     },
     {
       "key": "gonegirl",
+      "cost": true,
       "kind": "scored",
       "truth": "sidecar",
       "sup": "gonegirl.sup",
@@ -107,6 +141,7 @@
     },
     {
       "key": "bighero6",
+      "cost": true,
       "kind": "smoke",
       "truth": "none",
       "sup": "bighero6.sup",
@@ -125,6 +160,7 @@
     },
     {
       "key": "deathrace2",
+      "cost": true,
       "kind": "arithmetic",
       "truth": "none",
       "sup": "deathrace2.sup",
@@ -132,6 +168,516 @@
       "sidecar": null,
       "note": "One track of the 37 #328 projected at 8.4 hours. Measured once and multiplied; no accuracy claimed and none scored.",
       "sidecar_candidates": []
+    },
+    {
+      "key": "thor",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "thor.sup",
+      "folder": "Thor (2011) [tmdbid-10195]",
+      "stream": 0,
+      "sidecar": "Thor (2011) [imdbid-tt0800369] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1191 cues extracted. Shape check: sound cues 91 against 98, 1 unpaired, 1.5% CER at fit 10.5.",
+      "sidecar_sha256": "832ca48633e2998acb6a35b73a80db5123048637b66d96dc9641d3c032c13398",
+      "sidecar_bytes": 80217,
+      "sidecar_candidates": [
+        {
+          "file": "Thor (2011) [imdbid-tt0800369] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.SDH.srt",
+          "selector_cue_cer_pct": 1.4,
+          "selector_track_cer_pct": 1.5,
+          "chosen": true
+        },
+        {
+          "file": "Thor (2011) [imdbid-tt0800369] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.srt",
+          "selector_cue_cer_pct": 5.1,
+          "selector_track_cer_pct": 6.6,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 5.1
+    },
+    {
+      "key": "theblairwitchpro",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "theblairwitchpro.sup",
+      "folder": "The Blair Witch Project (1999) [tmdbid-2667]",
+      "stream": 0,
+      "sidecar": "The Blair Witch Project (1999) [imdbid-tt0185937] - [Bluray-1080p Proper][DTS 2.0][x264]-meth.2.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1341 cues extracted. Shape check: dialogue-only, 17 unpaired of 1341, 2.8% CER at fit 10.8.",
+      "sidecar_sha256": "73b526e3116aec4f859d14f07ac4c5415d9bd72750ed67f08edaa8033e746b89",
+      "sidecar_bytes": 98607,
+      "sidecar_candidates": [
+        {
+          "file": "The Blair Witch Project (1999) [imdbid-tt0185937] - [Bluray-1080p Proper][DTS 2.0][x264]-meth.2.srt",
+          "selector_cue_cer_pct": 2.5,
+          "selector_track_cer_pct": 2.8,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "batman",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "batman.sup",
+      "folder": "Batman (1989) [tmdbid-268]",
+      "stream": 0,
+      "sidecar": "Batman (1989) [imdbid-tt0096895] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1108 cues extracted. Shape check: sound cues 95 against 95, 0 unpaired, 2.1% CER at fit 10.4.",
+      "sidecar_sha256": "52007552b47cf174d7e6d922b0310515e4e5d9a93b384861937e6ca32a85ab60",
+      "sidecar_bytes": 76918,
+      "sidecar_candidates": [
+        {
+          "file": "Batman (1989) [imdbid-tt0096895] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.SDH.srt",
+          "selector_cue_cer_pct": 2.1,
+          "selector_track_cer_pct": 2.1,
+          "chosen": true
+        },
+        {
+          "file": "Batman (1989) [imdbid-tt0096895] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.srt",
+          "selector_cue_cer_pct": 5.9,
+          "selector_track_cer_pct": 8.9,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 6.8
+    },
+    {
+      "key": "liloandstitch",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "liloandstitch.sup",
+      "folder": "Lilo and Stitch (2025) [tmdbid-552524]",
+      "stream": 0,
+      "sidecar": "Lilo and Stitch (2025) [imdbid-tt11655566] - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-BYNDR.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1985 cues extracted. Shape check: sound cues 463 against 562, 8 unpaired, 4.8% CER at fit 12.2.",
+      "sidecar_sha256": "a7f2a23ad50c90c2045f57558ca99d5e7031d0c522f773ae2abad2d0481f13e1",
+      "sidecar_bytes": 126900,
+      "sidecar_candidates": [
+        {
+          "file": "Lilo and Stitch (2025) [imdbid-tt11655566] - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-BYNDR.eng.SDH.srt",
+          "selector_cue_cer_pct": 4.5,
+          "selector_track_cer_pct": 4.8,
+          "chosen": true
+        },
+        {
+          "file": "Lilo and Stitch (2025) [imdbid-tt11655566] - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-BYNDR.eng.srt",
+          "selector_cue_cer_pct": 17.4,
+          "selector_track_cer_pct": 24.2,
+          "chosen": false
+        },
+        {
+          "file": "Lilo and Stitch (2025) - [WEBDL-1080p][EAC3 Atmos 5.1][x264]-HdT.eng.srt",
+          "selector_cue_cer_pct": 35.7,
+          "selector_track_cer_pct": 31.4,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 26.6
+    },
+    {
+      "key": "therescuers",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "therescuers.sup",
+      "folder": "The Rescuers (1977) [tmdbid-11319]",
+      "stream": 0,
+      "sidecar": "The Rescuers (1977) - [WEBDL-720p][EAC3 5.1][h264]-NINJACENTRAL.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 970 cues extracted. Shape check: sound cues 178 against 269, 5 unpaired, 2.0% CER at fit 11.5.",
+      "sidecar_sha256": "257ce9490910abf01366425175328ee3f2c34714f877eeedde6bb7f0433aa174",
+      "sidecar_bytes": 64330,
+      "sidecar_candidates": [
+        {
+          "file": "The Rescuers (1977) - [WEBDL-720p][EAC3 5.1][h264]-NINJACENTRAL.eng.SDH.srt",
+          "selector_cue_cer_pct": 7.6,
+          "selector_track_cer_pct": 2.0,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "shazam",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "shazam.sup",
+      "folder": "Shazam! (2019) [tmdbid-287947]",
+      "stream": 0,
+      "sidecar": "Shazam! (2019) [imdbid-tt0448115] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 2155 cues extracted. Shape check: sound cues 563 against 592, 0 unpaired, 1.0% CER at fit 12.0.",
+      "sidecar_sha256": "fcda7058c7b022a3660f53937093238577ba6a317218221910e8fd8dd89dff0c",
+      "sidecar_bytes": 141527,
+      "sidecar_candidates": [
+        {
+          "file": "Shazam! (2019) [imdbid-tt0448115] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.SDH.srt",
+          "selector_cue_cer_pct": 1.1,
+          "selector_track_cer_pct": 1.0,
+          "chosen": true
+        },
+        {
+          "file": "Shazam! (2019) [imdbid-tt0448115] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-D-Z0N3.eng.srt",
+          "selector_cue_cer_pct": 14.7,
+          "selector_track_cer_pct": 23.8,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 22.8
+    },
+    {
+      "key": "rambofirstbloodp",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "rambofirstbloodp.sup",
+      "folder": "Rambo First Blood Part II (1985) [tmdbid-1369]",
+      "stream": 0,
+      "sidecar": "Rambo First Blood Part II (1985) [imdbid-tt0089880] - [Bluray-1080p][HDR10][AC3 5.1][x265]-CtrlHD.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 442 cues extracted. Shape check: dialogue-only, 1 unpaired of 442, 0.8% CER at fit 9.6.",
+      "sidecar_sha256": "8416f95d085f62576eb850dd718c1cd4770ea22111e3a520112aabeb4c51ff9e",
+      "sidecar_bytes": 30621,
+      "sidecar_candidates": [
+        {
+          "file": "Rambo First Blood Part II (1985) [imdbid-tt0089880] - [Bluray-1080p][HDR10][AC3 5.1][x265]-CtrlHD.eng.srt",
+          "selector_cue_cer_pct": 0.6,
+          "selector_track_cer_pct": 0.8,
+          "chosen": true
+        },
+        {
+          "file": "Rambo First Blood Part II (1985) - [WEBDL-1080p][EAC3 5.1][h264]-Yuki.eng.English-[CC].srt",
+          "selector_cue_cer_pct": 110.4,
+          "selector_track_cer_pct": 82.2,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 81.4
+    },
+    {
+      "key": "toystory2",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "toystory2.sup",
+      "folder": "Toy Story 2 (1999) [tmdbid-863]",
+      "stream": 0,
+      "sidecar": "Toy Story 2 (1999) [imdbid-tt0120363] - [Bluray-1080p Proper][HDR10][EAC3 5.1][x265]-Geek.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1188 cues extracted. Shape check: dialogue-only, 13 unpaired of 1188, 1.6% CER at fit 11.6.",
+      "sidecar_sha256": "754be289ab397159c2186c96092bb243891cbdfd9a43bc0d49ba7aa39ad04cba",
+      "sidecar_bytes": 86228,
+      "sidecar_candidates": [
+        {
+          "file": "Toy Story 2 (1999) [imdbid-tt0120363] - [Bluray-1080p Proper][HDR10][EAC3 5.1][x265]-Geek.eng.srt",
+          "selector_cue_cer_pct": 3.5,
+          "selector_track_cer_pct": 1.6,
+          "chosen": true
+        },
+        {
+          "file": "Toy Story 2 (1999) [imdbid-tt0120363] - [Bluray-1080p Proper][HDR10][EAC3 5.1][x265]-Geek.eng.SDH.srt",
+          "selector_cue_cer_pct": 21.6,
+          "selector_track_cer_pct": 18.1,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 16.5
+    },
+    {
+      "key": "excision",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "excision.sup",
+      "folder": "Excision (2012) [tmdbid-84194]",
+      "stream": 0,
+      "sidecar": "Excision (2012) [imdbid-tt1984153] - [Bluray-1080p][AC3 5.1][x264]-EbP.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 968 cues extracted. Shape check: sound cues 58 against 75, 0 unpaired, 22.9% CER at fit 30.5.",
+      "sidecar_sha256": "a7bd4c7ae0cc2a06f1bc3338727fae5648cc88a2488df149ad67b20420b9d853",
+      "sidecar_bytes": 65881,
+      "sidecar_candidates": [
+        {
+          "file": "Excision (2012) [imdbid-tt1984153] - [Bluray-1080p][AC3 5.1][x264]-EbP.eng.srt",
+          "selector_cue_cer_pct": 23.7,
+          "selector_track_cer_pct": 22.9,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "winniethepoohave",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "winniethepoohave.sup",
+      "folder": "Winnie the Pooh A Very Merry Pooh Year (2002) [tmdbid-13706]",
+      "stream": 0,
+      "sidecar": "Winnie the Pooh A Very Merry Pooh Year (2002) [imdbid-tt0324572] - [Bluray-1080p][AC3 2.0][x264]-HDMaNiAcS.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 840 cues extracted. Shape check: dialogue-only, 0 unpaired of 840, 3.8% CER at fit 11.7.",
+      "sidecar_sha256": "52ed52404f4cc87e03a86420f4fe97f077b00fb9fbe4c2d3865adc740e9a6033",
+      "sidecar_bytes": 61896,
+      "sidecar_candidates": [
+        {
+          "file": "Winnie the Pooh A Very Merry Pooh Year (2002) [imdbid-tt0324572] - [Bluray-1080p][AC3 2.0][x264]-HDMaNiAcS.eng.srt",
+          "selector_cue_cer_pct": 4.6,
+          "selector_track_cer_pct": 3.8,
+          "chosen": true
+        },
+        {
+          "file": "Winnie the Pooh A Very Merry Pooh Year (2002) - [WEBDL-1080p][AAC 2.0][h264]-playWEB.eng.srt",
+          "selector_cue_cer_pct": 5.7,
+          "selector_track_cer_pct": 4.1,
+          "chosen": false
+        },
+        {
+          "file": "Winnie the Pooh A Very Merry Pooh Year (2002) - [WEBDL-1080p][AAC 2.0][h264]-playWEB.eng.SDH.srt",
+          "selector_cue_cer_pct": 14.5,
+          "selector_track_cer_pct": 12.6,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 8.8
+    },
+    {
+      "key": "hearteyes",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "hearteyes.sup",
+      "folder": "Heart Eyes (2025) [tmdbid-1302916]",
+      "stream": 0,
+      "sidecar": "Heart Eyes (2025) [imdbid-tt32558992] - [WEBDL-1080p][EAC3 5.1][h264]-GRABBED.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1898 cues extracted. Shape check: sound cues 351 against 351, 0 unpaired, 2.5% CER at fit 7.5.",
+      "sidecar_sha256": "4cb4e73655aac014e90d7586fa742a3a2e68e4479106666714c1b74a0cc5aa31",
+      "sidecar_bytes": 123427,
+      "sidecar_candidates": [
+        {
+          "file": "Heart Eyes (2025) [imdbid-tt32558992] - [WEBDL-1080p][EAC3 5.1][h264]-GRABBED.eng.srt",
+          "selector_cue_cer_pct": 2.6,
+          "selector_track_cer_pct": 2.5,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "littlewomen",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "littlewomen.sup",
+      "folder": "Little Women (2019) [tmdbid-331482]",
+      "stream": 0,
+      "sidecar": "Little Women (2019) [imdbid-tt3281548] - [WEBDL-1080p][EAC3 5.1][h264]-TEPES.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1664 cues extracted. Shape check: dialogue-only, 22 unpaired of 1664, 7.7% CER at fit 7.5.",
+      "sidecar_sha256": "b90b9412bb1b4c6b18001a149f0e9452318004426e1d838848153ef45a801ae9",
+      "sidecar_bytes": 131925,
+      "sidecar_candidates": [
+        {
+          "file": "Little Women (2019) [imdbid-tt3281548] - [WEBDL-1080p][EAC3 5.1][h264]-TEPES.eng.srt",
+          "selector_cue_cer_pct": 36.8,
+          "selector_track_cer_pct": 7.7,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "theparenttrap",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "theparenttrap.sup",
+      "folder": "The Parent Trap (1998) [tmdbid-9820]",
+      "stream": 0,
+      "sidecar": "The Parent Trap (1998) [imdbid-tt0120783] - [Bluray-1080p][DTS 5.1][x264]-c0kE.eng.SRT.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1751 cues extracted. Shape check: sound cues 80 against 89, 0 unpaired, 1.3% CER at fit 11.9.",
+      "sidecar_sha256": "096430f32f061385de552d00e17401806a94865fb7f0a74dda4576b320d45e6b",
+      "sidecar_bytes": 130142,
+      "sidecar_candidates": [
+        {
+          "file": "The Parent Trap (1998) [imdbid-tt0120783] - [Bluray-1080p][DTS 5.1][x264]-c0kE.eng.SRT.srt",
+          "selector_cue_cer_pct": 1.3,
+          "selector_track_cer_pct": 1.3,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "goldfinger",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "goldfinger.sup",
+      "folder": "Goldfinger (1964) [tmdbid-658]",
+      "stream": 0,
+      "sidecar": "Goldfinger (1964) - [WEBDL-1080p][EAC3 Atmos 5.1][x264]-HDSWEB.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1137 cues extracted. Shape check: sound cues 104 against 198, 22 unpaired, 8.7% CER at fit 10.8.",
+      "sidecar_sha256": "194724b0bae3fbfc125f842714acf83690e743a8533e9d822274084b5a32141a",
+      "sidecar_bytes": 77913,
+      "sidecar_candidates": [
+        {
+          "file": "Goldfinger (1964) - [WEBDL-1080p][EAC3 Atmos 5.1][x264]-HDSWEB.eng.SDH.srt",
+          "selector_cue_cer_pct": 11.5,
+          "selector_track_cer_pct": 8.7,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "ifihadlegsidkick",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "ifihadlegsidkick.sup",
+      "folder": "If I Had Legs Id Kick You (2025) [tmdbid-1160360]",
+      "stream": 0,
+      "sidecar": "If I Had Legs Id Kick You (2025) - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-FLUX.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 2067 cues extracted. Shape check: sound cues 277 against 269, 10 unpaired, 1.6% CER at fit 11.0.",
+      "sidecar_sha256": "cb3d2b98a41d8286ab2f18db6a0b31d01b61f334363d783e0f682e36c30524aa",
+      "sidecar_bytes": 145654,
+      "sidecar_candidates": [
+        {
+          "file": "If I Had Legs Id Kick You (2025) - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-FLUX.eng.SDH.srt",
+          "selector_cue_cer_pct": 3.3,
+          "selector_track_cer_pct": 1.6,
+          "chosen": true
+        },
+        {
+          "file": "If I Had Legs Id Kick You (2025) - [WEBDL-1080p][EAC3 Atmos 5.1][h264]-FLUX.eng.srt",
+          "selector_cue_cer_pct": 9.5,
+          "selector_track_cer_pct": 15.8,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 14.2
+    },
+    {
+      "key": "divergent",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "divergent.sup",
+      "folder": "Divergent (2014) [tmdbid-157350]",
+      "stream": 0,
+      "sidecar": "Divergent (2014) - [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1635 cues extracted. Shape check: sound cues 267 against 285, 8 unpaired, 3.5% CER at fit 10.8.",
+      "sidecar_sha256": "b88c9a569c9d11eb16bf8ce1b69e8cff7ee8a05bc89f859188851f40e9ad2857",
+      "sidecar_bytes": 102841,
+      "sidecar_candidates": [
+        {
+          "file": "Divergent (2014) - [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.eng.SDH.srt",
+          "selector_cue_cer_pct": 7.4,
+          "selector_track_cer_pct": 3.5,
+          "chosen": true
+        },
+        {
+          "file": "Divergent (2014) - [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.eng.srt",
+          "selector_cue_cer_pct": 13.1,
+          "selector_track_cer_pct": 16.8,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 13.3
+    },
+    {
+      "key": "moulinrouge",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "moulinrouge.sup",
+      "folder": "Moulin Rouge! (2001) [tmdbid-824]",
+      "stream": 0,
+      "sidecar": "Moulin Rouge! (2001) - [Bluray-720p][DTS 5.1][x264]-CRiSC.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1500 cues extracted. Shape check: dialogue-only, 29 unpaired of 1500, 4.9% CER at fit 11.3.",
+      "sidecar_sha256": "bc09994e419eda8f721512326043626c70d5d7789504dd5485159df380d35e11",
+      "sidecar_bytes": 97134,
+      "sidecar_candidates": [
+        {
+          "file": "Moulin Rouge! (2001) - [Bluray-720p][DTS 5.1][x264]-CRiSC.eng.srt",
+          "selector_cue_cer_pct": 4.0,
+          "selector_track_cer_pct": 4.9,
+          "chosen": true
+        }
+      ],
+      "selector_spread_track_points": 0.0
+    },
+    {
+      "key": "howtotrainyourdr",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "howtotrainyourdr.sup",
+      "folder": "How to Train Your Dragon The Hidden World (2019) [tmdbid-166428]",
+      "stream": 0,
+      "sidecar": "How to Train Your Dragon The Hidden World (2019) [imdbid-tt2386490] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-MGS.eng.SDH.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1545 cues extracted. Shape check: sound cues 605 against 605, 0 unpaired, 0.3% CER at fit 10.4.",
+      "sidecar_sha256": "2d7abaa66f17d3eb612ebf1434f2a1b851f531d900ecff6bc50c0a32492c4100",
+      "sidecar_bytes": 97735,
+      "sidecar_candidates": [
+        {
+          "file": "How to Train Your Dragon The Hidden World (2019) [imdbid-tt2386490] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-MGS.eng.SDH.srt",
+          "selector_cue_cer_pct": 0.3,
+          "selector_track_cer_pct": 0.3,
+          "chosen": true
+        },
+        {
+          "file": "How to Train Your Dragon The Hidden World (2019) - [Bluray-1080p][EAC3 Atmos 5.1][x264]-hallowed.eng.English-(SRT).srt",
+          "selector_cue_cer_pct": 16.0,
+          "selector_track_cer_pct": 15.7,
+          "chosen": false
+        },
+        {
+          "file": "How to Train Your Dragon The Hidden World (2019) [imdbid-tt2386490] - [Bluray-1080p][HDR10][EAC3 7.1][x265]-MGS.eng.srt",
+          "selector_cue_cer_pct": 16.6,
+          "selector_track_cer_pct": 28.6,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 28.3
+    },
+    {
+      "key": "highfidelity",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "highfidelity.sup",
+      "folder": "High Fidelity (2000) [tmdbid-243]",
+      "stream": 0,
+      "sidecar": "High Fidelity (2000) - [Bluray-1080p][EAC3 5.1][x264]-hallowed.eng.English-(SRT).srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1934 cues extracted. Shape check: sound cues 151 against 155, 1 unpaired, 1.4% CER at fit 12.3.",
+      "sidecar_sha256": "71dd3f4d5dbb26d9cf29e59739eefc20b656d733f932f6ab98216a1f463a5814",
+      "sidecar_bytes": 144182,
+      "sidecar_candidates": [
+        {
+          "file": "High Fidelity (2000) - [Bluray-1080p][EAC3 5.1][x264]-hallowed.eng.English-(SRT).srt",
+          "selector_cue_cer_pct": 1.4,
+          "selector_track_cer_pct": 1.4,
+          "chosen": true
+        },
+        {
+          "file": "High Fidelity (2000) [imdbid-tt0146882] - [Bluray-1080p][EAC3 5.1][x264]-TayTO.eng.srt",
+          "selector_cue_cer_pct": 5.2,
+          "selector_track_cer_pct": 13.4,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 12.0
+    },
+    {
+      "key": "ironman",
+      "kind": "scored",
+      "truth": "sidecar",
+      "sup": "ironman.sup",
+      "folder": "Iron Man (2008) [tmdbid-1726]",
+      "stream": 0,
+      "sidecar": "Iron Man (2008) [imdbid-tt0371746] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.srt",
+      "note": "Drawn by #209 from the library sweep. Stream 0, hdmv_pgs_subtitle, 1339 cues extracted. Shape check: dialogue-only, 0 unpaired of 1339, 1.6% CER at fit 11.5.",
+      "sidecar_sha256": "dcc648226f01b7b06f39009ab088a3750ba9dbd55e30722bddf058a4f02ae91d",
+      "sidecar_bytes": 103856,
+      "sidecar_candidates": [
+        {
+          "file": "Iron Man (2008) [imdbid-tt0371746] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.srt",
+          "selector_cue_cer_pct": 1.6,
+          "selector_track_cer_pct": 1.6,
+          "chosen": true
+        },
+        {
+          "file": "Iron Man (2008) [imdbid-tt0371746] - [Bluray-1080p Proper][EAC3 7.1][x264]-LoRD.eng.SDH.srt",
+          "selector_cue_cer_pct": 7.8,
+          "selector_track_cer_pct": 7.4,
+          "chosen": false
+        }
+      ],
+      "selector_spread_track_points": 5.8
     }
   ]
 }

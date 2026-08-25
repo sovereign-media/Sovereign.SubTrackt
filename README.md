@@ -398,21 +398,34 @@ burn-in rather than shipping text nobody wrote.
 That property is the whole argument, and it is why the report counts glyphs rather than estimating
 probabilities.
 
-**That is now measured rather than asserted.** Nine configurations of five tools read the same
-bytes, and on the generated fixture — the only corpus item with true ground truth — this reads
-**2.3%** against the best Tesseract wrapper's **9.1%** — **7.2%** once Tesseract is given the
-languages the fixture is written in. On real discs **no single title is decidable**: every margin is
-smaller than the instrument's own uncertainty, and a Tesseract wrapper can take any one disc. Across
-the three, this pipeline has the best mean (**1.13%** against 1.37%) and the best worst case
-(**1.3%** against 1.8%), because no competitor is good on all three — and it reads them in **4.1 CPU
-seconds** against the cheapest competitor's **522**. Not one competitor is on the accuracy-cost
-frontier: each is both slower and, averaged over the corpus, less accurate. What is not close at all
-is the failure column. Across 24,267 cues the three Tesseract wrappers reported **zero**
-glyphs they could not read, because they have no way to say so; this pipeline reported 651, each
-one a location a caller can gate on. Subtitle Edit's two glyph matchers do mark failures, with a
-`*` inline in the subtitle text — a marker rather than a count, indistinguishable from a `*` the
-disc displayed. [`docs/alternatives.md`](docs/alternatives.md) has the tables, the cost, and the
-places the comparison is unfair to the competition.
+**That is now measured rather than asserted, and the measurement does not say what an earlier
+version of this section said.** Ten configurations of five tools read the same bytes across **24
+titles** drawn from a real library. On the generated fixture — the only corpus item with true ground
+truth — this reads **2.3%** against the best Tesseract wrapper's **9.1%**, or **7.2%** once Tesseract
+is given the languages the fixture is written in.
+
+**On real discs we lose on accuracy.** Subtitle Edit's Tesseract arms read a mean **2.67%** and
+**2.78%** against this pipeline's **3.53%**, and their worst titles are 10.0% and 9.1% against our
+24.8%. Head to head it is 2 wins, 7 losses and 15 too close to call. An earlier version of this
+section claimed the best mean and the best worst case; that was true of three discs chosen years ago
+because they fit Arial, and it is not true of the library.
+
+The whole of that gap is **one film**. Excision is set in Arial Bold and the reference directory had
+no bold cut, which cost 2,666 of the corpus's 4,434 unread glyphs; given 128 candidate typefaces,
+`fit` names the right one and the title goes from 24.8% to 11.4%. Excluding it, this pipeline wins
+the mean and the worst case. It is not excluded, because a single catastrophic title is exactly what
+a library owner is entitled to care about — but it does mean the ceiling here is a reference set
+somebody has to build, not a limit of glyph matching.
+
+**Cost is not close and neither is the failure column.** Reading the repeated items costs **5.0 CPU
+seconds** against 828 for the cheapest competitor and 2,217 for the dearest — 166x to 443x. And
+across 33,755 cues the four Tesseract engines reported **zero** glyphs they could not read, because
+they have no way to say so; this pipeline reported **4,434**, each one a location a caller can gate
+on, and refused Excision outright rather than emit a file. pgsrip read that same track and returned
+clean-looking subtitles with no indication of anything. Subtitle Edit's two glyph matchers do mark
+failures, with a `*` inline in the subtitle text — a marker rather than a count, indistinguishable
+from a `*` the disc displayed. [`docs/alternatives.md`](docs/alternatives.md) has the tables, the
+cost, and the places the comparison is unfair to the competition.
 
 ### Inside the pipeline
 
@@ -513,12 +526,18 @@ a set per title is as far as that can be taken without ground truth, and it is w
 does; on a real library a single Arial set already fits 34 of 47 titles, and mean match distance
 names the ones it does not fit before any transcript is consulted.
 
-**Out of the box, a generic set loses to Tesseract on every disc.** Measured, not feared: reading
-these three Blu-rays with one Liberation Sans set scores 9.0%, 10.0% and 10.5% against the best
-Tesseract wrapper's 0.6%, 0.8% and 0.8%. The fitted set wins the fixture outright and ties on the
-discs; the unfitted one is beaten by an order of magnitude. Anyone who cannot supply a typeface is
-better served by an OCR engine today, and [`docs/alternatives.md`](docs/alternatives.md) says so
-in those words.
+**Out of the box, a generic set loses to Tesseract on every title.** Measured, not feared: reading
+24 library titles with one Liberation Sans set scores a mean **10.97%** against the best Tesseract
+wrapper's **2.67%**, and it is the only arm in the comparison that refused a track outright. The
+fitted set wins the fixture outright and loses the library by about a point; the unfitted one is
+beaten by four times. Anyone who cannot supply a typeface is better served by an OCR engine today,
+and [`docs/alternatives.md`](docs/alternatives.md) says so in those words.
+
+**And supplying "a typeface" is not enough — it has to be the right cut.** Excision is authored in
+Arial *Bold*. A regular Arial set reads it at 24.8% CER with 2,666 unreadable glyphs, more than every
+other title in the corpus combined; the same matcher pointed at a directory containing the bold cut
+reads it at 11.4% with 52. The reference set is the whole ballgame, and a near miss is not a partial
+credit.
 
 **Nothing can tell a good fit from a bad one.**
 [#63](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/63) tested five statistics and
@@ -617,7 +636,7 @@ plainer words and links back here for the workings; the shortest of those pages 
 | [`reference-set.md`](docs/reference-set.md) | Why nothing is embedded: a shipped set trades a detectable failure for an undetectable one. Also puts ten candidate typefaces to a real disc, where mean match distance **picks the right one** — 11.7 against 18.5 for the runner-up, 8.8% CER against 16.6%. |
 | [`fit-confidence.md`](docs/fit-confidence.md) | Whether anything can tell a good fit from a bad one without ground truth. **No** — six statistics, three mechanisms. The fifth identifies a typeface from its font file 79–85% of the time and still cannot gate a track, because a decoded glyph drifts further from its own typeface than the typefaces sit apart. The sixth scores the read text against a language prior and overlaps at every threshold, because the characters a model cannot score are exactly the ones where the read went wrong. |
 | [`library-accuracy.md`](docs/library-accuracy.md) | What the pipeline reads on a real library rather than on the three discs it was tuned against: 50 titles, 1950–2025, 268 GB. **13.56% CER** pooled, 8.21% median, and the upper tail is mostly the instrument — a title read at 99.6% coverage and a good fit still scores 77.6% when the sidecar it is scored against is a different transcript. Per-title font selection moves the corpus figure by 0.4 points; three characters fail *every single time*. |
-| [`alternatives.md`](docs/alternatives.md) | The one claim in this README that had no measurement behind it, now measured: nine configurations of five tools over the same bytes. On the only corpus item with true ground truth this reads **2.3%** against the best Tesseract wrapper's **9.1%**; on real discs no single title is decidable — every margin is inside the sidecar spread — but across the three it has the **best mean (1.13%) and best worst case (1.3%)** of any engine tested, at **4.1 CPU seconds against 522**. **No competitor is on the accuracy-cost frontier.** Cost is not close — **48-79x** faster in wall clock and **110-307x** in CPU seconds — and neither is the column the argument rests on: **zero** machine-readable failures from three Tesseract wrappers across 24,267 cues. Also finds that a generic Latin database reads *nothing* at 100% CER, that Subtitle Edit's spell-corrector rewrites 43% of cues where this one rewrites 0.4%, and that out of the box we lose. |
+| [`alternatives.md`](docs/alternatives.md) | The one claim in this README that had no measurement behind it, now measured over **24 library titles and 33,755 cues**: ten configurations of five tools reading the same bytes. On the only item with true ground truth this reads **2.3%** against the best Tesseract wrapper's **9.1%**. **On real discs we lose** — Subtitle Edit's Tesseract arms take mean CER 2.67% and 2.78% against our 3.53%, and the head to head is **2-7 with 15 too close to call**, overturning the best-mean claim three Arial-chosen discs had supported. The entire gap is **one film in Arial Bold**: excluded, we win both statistics; included, the ceiling is a reference set somebody has to build. What is not close is cost — **166x to 443x** CPU — and the column the argument rests on: **zero** machine-readable failures from four Tesseract engines across 33,755 cues, against our 4,434 located markers and one track refused outright. Also finds that a generic Latin database reads *nothing* at 97% CER, that Subtitle Edit's spell-corrector rewrites 43% of cues where this one rewrites 0.4%, and that every competitor's p90 is more than three times its median — **no engine tested is good on all 24 titles**. |
 | [`italic-slant.md`](docs/italic-slant.md) | Why the italic act is a third of the errors left on a real disc while being 6% of it. **27% of an italic line's gaps reach the spacing rule already saturated at zero**, against 0.7% of an upright line's, because a slanted box overhangs the box after it — a failure two stages before the matcher, which is why no reference set ever touched it. Measuring the gap between deskewed ink instead took **Gone Girl from 2.8% to 2.0% CER** and gave back 618 of its 783 missing word spaces, on a disc whose release marks none of its 18% italic lines. Sampling along the line's own slant takes #14's most expensive axis from 47 cells to 26 — and a disc then says a deskew and an italic reference cut are **alternatives**, not a stage and an improvement to it: **47.1% to 8.1%** on a set with no italic entries, and worse on a set that has them. One number tells the two acts apart at 99.4% per cue, and that ships as an `<i>` on the output at **98.8%** agreement with a release's own tags, without moving CER by a character. |
 | [`distribution.md`](docs/distribution.md) | CLI over `cdylib`, static musl over glibc, and the binary-size and cold-start numbers behind both. |
 | [`architecture.md`](docs/architecture.md) | How the workspace is laid out, and where each decision lives. |

@@ -1,84 +1,111 @@
 ---
 title: How it compares
 label: How it compares
-description: Five other tools read the same three Blu-rays. What that showed, and what it did not.
+description: Five other tools read the same 24 films. On accuracy we lose, and the reason is one film.
 ---
 
 # How it compares
 
-Five other tools read the same three Blu-rays: Subtitle Edit's command-line converter driving
-Tesseract, the same converter in two of its other modes, pgsrip, and PgsToSrt. Same subtitle
-streams, same scoring program, one run at a time on the same machine.
+Five other tools read the same 24 films: Subtitle Edit's command-line converter driving Tesseract,
+the same converter in two of its other modes, pgsrip, and PgsToSrt. Same subtitle streams, same
+scoring program, one run at a time on the same machine.
 
-Three discs, 4,660 subtitles. **The accuracy column is a judgement rather than a measurement**,
-for reasons worth having in hand before quoting any figure in it.
+**24 films, 33,755 subtitles.** This page used to report three discs and a win. Widening it to
+twenty-four changed the answer, so the answer changed here too.
 
-| tool | characters wrong | worst of the three discs | CPU for all three |
+| tool | characters wrong | worst film | CPU |
 | :--- | ---: | ---: | ---: |
-| **SubTrackt**, typeface matched | **1.1%** | **1.3%** | **4 seconds** |
-| PgsToSrt | 1.4% | 1.8% | 27 minutes |
-| Subtitle Edit, Tesseract | 1.4% | 1.9% | 12 minutes |
-| pgsrip | 1.6% | 3.5% | 11 minutes |
-| **SubTrackt**, wrong typeface | 9.8% | 10.5% | 3 seconds |
+| Subtitle Edit, Tesseract | **2.7%** | **10.0%** | 18 minutes |
+| **SubTrackt**, typeface fitted from 128 | 3.3% | 11.4% | **7 seconds** |
+| **SubTrackt**, one matched typeface | 3.5% | 24.8% | **5 seconds** |
+| PgsToSrt | 3.7% | 27.3% | 37 minutes |
+| pgsrip | 7.8% | 22.3% | 14 minutes |
+| **SubTrackt**, wrong typeface | 11.0% | 16.8% | 5 seconds |
 
 Subtitle Edit's other two modes aren't in the table because they read almost nothing. Both want a
 shape database that's downloaded separately and trained by hand, and with the stock one, 97
 characters in every 100 came back wrong. Not a fair test of Subtitle Edit, but a fair warning about
 what "supports this format" can mean.
 
+## Subtitle Edit reads more accurately than we do
+
+Head to head across the 24 films it's 2 wins to us, 7 to them, and 15 too close to call. The earlier
+three-disc version of this page reported the opposite, and it was wrong for a reason worth stating:
+those three discs were picked years ago **because they suit this tool's typeface**. A corpus chosen
+that way will flatter it, and it did.
+
+## The whole gap is one film
+
+Take *Excision* out of the table and SubTrackt wins both columns — 2.6% against 2.7%, worst film 8.7%
+against 10.0%. It's left in, because a film your subtitle tool falls over on is exactly the thing
+you'd want to know about. But it's worth knowing *why* it falls over.
+
+*Excision* is set in **Arial Bold**. The shapes SubTrackt was given were Arial regular and Arial
+italic. That one missing weight accounts for 2,666 unreadable characters — more than every other film
+in the comparison put together. Point the same matcher at a folder containing the bold weight and it
+finds it by itself, and the film goes from 24.8% to 11.4%.
+
+So the ceiling here isn't the matching. It's whether somebody built the right set of shapes, which is
+what [fitting a title](/guide/fitting-a-title) is for and why [nothing ships
+embedded](/guide/reference-sets).
+
+## No tool here is good on all 24
+
+Every competitor's bad films are more than three times worse than its typical one. PgsToSrt matches
+our typical film exactly and then reads *Lilo & Stitch* at 27.3%. pgsrip reads *How to Train Your
+Dragon* at 22.3%.
+
+That's the honest shape of the result: nobody in this table reads a library evenly, us included.
+
 ## The accuracy column is a judgement, not a measurement
 
-**Whether a subtitle is right is something a person decides by reading it.** There's no ground
-truth for a real Blu-ray. What exists is subtitle files other people typed from the same discs, and
-those carry one human's choices — where a line breaks, whether a sound cue reads `[DOOR OPENS]` or
-a musical note, whether the speaker label is there at all. They disagree with the disc and with
-each other. Scoring one tool against a different file from the same folder moved its result by up
-to 14 points on two of these three discs.
+**Whether a subtitle is right is something a person decides by reading it.** There's no ground truth
+for a real Blu-ray. What exists is subtitle files other people typed from the same discs, and those
+carry one human's choices — where a line breaks, whether a sound cue reads `[DOOR OPENS]` or a
+musical note, whether the speaker label is there at all. They disagree with the disc and with each
+other. Scoring one tool against a different file from the same folder moved its result by up to **81
+points** on one of these films.
 
-So a figure in that column isn't "how much this tool got wrong". It's "how far this tool's reading
-sat from one particular person's reading", and choosing a different person moves it.
+So a figure in that column isn't "how much this tool got wrong". It's "how far this tool's reading sat
+from one particular person's reading", and choosing a different person moves it.
 
-**Every tool here was scored against the same transcript, which makes the comparison fair — not
-objective.** All five are being measured against a judgement call, so the ranking inherits the
-judgement. Where a tool and the transcript disagree about a convention rather than about a
+**Every tool was scored against the same transcript, which makes the comparison fair — not
+objective.** Where a tool and the transcript disagree about a convention rather than about a
 character, the tool is charged for it just the same.
 
-Every gap in the column is a fraction of a point, well inside that noise. Four of these tools read
-a clean Blu-ray about equally well, and no ranking between them survives the measurement. If you
-need to know which one reads *your* material better, run both over a track you care about and read
-the output — that's the same instrument, applied honestly, and it's the only one there is.
-
-Two things in the table do survive.
+On any single film that noise swamps the gaps, and it always did. What twenty-four films buy is a
+result that doesn't rest on any one of them: a 2-7 record is something no single film's transcript
+can undo, and it's the thing three discs couldn't say either way.
 
 ## Cost isn't close
 
-Four CPU-seconds against nine minutes for the cheapest competitor and twenty-seven for PgsToSrt,
-and nothing was bought with the difference — the tools spending two orders of magnitude more CPU
-aren't more accurate for it.
+Five CPU-seconds against fourteen minutes for the cheapest competitor and thirty-seven for PgsToSrt.
+The two tools that read more accurately than we do spend **166 and 221 times the CPU** to gain about
+a point.
 
-That's the design rather than any cleverness. Comparing a shape against a few hundred known shapes
-is arithmetic, and the same letter in the same film is the same shape every time, so most
-characters come from a cache without any comparison at all.
+That's the design rather than any cleverness. Comparing a shape against a few hundred known shapes is
+arithmetic, and the same letter in the same film is the same shape every time, so most characters
+come from a cache without any comparison at all.
 
-## The wrong typeface costs more than everything else combined
-
-Look at the last row: 9.8% against 1.1%, worse than anything else in the table. That's what
-refusing to guess costs when the shapes you know are the wrong ones.
-
-Avoiding that row is what [fitting a title](/guide/fitting-a-title) is for, and it's why
-[nothing ships embedded](/guide/reference-sets).
+Choosing the right typeface is cheap too: scanning 128 candidate typefaces instead of six costs two
+CPU-seconds across five films, and it's what fixes the worst result in the table.
 
 ## Nobody else has a failure column
 
 None of the five can tell you it failed. They've no way to report a shape they didn't recognise,
-because they always recognise something.
+because they always recognise something. Across 33,755 subtitles the four Tesseract-based tools
+reported **zero** unreadable characters. SubTrackt reported 4,434, each with a location — and on
+*Excision*, given the wrong typeface entirely, it refused the film rather than hand back a file.
+pgsrip read that same film and returned clean-looking subtitles with no sign anything was unusual.
 
 Subtitle Edit's database modes come closest, dropping a `*` into the text where the database found
 nothing. That's a marker in the middle of a subtitle rather than a count, so a program can't act on
 it and can't tell it apart from a `*` the disc really displayed.
 
-SubTrackt counts unread characters per subtitle and per track, and will stop the run outright if
-you ask. The table can't show that, because there's no column for a tool that never fails out loud.
+This is the part of the comparison that got *stronger* with more films, and it's the part the tool
+exists for. If you're reading subtitles by hand, accuracy is what matters and Subtitle Edit is
+currently the better answer. If you're running a pipeline over a library with nobody watching, a tool
+that says "I couldn't read this one" is worth more than a point of character error.
 
 ## The full version
 
