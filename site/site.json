@@ -9,7 +9,8 @@
     "fit",
     "extract",
     "glyphs",
-    "global-options"
+    "global-options",
+    "examples"
   ],
   "guide": [
     "what-this-is",

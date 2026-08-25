@@ -154,6 +154,8 @@ If you already know the typeface, skip `fit` and hand the set straight to `extra
 
 ## Where to go next
 
+- **You have more than one film.** [Examples](/usage/examples) has a box set, a library running
+  unattended, a disc with three tracks, a DVD, and what a wrong answer looks like coming out.
 - **It did not work, or you want to know why it is built this way.**
   [How it works](/guide/what-this-is) covers that in seven short pages.
 - **You want every flag.** The rest of this section is one page per command, starting with
