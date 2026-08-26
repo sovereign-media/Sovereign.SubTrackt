@@ -12,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
@@ -20,12 +20,12 @@ repository = "https://github.com/sovereign-media/Sovereign.SubTrackt"
 authors = ["Sovereign Media"]
 
 [workspace.dependencies]
-subtrackt-core = { path = "crates/subtrackt-core", version = "1.0.0" }
-subtrackt-demux = { path = "crates/subtrackt-demux", version = "1.0.0" }
-subtrackt-decode = { path = "crates/subtrackt-decode", version = "1.0.0" }
-subtrackt-glyph = { path = "crates/subtrackt-glyph", version = "1.0.0" }
-subtrackt-text = { path = "crates/subtrackt-text", version = "1.0.0" }
-subtrackt = { path = "crates/subtrackt", version = "1.0.0" }
+subtrackt-core = { path = "crates/subtrackt-core", version = "1.0.1" }
+subtrackt-demux = { path = "crates/subtrackt-demux", version = "1.0.1" }
+subtrackt-decode = { path = "crates/subtrackt-decode", version = "1.0.1" }
+subtrackt-glyph = { path = "crates/subtrackt-glyph", version = "1.0.1" }
+subtrackt-text = { path = "crates/subtrackt-text", version = "1.0.1" }
+subtrackt = { path = "crates/subtrackt", version = "1.0.1" }
 
 anyhow = "1"
 # The colour stack, named rather than inherited. `clap`'s default features already compile all
