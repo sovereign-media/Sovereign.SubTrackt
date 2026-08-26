@@ -25,6 +25,7 @@ mod language;
 mod mark;
 mod overwide;
 mod pairs;
+mod palette;
 mod refmatch;
 mod rendersweep;
 mod select;
@@ -168,6 +169,7 @@ fn main() -> anyhow::Result<()> {
         Some("separability") => return separability::run(&args[1..]),
         Some("body-box") => return bodybox::run(&args[1..]),
         Some("set-pairs") => return pairs::run(&args[1..]),
+        Some("palette") => return palette::run(&args[1..]),
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
         Some("dump-sup") => return dump::run(&args[1..]),

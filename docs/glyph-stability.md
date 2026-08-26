@@ -119,6 +119,19 @@ Neutral on four titles, worse on two. The reason is visible once measured: subti
 fill near luma 235 and outline near 16, so a fixed 128 is *already* comfortably in the gap. The
 adaptive split sometimes picks a different gap — between two anti-aliasing entries — and does worse.
 
+> **[#234] counted the palettes, and that last paragraph is wrong about this material.** Fill is at
+> luma **192** on four of seven PGS tracks rather than 235, and 128 is **not** in the gap: the
+> widest empty band in opaque ink is 33..87, forty-one points below the shipped cut, which sits
+> inside the drawn ramp. On three other PGS discs the widest band is four to seven points wide —
+> there is no gap at all. Where the sentence is exactly right is VOBSUB, which draws **three**
+> colours with a 131-point chasm at 16..147.
+>
+> The refusal stands on its own number — 3.9% more distinct shapes — and only its explanation was
+> invented. `docs/palette.md` has the survey, and a future proposal must not lean on the sentence
+> above.
+
+[#234]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/234
+
 **Hysteresis.** Decide borderline pixels by connectivity instead: ink above the high threshold
 outright, ink between the low and high thresholds only when touching ink, so an edge follows the
 stroke it belongs to rather than the exact place the threshold falls.
