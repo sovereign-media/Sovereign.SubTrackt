@@ -1263,6 +1263,92 @@ starts from a measurement rather than from this document.
 [issue-232]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/232
 [issue-233]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/233
 
+## Templates cut from the disc's own ink, and why the idealisation was load-bearing
+
+[#233][issue-233], and it is the strongest-looking proposal this document has ever refused. Its
+argument is the conclusion of the section above: the dominant variance term is one pixel of weight
+on a stroke, no representation can argue that away, and **a template cut from this disc does not
+have that term at all** because it was cut at this disc's weight. That is Tesseract's adaptive
+classifier, a structure with decades behind it.
+
+It is also not #10. #10 grouped a stream's *unlabelled* shapes by proximity and died on `l`, `I` and
+`|` at distance zero, so no radius exists. A template promoted from a first-pass read carries a
+label and has no radius — it is compared to an observation exactly the way a rendered entry is,
+which is the distinction `xtask shape-votes` drew for the same reason.
+
+`xtask adaptive` surveys a track, promotes every shape the first pass read confidently, and reads
+the track again against the rendered set plus what it learned. The seeding rule is structural rather
+than a threshold: **a shape may become a template only if the character it was read as belongs to no
+confusion set.** Promote Wanda's `l` and the second pass gets more confident about the same 428
+errors while every statistic improves, which is the failure `glyph-hit-list.md` describes and the
+one this had to be built not to commit.
+
+### The first attempt failed for a reason that was mine, and it is worth naming
+
+Learned entries reported `LineMetrics::UNKNOWN` and `InkAspect::UNKNOWN`, on the argument that a
+shape's occurrences differ in both and picking one would be arbitrary. `Weights::distance` omits a
+term when **either** side lacks it — so those entries paid no metric penalty and no width penalty at
+all, competing on bare Hamming distance against rendered entries that paid both. 1,205 such entries
+against 478 rendered ones took The Karate Kid from 1.7% to **5.6%**, with 919 cues worse.
+
+Carrying the first occurrence's measurements fixes that, and the fix is what makes the real result
+visible.
+
+### No floor works, and that is the finding
+
+`--min-occurrences` is the one knob: how often a shape must recur before it is trusted as a template.
+
+| track | floor | learned | CER | better | worse |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| A Fish Called Wanda | 3 | 69 | 1.3% → 1.7% | **0** | 70 |
+| A Fish Called Wanda | 10 | 37 chars | 1.3% → 1.4% | 7 | 24 |
+| A Fish Called Wanda | 100 | 18 | 1.3% → **1.3%** | **0** | **0** |
+| A Fish Called Wanda | 500 | 6 | 1.3% → **1.3%** | **0** | **0** |
+| Gone Girl | 3 | 80 | 1.3% → 1.5% | **0** | 68 |
+| The Karate Kid | 3 | 1,205 | 1.7% → 5.6% | 20 | **919** |
+
+Read the two ends. **At a high floor the templates change nothing at all** — byte-identical output,
+because the eighteen most-drawn shapes on the disc are shapes the rendered set already reads
+correctly. **At a low floor they are strictly harmful** — 70 cues worse and *zero* better on Wanda,
+68 and zero on Gone Girl.
+
+There is no setting between them where it gains. That is the shape #225 established for a refusal
+here: sweep the constant, or show that no setting of it works.
+
+### Why, and it is #10's finding arriving somewhere new
+
+A learned template is a **real** shape. The rendered entry it competes with is an **idealised** one.
+Real shapes of different characters sit closer together than idealised shapes of different
+characters do — which is exactly what #10 measured when it found the nearest different character at
+distance zero, and exactly what the inter-character column in this document has always said.
+
+So a template cut from the disc attracts its own character's other renderings, and it attracts
+*other characters'* renderings at least as strongly. The unread count is the tell: with fair
+measurements it does not move at all — 79 before and 79 after on Wanda, 68 and 68 on Gone Girl — so
+the templates rescue nothing the set could not already read, and every cue they change is one they
+took from a rendered entry that had it right.
+
+**The idealisation is load-bearing.** A rendered set is not an approximation of the disc that a
+better sample would improve on; it is a set of *separated* points, and separation is the property
+that survives one pixel of weight while proximity to any particular rendering does not. #14's
+finding that a glyph's vector moves further between two renderings of one character than between two
+different characters says the same thing, and it says it about exactly the material a template is cut
+from.
+
+### What would have to be different
+
+The measurement kills this design and does not kill the direction. What a template could still be
+right for is a character the rendered set cannot spell **at all** — a typeface whose `a` is a shape
+no candidate holds — where there is no rendered entry to steal from and the comparison is against
+nothing rather than against something better. That is a narrower claim than #233 made and it needs a
+track the set genuinely fails on, which the bench does not have: every entry on it fits an Arial the
+project renders.
+
+`xtask adaptive` stays, because the next attempt should start from this table rather than from this
+paragraph.
+
+[issue-233]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/233
+
 ## What follows
 
 - ~~**#10 needs redesigning, not implementing.**~~ Redesigned as cluster-then-match, implemented,

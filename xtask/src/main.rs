@@ -10,6 +10,7 @@
 //! ```
 
 mod accuracy;
+mod adaptive;
 mod bigram;
 mod bodybox;
 mod cueimage;
@@ -160,6 +161,7 @@ fn main() -> anyhow::Result<()> {
         Some("render-sweep") => return rendersweep::run(&args[1..]),
         Some("make-fixture") => return fixture::make(&args[1..]),
         Some("accuracy") => return accuracy::run(&args[1..]),
+        Some("adaptive") => return adaptive::run(&args[1..]),
         Some("reference-fit") => return fit::run(&args[1..]),
         Some("fit-select") => return select::run(&args[1..]),
         Some("font-id") => return fontid::run(&args[1..]),
