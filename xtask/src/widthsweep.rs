@@ -93,7 +93,7 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
         config.matching.width_weight_permille = weight;
         config.clustering.width_weight_permille = weight;
 
-        let outcome = Pipeline::new(config)
+        let outcome = Pipeline::new(config.clone())
             .with_reference(reference.clone())
             .run(&media)
             .with_context(|| format!("extracting at weight {weight}"))?;

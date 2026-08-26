@@ -171,6 +171,114 @@ not cover:
 refuses it at 81.8% against a 90% floor. Two gates, two different facts, and widening this one to
 cover the second would turn it into the fraction it exists to replace.
 
+## The same evidence at the resolution of one character
+
+[#230][issue-230]. The guard above refuses a whole track when the set holds not one character of the
+declared script. It has nothing to say about a track it passes — and #189's reader had already
+counted what those tracks produce:
+
+> `102 — 0.13% letters the language does not have`
+
+That line is printed for the English stream of Gone Girl by `xtask language-coverage`, and nothing
+consumed it. Over the nine bench extractions, placeholders excluded, the matcher answers with a
+character English cannot spell **630 times**: `Í` 331, `ì` 186, `Ì` 39, `Î` 21, and a scattering of
+`í`, `è` and `é`. Almost all of it is one letter wearing an accent it cannot have.
+
+So the gate is the same fact at a finer resolution. The container named a language, the language has
+a documented orthography, and this letter is not in it — **evidence from outside the read, refusing
+on a fact**, which is the standard this document sets and the reason none of the seven statistics in
+`docs/fit-confidence.md` could meet it.
+
+### It is a mask on the scan, not a strike on the answer
+
+The difference is the whole design. A masked entry is never scored, so the winner is whatever the
+remaining set returns and the runner-up is a real second choice. Striking the character out
+afterwards would leave the glyph unread, which is a *worse* answer than the one below it.
+
+The measurement says the same thing. Stripping every impossible accent from the bench output by
+hand — the ceiling a strike could reach — is worth **83 cues better and 12 worse**, and the 12 are
+genuine `é` in names on two discs. The mask beats that ceiling because it can hand the glyph to a
+different base letter, and it keeps the `é` because French and Spanish rows carry it and English's
+row is only consulted for an English track.
+
+### Every uncertainty resolves to a pass
+
+The rule this document already states, applied unchanged:
+
+- **No language tag, or a tag the table does not carry** — no mask. All 51 rows are ISO 639-2/B,
+  which is what `scripts/language/survey.py` found over 1,316 files; a two-letter tag is a pass.
+- **Letters only.** An orthography's claim on a letter is solid — English does not write `Í`, in any
+  typeface, on any disc. Its claim on punctuation is not, which is exactly why `TYPOGRAPHY` exists:
+  a curly quote fails every language on the discs that draw one, and a musical note is drawn on an
+  SDH disc in every language there is.
+- **A character of another script is not this gate's business.** The guard above answers that,
+  before the read. Two gates that answered the same question in two places would eventually
+  disagree about one track.
+- **A mask that would refuse every entry is not applied at all.** A matcher that can answer with no
+  character leaves a whole track unread, which is a state no orthography implies.
+- **It is counted and printed.** `language refuses 169/478 entries` on the report line, because a
+  gate that fires silently is a gate nobody can audit — which is what `glyphs_without_metrics` cost
+  this project for as long as it existed and was never printed.
+
+### What it is worth
+
+Nine bench extractions, told they are English. **239 cues better and 0 worse**, and every scored
+track improves:
+
+| track | CER | better | worse |
+| :--- | :--- | ---: | ---: |
+| A Fish Called Wanda | 1.3% -> **1.0%** | 71 | 0 |
+| Gone Girl | 1.3% -> **1.2%** | 60 | 0 |
+| Training Day | 1.9% -> **1.8%** | 37 | 0 |
+| King Kong | 6.0% -> **5.9%** | 28 | 0 |
+| The Karate Kid | 1.7% -> **1.6%** | 28 | 0 |
+| 10 Cloverfield Lane | 0.3% | 15 | 0 |
+
+That clears the criterion [#185][issue-185] used to flip post-correction's default -- a table over
+real material with nothing made worse -- so this ships **on**.
+
+**The first pass did not clear it, and the twelve failures are the finding.** Before the loanword
+column existed the same measurement read 239 better and **12 worse**, and every one of the twelve
+was a real word:
+
+```
+Leave your résumé with my secretary.        ->  Leave your rdsumd with my secretary.
+Fancy my porridge à la walnuts?             ->  Fancy my porridge ? la walnuts?
+- How's your Español? - Más o menos.        ->  - How's your Espahol? - M?s o menos.
+You calling me a cheater, ése?              ->  You calling me a cheater, bse?
+```
+
+English's row lists **no letters at all**, which is orthographically correct and empirically wrong:
+English subtitles carry French and Spanish loanwords, and a gate reading `letters` refuses them. The
+two questions are different — *what does this language need* is the census's, *what may this track
+draw* is the gate's — and conflating them is what produced the twelve. `Language::loanwords` is the
+second question, consulted by `can_spell` and by nothing else, so every figure
+`language-coverage.md` has published is untouched.
+
+It costs nothing because it is **lowercase only**. `Í` is 331 of the 630 impossible characters the
+bench produces and no English word wants a capital I-acute; admitting the capitals would hand back
+over half the gain to buy a word nobody writes.
+
+### And it does nothing where nothing is declared
+
+The same nine tracks, at the shipped default with no `--language`, are **byte-identical** to the
+run before this existed — 0 better, 0 worse, on every one. A `.sup` carries no tag, so the mask is
+never built.
+
+That is the honest shape of the default: #180 found **21 of 50** titles declaring a language on the
+track this pipeline chooses. The 239 cues are what the gate is worth *when it can fire*, and on this
+bench it can only fire because the caller says so.
+
+### A `.sup` has no container, so the caller may say
+
+`--language <TAG>` overrides whatever the container declares, and both gates read the same resolved
+answer. This document's "Reproducing" section said the guard *needs* the container; that is now a
+default rather than a requirement. The override is also the answer for a container that declares the
+wrong tag, which #180 found 16 titles of.
+
+[issue-230]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/230
+[issue-185]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/185
+
 ## What this does not claim
 
 - **It is not a detector.** It compares two declarations and never looks at a bitmap. A stream
@@ -194,5 +302,10 @@ $ subtrackt extract eng.sup --reference verdana.subtref --on-unmatched placehold
 $ subtrackt extract "...Gone Girl...mkv" --stream 11 --reference arial-ri.subtref   # refused
 ```
 
-The guard needs the container, not a `.sup` — a `.sup` holds no language tag, and
-`subtrackt-demux` says so rather than guessing one from the filename.
+The guard takes the container's word by default, and a `.sup` holds no language tag —
+`subtrackt-demux` says so rather than guessing one from the filename. Since #230 a caller may say
+instead:
+
+```console
+$ subtrackt extract wanda.sup --reference arial-ri.subtref --restrict-to-language --language eng
+```

@@ -190,7 +190,7 @@ impl ProvenancePolicy {
 /// `glyph_masks` a survey one — and folding them into a state enum to satisfy the lint would invent
 /// combinations that do not exist and hide the ones that do.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Config {
     /// Which stream to read, or `None` for the first bitmap subtitle stream found.
     pub stream: Option<u32>,
@@ -233,6 +233,23 @@ pub struct Config {
     /// as `false`; see [`Defusing`] for the shape that solves it. This is a `bool` because it was
     /// one before it was true, and [`Self::default`] sets it rather than deriving it.
     pub post_correct: bool,
+    /// Whether the matcher may answer with a letter the declared language cannot spell.
+    ///
+    /// #230, and **on**, against the criterion #185 used to flip post-correction's default: a table
+    /// over the bench showing no cue made worse. It reads **239 cues better and 0 worse**, with
+    /// every scored track improving and A Fish Called Wanda going 1.3% to 1.0%.
+    ///
+    /// It does nothing at all on a track with no declaration, which is most of what the default
+    /// touches: #180 found 21 of 50 titles declaring a language on the track this pipeline chooses.
+    /// So the default is safe in the direction that matters -- a track that says nothing is read
+    /// exactly as it was -- and the gain is available to the ones that speak up.
+    pub restrict_to_language: bool,
+    /// The language to read the track as, overriding whatever the container declares.
+    ///
+    /// `None` means take the container's word for it, which is what every caller did before #230.
+    /// A bare `.sup` is one PGS stream with no container at all, so without this there is nothing
+    /// for either language gate to read on the format the bench is dumped in.
+    pub language: Option<String>,
     /// Whether post-correction may also resolve a word-edge glyph from the track's own vocabulary.
     ///
     /// An arm of the corrector rather than a stage, and gated behind [`Self::post_correct`]. **Off,
@@ -325,6 +342,8 @@ impl Default for Config {
             unmatched: UnmatchedPolicy::default(),
             provenance: ProvenancePolicy::default(),
             // The two #185 turned on. `docs/post-correction.md` §"What flipped it" has the table.
+            restrict_to_language: true,
+            language: None,
             post_correct: true,
             lone_words: true,
             // The arm that stays off, and not for want of ground truth — for want of firings.
