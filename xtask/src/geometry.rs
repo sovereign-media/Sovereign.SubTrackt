@@ -403,7 +403,7 @@ fn predicted(
 /// happens when the two sides letterbox different boxes.
 type FontSide = fn(&Font, char, f64) -> Option<f64>;
 type DiscSide = fn(&Labelled) -> Option<f64>;
-const FEATURES: [(&str, FontSide, DiscSide); 3] = [
+const FEATURES: [(&str, FontSide, DiscSide); 4] = [
     (
         "aspect ratio",
         |font, ch, _| {
@@ -416,6 +416,25 @@ const FEATURES: [(&str, FontSide, DiscSide); 3] = [
         "box width",
         |font, ch, cap| ink_box(font, ch, HIFI_PX).map(|(w, _)| f64::from(w) * 100.0 / cap),
         |g| Some(f64::from(g.width) * 100.0 / g.cap),
+    ),
+    (
+        // #232's axis, on both sides, in the units a matcher term would store it in. The row below
+        // it is the same quantity against the line's cap height, which is what a reader compares
+        // characters by. This is what a matcher would compare a glyph to an entry by, and the two
+        // are not the same question -- #113's whole class of defect is a term measured one way on
+        // the disc and another in the set. `docs/glyph-stability.md` has what the gap turned out to
+        // be worth: 1.18 points on `I`, against an `l`-to-`I` separation of 2.4.
+        "mean stem width, % of own height",
+        |font, ch, _| {
+            let (ink, _) = ink_and_box(font, ch, HIFI_PX)?;
+            let (_, height) = ink_box(font, ch, HIFI_PX)?;
+            (height > 0).then(|| f64::from(ink) * 100.0 / (f64::from(height) * f64::from(height)))
+        },
+        |g| {
+            g.ink
+                .filter(|_| g.height > 0)
+                .map(|ink| f64::from(ink) * 100.0 / (f64::from(g.height) * f64::from(g.height)))
+        },
     ),
     (
         "stem width (ink / height)",
@@ -772,7 +791,7 @@ fn measures(upright: &[&Labelled], first: char, second: char) {
 ///
 /// Every ratio is against the line's own cap height rather than in pixels, which `CLAUDE.md`
 /// requires and which is also what makes the italic act comparable at all: it is set smaller.
-const MEASURES: [(&str, DiscSide); 6] = [
+const MEASURES: [(&str, DiscSide); 7] = [
     ("ink width, pixels", |g| Some(f64::from(g.width))),
     ("aspect ratio, % of the glyph's own height", |g| {
         (g.height > 0).then(|| f64::from(g.width) * 100.0 / f64::from(g.height))
@@ -784,6 +803,17 @@ const MEASURES: [(&str, DiscSide); 6] = [
         g.ink
             .filter(|_| g.height > 0)
             .map(|ink| f64::from(ink) / f64::from(g.height) * 100.0 / g.cap)
+    }),
+    // #232's candidate, and the one row here that needs no line metrics. The row above divides the
+    // same quantity by the *line's* cap height, which `InkAspect`'s own doc records as the choice
+    // that was tried and rejected for exactly this kind of term: a line whose cap height was found
+    // at the x-height measures every glyph on it a third too wide. Dividing by the glyph's own
+    // height instead is a property of one component's box, right on a line nothing else could
+    // measure -- and for `i` against `l`, which share a box height, it is the same ratio.
+    ("mean stem width, % of the glyph's own height", |g| {
+        g.ink
+            .filter(|_| g.height > 0)
+            .map(|ink| f64::from(ink) * 100.0 / (f64::from(g.height) * f64::from(g.height)))
     }),
     ("advance to the next character, % of cap height", |g| {
         g.advance.map(|advance| f64::from(advance) * 100.0 / g.cap)
