@@ -382,6 +382,119 @@ reaches: switching the whole stage on is worth **228 and 301 cues** on those two
 every PGS track on the bench. The two codecs fail at opposite ends of the same word, and each has an
 arm that reaches one of them.
 
+## The word the matcher was sure of
+
+[#236][issue-236]. Every arm above is bound by the same constraint, and `docs/glyph-hit-list.md` is
+where it runs out:
+
+> The track carries 4,271 ambiguous glyphs, and post-correction makes **11 corrections** against 428
+> `I -> l` errors [...] On a disc that draws the two letters identically the matcher is not
+> hesitating between them; it is confident, and the one stage allowed to revisit a decision only
+> touches glyphs the matcher itself flagged.
+
+So this arm is the first that may overrule a read the matcher was sure of, and the whole question is
+what evidence is good enough to let it.
+
+### The runner-up was computed and thrown away
+
+`HammingMatcher::scan_with` has always tracked its second answer as a `(distance, character)` pair --
+the care it takes over *which* character is on the record, because a set holding several entries per
+letter would otherwise report that the matcher could not decide between `a` and `a` -- and has
+always discarded the character on the way out. `GlyphMatch::runner_up` keeps it. That is the whole
+of the new evidence: not a third candidate from anywhere, but the second answer the scan already
+produced.
+
+### The rule, and the four refusals
+
+> A token the word list does not attest, in which **exactly one** glyph's **runner-up** would make
+> it attested, is spelled with the runner-up.
+
+| Refusal | What it prevents |
+| :--- | :--- |
+| Exactly **one** swap | Combinatorial repair, which can reach any word from any other |
+| Only the matcher's **own runner-up** | An invention. This re-ranks two answers the scan produced and never reaches for a third |
+| Only **within a confusion set** | A runner-up outside one means the glyph was never close in any sense this module understands |
+| Token **unattested**, repair **attested** | The arm can move a token towards the language and never away from it |
+
+One character out for one character in, so `rn`/`m` and `cl`/`d` stay out of reach.
+
+### Why a word list is admissible here and nowhere else above
+
+This document rules out a dictionary at length, and the ruling stands for the arms it was written
+about. Two things are different.
+
+**It is data the caller brings.** `--words` names a file; nothing ships with a list, nothing
+downloads one, and `CLAUDE.md`'s rule is about crates.
+
+**Its false-positive rate is measured rather than assumed.** `scripts/language/lexicon.py calibrate`
+rebuilds a lexicon without each source in turn and scores that source against the rest, so every
+miss is definitionally a false positive -- and `docs/word-reader.md` found that a list built from
+eight films calls **one word in six** of real English unattested. That is why the rule is written
+against *one edit repairing a token* and not against the unattested rate: the same document found
+the first worth two to three times its floor and the second worthless.
+
+**And the list must not contain the sidecar it is measured against.** `lexicon.py build --exclude`
+is #236's addition and it is not optional: a word list holding the bench's own transcripts would
+attest every token of the thing being scored. The measurement below is against 400 sidecars with all
+nine bench titles struck out, and every exclusion is printed by name.
+
+### What it is worth
+
+**91 cues better, 1 worse.**
+
+| track | better | worse |
+| :--- | ---: | ---: |
+| Training Day (VOBSUB) | **49** | 0 |
+| The Karate Kid (VOBSUB) | **31** | 0 |
+| A Fish Called Wanda | 7 | 1 |
+| Gone Girl | 4 | 0 |
+| 10 Cloverfield Lane | 0 | 0 |
+| King Kong | 0 | 0 |
+
+Training Day goes 1.9% to 1.8%. What it repairs is the word edge this document has named as out of
+reach since #12 -- a token's first character has nothing to its left, so the context arm declines:
+
+```
+She's a Iittle feisty today.   ->  She's a little feisty today.
+Let me Ioad up!                ->  Let me load up!
+PIates run clean               ->  Plates run clean
+No. No ltalian!                ->  No. No Italian!
+Hazel and lan Johnson.         ->  Hazel and Ian Johnson.
+(lnhales desperately)          ->  (Inhales desperately)
+```
+
+### The one regression is not the one that was predicted
+
+The issue predicted proper nouns -- names, places, invented nouns, the population this document
+names as the reason it refused a dictionary. It is not:
+
+```
+Ma ho sposato una donna che preferisce lavorare nel giardino
+                                                  ^ read as `neI`
+```
+
+**An Italian line in an English track.** The lexicon attests `nei` and not `nel`, so the swap
+"repaired" a word of a language the list was never built for. That is #230's loanword failure
+arriving from the other direction, and the same answer applies: the question a word list is asked
+has to match the language of the line, not merely the language of the track.
+
+The reverse case is in the gains, which is the pleasing part. `- How's your EspañoI?` becomes
+`Español`, because the English corpus of a library that carries Training Day has seen the word.
+
+### Predictions, scored
+
+1. **Wanda gains most**, being the track no existing arm can reach. *Wrong.* Wanda gains 7; the two
+   VOBSUB tracks gain 49 and 31. `l -> I` is a VOBSUB-weighted family -- `docs/glyph-hit-list.md`
+   says so, at 1,778 of 2,424 -- and this arm follows the family rather than the disc.
+2. **Proper nouns are where it goes wrong.** *Wrong*, and see above.
+3. **It cannot fix `lt` and `lf` for `It` and `If`.** *Wrong.* `It` is repaired four times on The
+   Karate Kid alone. The claim was made about the *lone-word* arm, which stops at one character
+   deliberately; this arm reads a whole token and two characters are no harder than five.
+4. **Off by default until a hand-verified table shows nothing made worse.** *Held.* It is 91 against
+   1, not 91 against 0, so the arm ships behind `--words` and no default changes.
+
+[issue-236]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/236
+
 ## Which language is this
 
 #180. The arm above landed asserting English and unable to check, which is the objection this whole
@@ -646,10 +759,10 @@ had stopped refusing.
 - **The confusion table is the blast radius.** `5`/`S`, `8`/`B` and `2`/`Z` are the obvious
   additions and are deliberately absent. Each one wants its own row in the table above before it
   goes in.
-- **The word-initial position, on VOBSUB.** `Iike` and `Iet` are what the other codec produces, and
-  the context arm reaches them only because a longer word has a second side. What it cannot reach
-  is `lt` and `lf` for `It` and `If` — two characters, one of them ambiguous, no evidence either
-  way. The lone-word arm stops at one character deliberately; two is a different measurement.
+- ~~**The word-initial position, on VOBSUB.**~~ **Answered by #236**, and the two-character case
+  with it. A whole token compared against a word list needs no evidence on either side of a glyph,
+  so `Iittle`, `Ioad` and `PIates` are repaired where the context arm declines, and `It` is repaired
+  four times on The Karate Kid. 91 cues better and 1 worse across the bench, behind `--words`.
 
 [#8]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/8
 [#12]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/12

@@ -681,6 +681,16 @@ pub struct GlyphMatch {
     /// **characters**. Nothing has ever generated a set with duplicates, so this cost nothing until
     /// something did.
     pub runner_up_distance: u32,
+    /// **Which** character that runner-up was, where there was one.
+    ///
+    /// [#236](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/236). The scan has
+    /// always tracked this as a `(distance, char)` pair — the doc above is about which character it
+    /// picks — and has always thrown the character away on the way out. Keeping it is what lets a
+    /// later stage ask *what the matcher's second answer was* rather than only *how close it came*.
+    ///
+    /// `None` for a set holding one character, and for a glyph nothing came second on. Never the
+    /// same character as [`Self::character`], by the construction described above.
+    pub runner_up: Option<char>,
 }
 
 impl GlyphMatch {
@@ -691,6 +701,7 @@ impl GlyphMatch {
             character: None,
             distance: best_distance,
             runner_up_distance: u32::MAX,
+            runner_up: None,
         }
     }
 
@@ -808,8 +819,18 @@ mod tests {
 
     #[test]
     fn a_near_tie_is_reported_as_ambiguous() {
-        let close = GlyphMatch { character: Some('0'), distance: 8, runner_up_distance: 9 };
-        let clear = GlyphMatch { character: Some('A'), distance: 2, runner_up_distance: 40 };
+        let close = GlyphMatch {
+            character: Some('0'),
+            distance: 8,
+            runner_up_distance: 9,
+            runner_up: Some('O'),
+        };
+        let clear = GlyphMatch {
+            character: Some('A'),
+            distance: 2,
+            runner_up_distance: 40,
+            runner_up: Some('4'),
+        };
         assert!(!close.is_unambiguous(6));
         assert!(clear.is_unambiguous(6));
         assert!(!GlyphMatch::unmatched(90).is_unambiguous(0));

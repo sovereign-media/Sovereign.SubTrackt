@@ -110,6 +110,17 @@ fn list(input: &std::path::Path) -> anyhow::Result<()> {
 }
 
 fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
+    // Read first and report with the path. `to_config` swallows the error so it can stay
+    // infallible, and a caller who named a word list has said they want the arm -- reading none
+    // silently would report a clean run of a rule that never fired.
+    args.read_lexicon().with_context(|| {
+        format!(
+            "reading the word list {}",
+            args.words
+                .as_ref()
+                .map_or_else(String::new, |p| p.display().to_string())
+        )
+    })?;
     let config = args.to_config();
 
     let mut pipeline = Pipeline::new(config.clone());

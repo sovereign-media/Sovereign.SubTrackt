@@ -340,7 +340,11 @@ impl Pipeline {
             // One margin, from the matching thresholds, shared with the confidence tally the
             // assembler produced. A corrector working to a different one would rewrite glyphs the
             // report had already called clean.
-            let corrector = ContextCorrector::new(self.config.matching.ambiguity_margin());
+            let corrector = ContextCorrector::new(self.config.matching.ambiguity_margin())
+                // #236. Cloned rather than moved because `corrector` is rebuilt per track and the
+                // config outlives it; the list is a few hundred kilobytes of `String` at worst and
+                // this happens once per extraction.
+                .with_lexicon(self.config.lexicon.clone());
             // The vocabulary is an arm of this corrector, not a stage of its own — two correctors
             // in sequence could let one's output become the other's evidence, which is the cascade
             // `docs/post-correction.md` guarantees cannot happen.
@@ -468,7 +472,10 @@ impl Pipeline {
             // character for another, so it moves no glyph between the matched and unmatched
             // tallies and the gate below decides on exactly the same numbers either way. The
             // cheap pre-check keeps the corrector away from cues that were read cleanly.
-            if subtrackt_text::correct::has_correctable_glyphs(cue.confidence) {
+            if subtrackt_text::correct::has_correctable_glyphs(
+                cue.confidence,
+                corrector.corrects_confident_reads(),
+            ) {
                 corrector.correct(&mut cue, &read.origins, index, tally.corrections);
             }
 
@@ -1626,6 +1633,7 @@ mod tests {
             character: Some('q'),
             distance: 0,
             runner_up_distance: 99,
+            runner_up: None,
         }];
         let mut matcher = HammingMatcher::new(block_set(), MatchThresholds::default()).unwrap();
         assert_eq!(

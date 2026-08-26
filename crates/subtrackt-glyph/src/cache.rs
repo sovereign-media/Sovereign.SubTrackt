@@ -127,7 +127,12 @@ mod tests {
     }
 
     fn matched(c: char) -> GlyphMatch {
-        GlyphMatch { character: Some(c), distance: 2, runner_up_distance: 30 }
+        GlyphMatch {
+            character: Some(c),
+            distance: 2,
+            runner_up_distance: 30,
+            runner_up: None,
+        }
     }
 
     #[test]

@@ -730,7 +730,12 @@ mod tests {
     }
 
     fn matched(c: char) -> GlyphMatch {
-        GlyphMatch { character: Some(c), distance: 1, runner_up_distance: 60 }
+        GlyphMatch {
+            character: Some(c),
+            distance: 1,
+            runner_up_distance: 60,
+            runner_up: None,
+        }
     }
 
     /// A line of `glyphs` whose boxes all overlap their neighbour's by `overhang` pixels, as a
@@ -1139,7 +1144,12 @@ mod tests {
     #[test]
     fn a_close_runner_up_is_tallied_as_ambiguous_without_changing_the_text() {
         let glyphs = vec![glyph(0, 6, 0)];
-        let matches = vec![GlyphMatch { character: Some('0'), distance: 8, runner_up_distance: 9 }];
+        let matches = vec![GlyphMatch {
+            character: Some('0'),
+            distance: 8,
+            runner_up_distance: 9,
+            runner_up: None,
+        }];
 
         let cue = assemble(&glyphs, &matches);
         assert_eq!(cue.text(), "0", "an ambiguous read is still the matcher's answer");
@@ -1202,7 +1212,12 @@ mod tests {
         let matches = vec![
             matched('C'),
             matched('A'),
-            GlyphMatch { character: Some('B'), distance: 8, runner_up_distance: 9 },
+            GlyphMatch {
+                character: Some('B'),
+                distance: 8,
+                runner_up_distance: 9,
+                runner_up: None,
+            },
         ];
 
         let assembled = SpatialAssembler::default()

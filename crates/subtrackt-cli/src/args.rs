@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use subtrackt::config::DEFAULT_MIN_MATCHED;
 use subtrackt::config::Defusing;
-use subtrackt::{Config, LineScale, ProvenancePolicy, UnmatchedPolicy, VocabularyRules};
+use subtrackt::{Config, Lexicon, LineScale, ProvenancePolicy, UnmatchedPolicy, VocabularyRules};
 use subtrackt_core::SubtitleFormat;
 
 use crate::style::When;
@@ -203,6 +203,16 @@ pub struct ExtractArgs {
     /// Let the matcher answer with any character the reference set holds.
     #[arg(long, overrides_with = "restrict_to_language")]
     pub no_restrict_to_language: bool,
+
+    /// Repair a word no list attests using the matcher's own second answer. A file of words, one
+    /// per line. See docs/post-correction.md.
+    ///
+    /// Nothing ships with a word list and nothing downloads one: this is data the caller brings,
+    /// which is what keeps it clear of the dependency rule. `scripts/language/lexicon.py` builds
+    /// one out of a library's own sidecars, and `calibrate` measures what it is worth before you
+    /// believe it.
+    #[arg(long, value_name = "FILE")]
+    pub words: Option<PathBuf>,
 
     /// Resolve ambiguous reads from the characters around them. See docs/post-correction.md.
     #[arg(long, overrides_with = "no_post_correct")]
@@ -451,6 +461,28 @@ impl ExtractArgs {
         }
     }
 
+    /// The word list #236's arm reads, or an empty one where the caller named no file.
+    ///
+    /// Whitespace-separated tokens, so a file of one word per line works and so does anything else
+    /// that is words. A file that cannot be read is a **hard error** rather than an empty list: a
+    /// caller who named one has said they want the arm, and silently reading none would report a
+    /// clean run of a rule that never fired.
+    ///
+    /// # Errors
+    /// Returns the read error, which `main` reports with the path.
+    pub fn read_lexicon(&self) -> std::io::Result<Lexicon> {
+        let Some(path) = self.words.as_ref() else {
+            return Ok(Lexicon::default());
+        };
+        let text = std::fs::read_to_string(path)?;
+        Ok(Lexicon::new(text.split_whitespace().map(str::to_owned)))
+    }
+
+    /// The word list, or an empty one, swallowing a read error that `read_lexicon` reports first.
+    fn lexicon(&self) -> Lexicon {
+        self.read_lexicon().unwrap_or_default()
+    }
+
     /// Whether the declared language may refuse a reference entry, resolved the same way.
     ///
     /// Off by default, and both flags exist for the reason the pair above them does: #230's
@@ -568,6 +600,7 @@ impl ExtractArgs {
             post_correct: self.post_correct(),
             restrict_to_language: self.restrict_to_language(),
             language: self.language.clone(),
+            lexicon: self.lexicon(),
             track_vocabulary: self.track_vocabulary(),
             lone_words: self.lone_words(),
             assume_english: self.assume_english,
