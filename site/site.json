@@ -2,6 +2,7 @@
   "title": "SubTrackt",
   "base": "/Sovereign.SubTrackt/",
   "repo": "https://github.com/sovereign-media/Sovereign.SubTrackt",
+  "analytics": "G-5VS6Q6PQNS",
   "usage": [
     "quick-start",
     "list",
