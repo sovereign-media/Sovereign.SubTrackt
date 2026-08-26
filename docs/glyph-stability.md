@@ -218,6 +218,75 @@ direction.**
 it exists so the harnesses can drive the pipeline both ways, not as something to tune. The
 measurement is the deliverable here.
 
+### Re-measured after #37, on the material it never saw
+
+[#235][issue-235]. Two things had changed since the paragraph above was written. The cost it names
+is a **case collapse**, and #37's line-metric term — the thing that decides case — landed
+afterwards. And `scripts/bench/run.py` did not exist, so the representation was refused without
+ever being put to a disc.
+
+`xtask grey-bench` is that third instrument: it runs the pipeline both ways, each against a
+reference set generated through its own normalisation, and scores both against a release. Passing
+one set twice is an error rather than a control — a set built under one transform and a disc read
+under the other are compared under different geometries and every distance is meaningless, which is
+the trap the original measurement records having to avoid.
+
+**The case collapse is gone.** `xtask accuracy` on the ceiling fixture:
+
+| Representation | CER | WER |
+| :--- | ---: | ---: |
+| Binary mask | **0.0%** | **0.0%** |
+| Grey coverage | **0.0%** | **0.0%** |
+
+Where it read 16.9% and 24.2%. `The quiCk brown foxjumps` against `The qUiCk brOwn fOxjUmps` is not
+what happens any more, because the term that separates `o` from `O` is no longer the shape vector.
+The reason this feature was refused has expired.
+
+**And it is worse than ever on a disc.**
+
+| track | binary | grey | better | worse |
+| :--- | ---: | ---: | ---: | ---: |
+| The Karate Kid (VOBSUB) | 1.7% | **4.6%** | 62 | **768** |
+| Training Day (VOBSUB) | 1.9% | 2.3% | 46 | 167 |
+| Gone Girl | 1.3% | 1.5% | 4 | 63 |
+| 10 Cloverfield Lane | 0.3% | 0.5% | 0 | 20 |
+| A Fish Called Wanda | 1.3% | 1.3% | 19 | 8 |
+
+**768 cues worse on one disc**, and **both** of the worst two are VOBSUB — the codec this was
+predicted to help, because grey coverage's measured benefit is a third off sensitivity to rendering
+size and the two VOBSUB tracks fit worst on the bench. Training Day's unread count more than
+doubles, 103 to 247, which says the softened vectors are falling outside the distance threshold
+rather than merely landing on the wrong entry.
+
+The leading explanation is a palette rather than a ramp. Grey coverage reads opacity times
+brightness, and a VOBSUB subpicture is authored with **four** palette entries: the smooth
+anti-aliasing gradient the feature exists to read is quantised to a level or two before the
+binarizer ever sees it. Softening a shape by a coarse step adds no information and blurs the small
+differences that separate one character from its neighbour, which is the inter-character column
+below moving in the direction it always moved.
+
+That explanation is a hypothesis, and the instrument that would settle it does not exist:
+**nothing in this repository can print what a disc's palette holds.** That is [#234][issue-234], and
+this is the second finding to want it.
+
+The harness numbers reproduce exactly, which is what makes the two runs comparable at all:
+
+| Distance | Binary | Grey | |
+| :--- | ---: | ---: | :--- |
+| Intra-character p75 (regular upright) | 51 | 52 | worse by 1 |
+| Inter-character p25 (nearest other) | 27 | 24 | **worse by 3** |
+| Margin | −24 | −28 | worse by 4 |
+
+Identical to the table above, measured years of issues apart.
+
+**Still not shipped, and now for a reason that will not expire.** The first refusal rested on a
+fixture behaviour that a later feature removed; this one rests on 768 cues of real material and on
+the axis that has never moved — characters get closer together, and no term added since #37 changes
+that.
+
+[issue-234]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/234
+[issue-235]: https://github.com/sovereign-media/Sovereign.SubTrackt/issues/235
+
 ### What this one says
 
 Two experiments have now failed in the same direction, and together they bound the problem.
