@@ -41,6 +41,21 @@ export const Route = createRootRoute({
       // root and 404 on a project Pages site.
       { rel: "icon", type: "image/svg+xml", href: `${site.base}favicon.svg` },
     ],
+    // Google Analytics. Declared here rather than in an `index.html` because there is no
+    // `index.html` to declare it in -- the document is this component, and `head.scripts` is what
+    // `<HeadContent />` renders into the `<head>` of every prerendered page. The loader is
+    // `async` and the config runs inline after it, which is the order gtag.js documents: the
+    // inline block only queues into `dataLayer`, so it does not need the remote script to have
+    // arrived.
+    scripts: [
+      { src: `https://www.googletagmanager.com/gtag/js?id=${site.analytics}`, async: true },
+      {
+        children: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', '${site.analytics}');`,
+      },
+    ],
   }),
   component: () => (
     <html lang="en" suppressHydrationWarning>
