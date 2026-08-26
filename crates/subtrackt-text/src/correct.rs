@@ -79,6 +79,14 @@ pub enum CorrectionRule {
         /// How many times the track read that token clearly.
         occurrences: usize,
     },
+    /// A token no supplied word list attests, repaired by exactly one runner-up swap.
+    ///
+    /// #236, and the only arm that may overrule a read the matcher was sure of. Carries the word
+    /// it produced, because a rule that fires on evidence has to show the evidence.
+    WordRepair {
+        /// The attested token the swap produced.
+        repaired: String,
+    },
     /// A one-character word, which `l` is not and `I` is.
     ///
     /// The only arm that knows anything about a language, and it is off by default for that
@@ -103,6 +111,11 @@ impl fmt::Display for CorrectionLog {
             // The lone-word arm has no evidence on the line to show — its evidence is the corpus
             // measurement behind the rule — so it names itself instead of going unmarked.
             CorrectionRule::LoneWord => write!(f, " (lone word)")?,
+            // The word arm's evidence is the token it produced, and printing it is what lets a
+            // caller auditing a run see that the repair was a word rather than merely a change.
+            CorrectionRule::WordRepair { repaired } => {
+                write!(f, " (word repair: {repaired:?})")?;
+            }
             CorrectionRule::Context => {}
         }
         Ok(())
@@ -150,6 +163,15 @@ pub trait PostCorrector {
         0
     }
 
+    /// Whether this corrector may touch a glyph the matcher was sure of.
+    ///
+    /// #236. False for every arm bound by the trait's first constraint, which is all of them but
+    /// one, and it is what [`has_correctable_glyphs`] reads to decide whether a cue with no
+    /// ambiguous glyph is worth offering at all.
+    fn corrects_confident_reads(&self) -> bool {
+        false
+    }
+
     /// A short name for the extraction summary.
     fn name(&self) -> &'static str;
 }
@@ -177,9 +199,18 @@ impl PostCorrector for NoopCorrector {
 ///
 /// Cheap enough to call before running a corrector, and it keeps the corrector away from cues that
 /// were read cleanly.
+///
+/// **`corrects_confident_reads` is #236's exception**, and it has to be a parameter rather than a
+/// constant here: the word arm exists precisely for a cue with no ambiguous glyph in it -- one the
+/// matcher was confident about and wrong -- so gating it on `ambiguous > 0` would make it
+/// unreachable on its own population. Every other arm is still gated, because for them a cue read
+/// cleanly is a cue with nothing to decide.
 #[must_use]
-pub const fn has_correctable_glyphs(confidence: Confidence) -> bool {
-    confidence.ambiguous > 0
+pub const fn has_correctable_glyphs(
+    confidence: Confidence,
+    corrects_confident_reads: bool,
+) -> bool {
+    corrects_confident_reads || confidence.ambiguous > 0
 }
 
 /// What the characters around an ambiguous read agree on, when they agree at all.
@@ -320,6 +351,69 @@ impl Default for VocabularyRules {
         // harmless here: the substitution decides one character within a confusion set, not which
         // word the line holds.
         Self { min_occurrences: 1, min_len: 2, prefix_match: true }
+    }
+}
+
+/// A word list the caller supplied, and the only thing in this module that knows a language.
+///
+/// [#236](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/236). Every other arm here
+/// refuses a dictionary, and the refusal is on the record: it is unverifiable, it is one language
+/// at a time, and it guesses hardest at names and invented nouns, which is where a subtitle is
+/// least replaceable. Two things make this admissible where that is not.
+///
+/// **It is data the caller brings, never a dependency and never embedded.** `CLAUDE.md`'s rule is
+/// about crates; a file named on the command line is neither, and nothing ships with a word list.
+///
+/// **Its false-positive rate is measured rather than assumed.** `scripts/language/lexicon.py
+/// calibrate` rebuilds a lexicon without each source in turn and scores that source against the
+/// rest, so every miss is definitionally a false positive. Built out of eight films, a word list
+/// calls **one word in six** of real English unattested. That is why this arm is written against
+/// *one edit repairing a token* rather than against the unattested rate: `docs/word-reader.md`
+/// found the first worth two to three times its floor and the second worthless.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Lexicon {
+    /// Case-folded words, sorted so a lookup is a binary search.
+    words: Vec<String>,
+}
+
+impl Lexicon {
+    /// A lexicon from a list of words, however the caller obtained them.
+    #[must_use]
+    pub fn new(words: impl IntoIterator<Item = String>) -> Self {
+        let mut words: Vec<String> = words.into_iter().map(|word| Self::fold(&word)).collect();
+        words.retain(|word| !word.is_empty());
+        words.sort_unstable();
+        words.dedup();
+        Self { words }
+    }
+
+    /// Whether the list attests `word`, ignoring case and surrounding punctuation.
+    #[must_use]
+    pub fn attests(&self, word: &str) -> bool {
+        let word = Self::fold(word);
+        !word.is_empty() && self.words.binary_search(&word).is_ok()
+    }
+
+    /// How many distinct words it holds.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.words.len()
+    }
+
+    /// Whether it holds none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
+
+    /// A token reduced to what a word list can be asked about.
+    ///
+    /// Leading and trailing punctuation goes -- a lexicon holds `dog`, and a line holds `"dog,`.
+    /// An interior apostrophe stays, because `don't` is a word and `dont` is not, and stripping it
+    /// would make the arm fire on a contraction it should leave alone.
+    fn fold(word: &str) -> String {
+        word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'')
+            .to_lowercase()
     }
 }
 
@@ -507,6 +601,12 @@ pub struct ContextCorrector {
     use_contractions: bool,
     /// How the vocabulary is built, kept so `observe` can build it.
     vocabulary_rules: VocabularyRules,
+    /// A word list the caller supplied, empty unless one was.
+    ///
+    /// #236's arm and nothing else reads it, and an empty one reproduces the behaviour that existed
+    /// before this arm did -- which is what makes every test written against the other three a
+    /// regression guard on it.
+    lexicon: Lexicon,
 }
 
 impl Default for ContextCorrector {
@@ -526,7 +626,18 @@ impl ContextCorrector {
             use_lone_words: false,
             use_contractions: false,
             vocabulary_rules: VocabularyRules::default(),
+            lexicon: Lexicon::default(),
         }
+    }
+
+    /// Give the corrector a word list, switching #236's arm on.
+    ///
+    /// The list is the caller's: nothing here downloads, embeds or licenses one, and an empty list
+    /// leaves the arm switched off rather than firing on nothing.
+    #[must_use]
+    pub fn with_lexicon(mut self, lexicon: Lexicon) -> Self {
+        self.lexicon = lexicon;
+        self
     }
 
     /// Enable the track-vocabulary arm, with the rules it should be built under.
@@ -837,6 +948,75 @@ impl ContextCorrector {
             )
         })
     }
+
+    /// A token the lexicon does not attest, that exactly one runner-up swap would repair.
+    ///
+    /// #236, and **the only arm here that may overrule a read the matcher was sure of.** Every
+    /// other rule in this module is bound by the trait's first constraint -- only a glyph flagged
+    /// ambiguous may be substituted -- and `docs/glyph-hit-list.md` is where that bound runs out:
+    ///
+    /// > On a disc that draws the two letters identically the matcher is not hesitating between
+    /// > them; it is confident, and the one stage allowed to revisit a decision only touches glyphs
+    /// > the matcher itself flagged.
+    ///
+    /// So the safety argument has to come from somewhere else, and it comes from four places at
+    /// once. Every one is structural -- a thing the code cannot do, not a threshold set carefully.
+    ///
+    /// | Refusal | What it prevents |
+    /// | :--- | :--- |
+    /// | Exactly **one** swap in the token | Combinatorial repair, which can reach any word from any other |
+    /// | Only the matcher's **own runner-up** | An invention. This re-ranks two answers the scan already produced and never reaches for a third |
+    /// | Only **within a confusion set** | A runner-up outside one means the glyph was never close in any sense this module understands |
+    /// | Only where the token is **unattested** and the repair **attested** | The arm can move a token towards the language and never away from it |
+    ///
+    /// One character out for one character in, like every other arm, so `rn`/`m` and `cl`/`d` stay
+    /// out of reach: they are insertions in disguise and belong to segmentation.
+    ///
+    /// Returns the position and the replacement, or `None` where any refusal fires.
+    fn repair_word(
+        &self,
+        chars: &[char],
+        origins: &[Option<GlyphMatch>],
+        span: (usize, usize),
+    ) -> Option<(usize, char)> {
+        if self.lexicon.is_empty() {
+            return None;
+        }
+        let (start, end) = span;
+        let token: String = chars[start..end].iter().collect();
+        // A token the list already attests is left alone. That is what keeps this arm one-way.
+        if self.lexicon.attests(&token) {
+            return None;
+        }
+
+        let mut found: Option<(usize, char)> = None;
+        for at in start..end {
+            let Some(runner_up) = origins
+                .get(at)
+                .and_then(|m| m.as_ref())
+                .and_then(|m| m.runner_up)
+            else {
+                continue;
+            };
+            let current = chars[at];
+            if confusion_for(current).is_none_or(|set| !set.contains(runner_up)) {
+                continue;
+            }
+            let mut candidate: Vec<char> = chars[start..end].to_vec();
+            candidate[at - start] = runner_up;
+            let candidate: String = candidate.into_iter().collect();
+            if !self.lexicon.attests(&candidate) {
+                continue;
+            }
+            // A second position that also repairs the token means the evidence does not name which
+            // glyph was wrong. Two repairs are not twice the confidence, they are none.
+            if found.is_some() {
+                return None;
+            }
+            found = Some((at, runner_up));
+        }
+        found
+    }
 }
 
 impl PostCorrector for ContextCorrector {
@@ -871,13 +1051,46 @@ impl PostCorrector for ContextCorrector {
                         .map(|(from, to, rule)| (at, from, to, rule))
                 })
                 .collect();
+
+            // No early return on an empty `changes`, and #236 is why. The arm below exists for the
+            // case where every arm above declines -- a line the matcher was confident about and
+            // wrong -- so returning here would make it unreachable on exactly its own population.
+            for (at, _, to, _) in &changes {
+                chars[*at] = *to;
+            }
+
+            // #236's arm, and it runs **after** the three above rather than beside them. Those
+            // decide one character from its neighbours; this decides one character from the whole
+            // token, so it has to see the token they left behind -- and it must not fire on a
+            // position one of them has already answered, because two rules moving one glyph is two
+            // corrections claiming the same evidence.
+            let answered: Vec<usize> = changes.iter().map(|(at, ..)| *at).collect();
+            let mut repairs: Vec<(usize, char, char, CorrectionRule)> = Vec::new();
+            for span in token_spans(&chars) {
+                let Some((at, to)) = self.repair_word(&chars, line_origins, span) else {
+                    continue;
+                };
+                if answered.contains(&at) {
+                    continue;
+                }
+                let mut repaired: Vec<char> = chars[span.0..span.1].to_vec();
+                repaired[at - span.0] = to;
+                repairs.push((
+                    at,
+                    chars[at],
+                    to,
+                    CorrectionRule::WordRepair { repaired: repaired.into_iter().collect() },
+                ));
+            }
+            for (at, _, to, _) in &repairs {
+                chars[*at] = *to;
+            }
+            let changes: Vec<(usize, char, char, CorrectionRule)> =
+                changes.into_iter().chain(repairs).collect();
             if changes.is_empty() {
                 continue;
             }
 
-            for (at, _, to, _) in &changes {
-                chars[*at] = *to;
-            }
             for (at, from, to, rule) in changes {
                 log.push(CorrectionLog {
                     cue: index,
@@ -891,6 +1104,10 @@ impl PostCorrector for ContextCorrector {
             }
             *line = chars.into_iter().collect();
         }
+    }
+
+    fn corrects_confident_reads(&self) -> bool {
+        !self.lexicon.is_empty()
     }
 
     fn observe(&mut self, cues: &[AssembledCue]) {
@@ -921,12 +1138,22 @@ mod tests {
 
     /// A read the matcher was sure of.
     fn clear(ch: char) -> GlyphMatch {
-        GlyphMatch { character: Some(ch), distance: 2, runner_up_distance: 60 }
+        GlyphMatch {
+            character: Some(ch),
+            distance: 2,
+            runner_up_distance: 60,
+            runner_up: None,
+        }
     }
 
     /// A read with a runner-up inside the margin: exactly what post-correction exists for.
     fn close(ch: char) -> GlyphMatch {
-        GlyphMatch { character: Some(ch), distance: 8, runner_up_distance: 9 }
+        GlyphMatch {
+            character: Some(ch),
+            distance: 8,
+            runner_up_distance: 9,
+            runner_up: None,
+        }
     }
 
     fn cue(lines: &[&str]) -> Cue {
@@ -1289,6 +1516,107 @@ mod tests {
         }
     }
 
+    /// A glyph read confidently, with a runner-up the matcher scored second.
+    ///
+    /// The opposite of `ambiguous` in every other test here: the margin is wide, so every arm bound
+    /// by the trait's first constraint refuses it. #236's arm is the only one that may look.
+    fn confident_with_runner_up(ch: char, runner_up: char) -> GlyphMatch {
+        GlyphMatch {
+            character: Some(ch),
+            distance: 2,
+            runner_up_distance: 60,
+            runner_up: Some(runner_up),
+        }
+    }
+
+    fn lexicon(words: &[&str]) -> Lexicon {
+        Lexicon::new(words.iter().map(|w| (*w).to_owned()))
+    }
+
+    fn repair(line: &str, origins: Vec<Option<GlyphMatch>>, words: &[&str]) -> String {
+        let corrector = ContextCorrector::new(6).with_lexicon(lexicon(words));
+        let mut cue = cue(&[line]);
+        let mut log = Vec::new();
+        corrector.correct(&mut cue, &[origins], 0, &mut log);
+        cue.lines.remove(0)
+    }
+
+    #[test]
+    fn a_confident_read_no_word_list_attests_is_repaired_by_its_own_runner_up() {
+        // #236, and the case `docs/glyph-hit-list.md` says nothing could reach: the matcher is not
+        // hesitating, it is confident and wrong, so every arm gated on ambiguity declines.
+        let origins = vec![
+            Some(confident_with_runner_up('I', 'l')),
+            Some(confident_with_runner_up('i', 'i')),
+            Some(confident_with_runner_up('k', 'k')),
+            Some(confident_with_runner_up('e', 'e')),
+        ];
+        assert_eq!(repair("Iike", origins, &["like", "the"]), "like");
+    }
+
+    #[test]
+    fn a_token_the_word_list_already_attests_is_left_alone() {
+        // The refusal that makes this arm one-way. `II` is not a word to a list holding `like`, but
+        // `Il` is not either, so nothing fires; and where the token *is* attested the arm never
+        // even looks at a runner-up.
+        let origins = vec![
+            Some(confident_with_runner_up('l', 'I')),
+            Some(confident_with_runner_up('i', 'i')),
+            Some(confident_with_runner_up('k', 'k')),
+            Some(confident_with_runner_up('e', 'e')),
+        ];
+        assert_eq!(repair("like", origins, &["like", "Iike"]), "like");
+    }
+
+    #[test]
+    fn a_runner_up_outside_the_confusion_set_is_never_taken() {
+        // A second answer this module has never called confusable with the first means the glyph
+        // was never close to it in any sense the rule understands. `b` would repair the token and
+        // is refused because `I` and `b` are not one another's near miss.
+        let origins = vec![
+            Some(confident_with_runner_up('I', 'b')),
+            Some(confident_with_runner_up('e', 'e')),
+            Some(confident_with_runner_up('d', 'd')),
+        ];
+        assert_eq!(repair("Ied", origins, &["bed"]), "Ied");
+    }
+
+    #[test]
+    fn two_positions_that_would_each_repair_the_token_repair_neither() {
+        // Two repairs are not twice the confidence, they are none: the evidence does not name which
+        // glyph was wrong. `II` reaches both `Il` and `lI`, so it stays `II`.
+        let origins = vec![
+            Some(confident_with_runner_up('I', 'l')),
+            Some(confident_with_runner_up('I', 'l')),
+        ];
+        assert_eq!(repair("II", origins, &["Il", "lI"]), "II");
+    }
+
+    #[test]
+    fn an_empty_word_list_leaves_the_arm_switched_off() {
+        // What makes every test written against the other three arms a regression guard on this
+        // one: with no lexicon the corrector behaves exactly as it did before #236.
+        let origins = vec![
+            Some(confident_with_runner_up('I', 'l')),
+            Some(confident_with_runner_up('i', 'i')),
+            Some(confident_with_runner_up('k', 'k')),
+            Some(confident_with_runner_up('e', 'e')),
+        ];
+        assert_eq!(repair("Iike", origins, &[]), "Iike");
+    }
+
+    #[test]
+    fn a_word_list_folds_case_and_edge_punctuation_but_keeps_an_apostrophe() {
+        // `dog` is what a list holds and `"dog,` is what a line holds. The interior apostrophe
+        // stays, because `don't` is a word and `dont` is not -- stripping it would make the arm
+        // fire on a contraction it should leave alone.
+        let words = lexicon(&["dog", "don't"]);
+        assert!(words.attests("Dog"));
+        assert!(words.attests("\"dog,\""));
+        assert!(words.attests("don'T"));
+        assert!(!words.attests("dont"));
+    }
+
     #[test]
     fn a_glyph_the_matcher_read_clearly_is_never_touched() {
         // The first constraint of the whole stage. `He11o` with the digits read confidently is a
@@ -1435,15 +1763,24 @@ mod tests {
 
     #[test]
     fn a_cleanly_read_cue_offers_a_corrector_nothing_to_do() {
-        assert!(!has_correctable_glyphs(Confidence {
-            matched: 9,
-            unmatched: 0,
-            ambiguous: 0
-        }));
-        assert!(has_correctable_glyphs(Confidence {
-            matched: 9,
-            unmatched: 0,
-            ambiguous: 1
-        }));
+        let clean = Confidence { matched: 9, unmatched: 0, ambiguous: 0 };
+        let close = Confidence { matched: 9, unmatched: 0, ambiguous: 1 };
+        assert!(!has_correctable_glyphs(clean, false));
+        assert!(has_correctable_glyphs(close, false));
+    }
+
+    #[test]
+    fn a_cleanly_read_cue_is_still_offered_to_the_one_arm_that_overrules_a_confident_read() {
+        // #236's population is a cue with nothing ambiguous in it: the matcher was sure and wrong.
+        // Gating that arm on `ambiguous > 0` would make it unreachable on exactly the glyphs it
+        // exists for, which is the shape of failure `docs/glyph-hit-list.md` names for Wanda.
+        let clean = Confidence { matched: 9, unmatched: 0, ambiguous: 0 };
+        assert!(has_correctable_glyphs(clean, true));
+        assert!(!ContextCorrector::new(6).corrects_confident_reads());
+        assert!(
+            ContextCorrector::new(6)
+                .with_lexicon(lexicon(&["like"]))
+                .corrects_confident_reads()
+        );
     }
 }

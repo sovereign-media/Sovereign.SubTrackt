@@ -5,6 +5,7 @@ use subtrackt_glyph::binarize::Threshold;
 use subtrackt_glyph::cluster::ClusterRules;
 use subtrackt_glyph::matcher::MatchThresholds;
 use subtrackt_glyph::split::SplitRules;
+use subtrackt_text::correct::Lexicon;
 use subtrackt_text::correct::VocabularyRules;
 use subtrackt_text::layout::LayoutRules;
 
@@ -233,6 +234,13 @@ pub struct Config {
     /// as `false`; see [`Defusing`] for the shape that solves it. This is a `bool` because it was
     /// one before it was true, and [`Self::default`] sets it rather than deriving it.
     pub post_correct: bool,
+    /// A word list for #236's arm, empty unless a caller supplied one.
+    ///
+    /// A `Lexicon` rather than a path, and the library never opens the file: a word list is *data*
+    /// and the crate that reads a format is the CLI's business, which keeps `CLAUDE.md`'s
+    /// dependency rule out of the question entirely. Empty is the default and an empty one switches
+    /// the arm off rather than firing it on nothing.
+    pub lexicon: Lexicon,
     /// Whether the matcher may answer with a letter the declared language cannot spell.
     ///
     /// #230, and **on**, against the criterion #185 used to flip post-correction's default: a table
@@ -344,6 +352,7 @@ impl Default for Config {
             // The two #185 turned on. `docs/post-correction.md` §"What flipped it" has the table.
             restrict_to_language: true,
             language: None,
+            lexicon: Lexicon::default(),
             post_correct: true,
             lone_words: true,
             // The arm that stays off, and not for want of ground truth — for want of firings.

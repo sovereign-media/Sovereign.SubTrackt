@@ -356,14 +356,16 @@ impl HammingMatcher {
                 }
             }
         }
-        let runner_up = runner_up.map_or(u32::MAX, |(distance, _)| distance);
+        let (runner_up_distance, runner_up_character) =
+            runner_up.map_or((u32::MAX, None), |(distance, character)| (distance, Some(character)));
 
         match best {
             Some((distance, character)) if distance <= self.thresholds.max_distance() => {
                 GlyphMatch {
                     character: Some(character),
                     distance,
-                    runner_up_distance: runner_up,
+                    runner_up_distance,
+                    runner_up: runner_up_character,
                 }
             }
             Some((distance, _)) => GlyphMatch::unmatched(distance),

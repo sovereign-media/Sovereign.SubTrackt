@@ -152,6 +152,15 @@ def build(args: argparse.Namespace) -> int:
     files = sidecars(args.root, args.language)
     if not files:
         sys.exit(f"no {args.language} sidecars under {args.root}")
+    # Printed rather than merely applied, and named one by one: a lexicon quietly missing the
+    # titles it is about to be measured on looks exactly like one that never had them.
+    for pattern in getattr(args, "exclude", []) or []:
+        dropped = [p for p in files if pattern in str(p)]
+        files = [p for p in files if pattern not in str(p)]
+        for path in dropped:
+            print(f"  excluded {path.name[:70]}", file=sys.stderr)
+        if not dropped:
+            print(f"  excluded nothing for {pattern!r}", file=sys.stderr)
     if args.limit and len(files) > args.limit:
         # An even stride over the sorted list rather than the first N, so a sample spans the
         # library alphabetically and re-runs to the same set. This exists for the English control:
@@ -293,6 +302,16 @@ def main() -> int:
     b.add_argument("--language", required=True, help="the tag a sidecar's filename declares")
     b.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     b.add_argument("--out", type=Path, required=True)
+    b.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="SUBSTRING",
+        help="drop any sidecar whose path contains this, repeatable. #236: a word list built to "
+        "score an extraction must not contain that extraction's own sidecar, or every token it "
+        "reads is attested by the file it is being compared against. `calibrate` does the same "
+        "thing one file at a time and for the same reason.",
+    )
     b.add_argument(
         "--limit",
         type=int,
