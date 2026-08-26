@@ -142,6 +142,16 @@ pub struct Report {
     ///
     /// #184. `glyphs_without_metrics` counts the consequence; this says the cause.
     pub lines: LineCensus,
+    /// Reference entries the declared language's orthography refuses, and how many the set holds.
+    ///
+    /// #230, and printed rather than only applied. A gate that fires silently is a gate nobody can
+    /// audit, which is what `glyphs_without_metrics` cost this project for as long as it existed
+    /// and was never on a report line. Zero refused means the mask was not applied at all -- no
+    /// language tag, no row in the table, or the flag off -- and the two cases are worth telling
+    /// apart from a set that happens to hold nothing impossible.
+    pub language_refused: u64,
+    /// How many entries the set holds, so the refusal above reads as a share.
+    pub language_entries: u64,
     /// Distinct glyph shapes the stream contained.
     ///
     /// Tens of thousands of glyphs reduce to a few hundred shapes, which is what makes clustering
@@ -284,7 +294,7 @@ impl fmt::Display for Report {
         write!(
             f,
             "{} cues from {} images ({} packets); glyphs {} matched / {} unmatched / {} ambiguous \
-             ({:.1}% read); fit {:.1}; unmeasured lines {:.0}%; cache {:.0}%;{}{} \
+             ({:.1}% read); fit {:.1}; unmeasured lines {:.0}%; cache {:.0}%;{}{}{} \
              corrections {}{} ({})",
             self.cues,
             self.images,
@@ -302,6 +312,17 @@ impl fmt::Display for Report {
             // existed from the day the feature did and was never printed, so nobody could watch it.
             self.unmeasured_line_share() * 100.0,
             self.cache_hit_rate() * 100.0,
+            // Silent unless a language mask was applied, so a track with no declaration reads
+            // exactly as it did before #230 -- and loud the moment one was, because a gate nobody
+            // can see is a gate nobody can audit.
+            if self.language_refused > 0 {
+                format!(
+                    " language refuses {}/{} entries;",
+                    self.language_refused, self.language_entries
+                )
+            } else {
+                String::new()
+            },
             // Silent when nothing fused, so an ordinary run reads exactly as it did before #106.
             // Named when it did, because a recovered fusion is two characters that would otherwise
             // have been a placeholder and a hole, and that belongs in the one line a caller reads.

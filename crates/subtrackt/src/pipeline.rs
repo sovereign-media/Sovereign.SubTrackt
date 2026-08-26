@@ -225,8 +225,17 @@ impl Pipeline {
         let stream = self.choose_stream(source.as_ref())?;
         // Before a packet is decoded, because the answer does not depend on any of them and a
         // caller told to fall back to burn-in should not have waited for a whole track first.
+        // The caller's tag wins over the container's, and both gates read the same resolved
+        // answer -- two gates disagreeing about what language a track is would be worse than
+        // either being wrong.
+        let declared = self
+            .config
+            .language
+            .as_deref()
+            .or(stream.language.as_deref())
+            .map(str::to_owned);
         if self.config.check_declared_script {
-            declared_script_agrees(stream.language.as_deref(), &self.reference())?;
+            declared_script_agrees(declared.as_deref(), &self.reference())?;
         }
         source.select(stream.index)?;
 
@@ -236,6 +245,16 @@ impl Pipeline {
         decoder.configure(&stream.codec_private)?;
         let mut matcher = HammingMatcher::new(self.reference(), self.config.matching)?
             .with_cluster_rules(self.config.clustering);
+        // #230. The same declaration the guard above reads, at the resolution of one character
+        // rather than a whole script. It is applied *after* the guard and not instead of it: the
+        // guard refuses a track the set cannot spell at all, this narrows what the set is allowed
+        // to answer with on a track it can.
+        if let Some(tag) = declared
+            .as_deref()
+            .filter(|_| self.config.restrict_to_language)
+        {
+            matcher = matcher.restricted_to_language(tag);
+        }
         let segmenter = ImageSegmenter::new(
             Binarizer::new(self.config.binarize),
             self.config.grey_coverage,
@@ -243,8 +262,11 @@ impl Pipeline {
         );
         let assembler = SpatialAssembler::new(self.config.layout_rules());
 
+        let (refused, entries) = matcher.language_mask();
         let mut report = Report {
             reference_set: matcher.references().name().to_owned(),
+            language_refused: u64::try_from(refused).unwrap_or(0),
+            language_entries: u64::try_from(entries).unwrap_or(0),
             ..Report::default()
         };
         let mut images = Vec::new();

@@ -136,7 +136,7 @@ fn measure(font: &Font, name: &str, px: f32, texts: &[&str]) -> anyhow::Result<V
     std::fs::write(&path, crate::fixture::build_sup(font, &cues, (1920, 1080))?)?;
 
     let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
-    let survey = Pipeline::new(config)
+    let survey = Pipeline::new(config.clone())
         .survey(&path, None)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -224,7 +224,7 @@ fn media(path: &Path, font: &Path) -> anyhow::Result<()> {
     let reference = crate::util::load_reference(&reference_path)?;
 
     let config = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
-    let survey = Pipeline::new(config)
+    let survey = Pipeline::new(config.clone())
         .with_reference(reference.clone())
         .survey(path, None)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -271,7 +271,7 @@ fn media(path: &Path, font: &Path) -> anyhow::Result<()> {
 
     report_media(path, &measured, survey.cues, survey.glyphs.len());
 
-    let outcome = Pipeline::new(config)
+    let outcome = Pipeline::new(config.clone())
         .with_reference(reference)
         .run(path)
         .map_err(|e| anyhow::anyhow!("{e}"))?;

@@ -122,7 +122,7 @@ fn extract(
     config.layout.split_min_cluster_percent = cluster;
     config.layout.band_gap_min_shared = shared;
 
-    let outcome = Pipeline::new(config)
+    let outcome = Pipeline::new(config.clone())
         .with_reference(reference.clone())
         .run(media)
         .with_context(|| format!("extracting at {width}/{cluster}/{shared}"))?;

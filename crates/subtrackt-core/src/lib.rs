@@ -10,6 +10,7 @@
 pub mod bitmap;
 pub mod error;
 pub mod glyph;
+pub mod orthography;
 pub mod progress;
 pub mod script;
 pub mod stage;

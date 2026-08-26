@@ -112,7 +112,7 @@ fn list(input: &std::path::Path) -> anyhow::Result<()> {
 fn extract(args: &ExtractArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
     let config = args.to_config();
 
-    let mut pipeline = Pipeline::new(config);
+    let mut pipeline = Pipeline::new(config.clone());
     if let Some(path) = &args.reference {
         let bytes = std::fs::read(path)
             .with_context(|| format!("reading reference set {}", path.display()))?;
@@ -222,7 +222,7 @@ fn fit(args: &FitArgs, ui: Ui, bars: &dyn Progress) -> anyhow::Result<()> {
     }
 
     let config = args.to_config();
-    let survey = Pipeline::new(config)
+    let survey = Pipeline::new(config.clone())
         .survey_watched(&args.input, Some(args.limit), bars)
         .with_context(|| format!("surveying glyphs in {}", args.input.display()))?;
     if survey.glyphs.is_empty() {

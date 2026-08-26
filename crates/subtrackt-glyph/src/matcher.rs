@@ -13,6 +13,7 @@
 //! With an empty reference set every cluster comes back unmatched, which is the correct answer
 //! rather than a placeholder one — and it is what makes the accuracy gate meaningful.
 
+use subtrackt_core::orthography;
 use subtrackt_core::{
     Error, FEATURE_BITS, FeatureVector, Glyph, GlyphMatch, GlyphMatcher, InkAspect, LineMetrics,
     MarkSlope, Result,
@@ -173,6 +174,18 @@ impl MatchThresholds {
 /// Matches glyphs against a [`ReferenceSet`] by clustering them first.
 pub struct HammingMatcher {
     references: ReferenceSet,
+    /// Which entries the scan is allowed to answer with, when a language says some are impossible.
+    ///
+    /// [#230](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/230). Empty means no
+    /// restriction, which is the state every caller that does not ask for one gets and the state a
+    /// track whose language is unknown, untagged or absent from the table gets — every uncertainty
+    /// resolves to a pass, which is #218's rule and holds here for #218's reason.
+    ///
+    /// A mask over *entries* rather than a filter on the answer, and the difference is the whole
+    /// point: a masked entry is never scored, so the winner is whatever the remaining set returns
+    /// and the runner-up is a real second choice. Striking the character out afterwards would leave
+    /// the glyph unread, which is a worse answer than the one below it.
+    allowed: Vec<bool>,
     thresholds: MatchThresholds,
     rules: ClusterRules,
     /// Holds the answer for every shape [`prepare`](GlyphMatcher::prepare) saw, so matching a glyph
@@ -201,6 +214,7 @@ impl HammingMatcher {
         }
         Ok(Self {
             references,
+            allowed: Vec::new(),
             thresholds,
             rules: ClusterRules::default(),
             cache: SessionCache::new(),
@@ -208,6 +222,46 @@ impl HammingMatcher {
             clusters: 0,
             scans: 0,
         })
+    }
+
+    /// Refuse every entry the declared language's orthography cannot spell.
+    ///
+    /// [#230](https://github.com/sovereign-media/Sovereign.SubTrackt/issues/230). #218's script
+    /// guard refuses a whole track before the read when the set holds not one character of the
+    /// declared script; this is the same evidence at the resolution of one character, applied
+    /// during it. Both refuse on a **fact from outside the read** — the container named a language,
+    /// the language has a documented orthography, and this character is not in it — which is the
+    /// standard `docs/script-guard.md` sets for a gate here, and neither computes anything from the
+    /// read to decide.
+    ///
+    /// Returns the matcher unchanged for a tag the table does not carry, and never restricts to
+    /// nothing: a mask that refused every entry would leave a whole track unread, which is a state
+    /// no orthography implies and no caller could act on.
+    #[must_use]
+    pub fn restricted_to_language(mut self, tag: &str) -> Self {
+        let mask: Vec<bool> = self
+            .references
+            .entries()
+            .iter()
+            .map(|entry| orthography::can_spell(tag, entry.character) != Some(false))
+            .collect();
+        if mask.iter().any(|allowed| *allowed) {
+            self.allowed = mask;
+        }
+        self
+    }
+
+    /// How many entries the language mask refuses, and how many the set holds.
+    ///
+    /// `(0, n)` where nothing is masked. Reported rather than only applied, because a gate that
+    /// fires silently is a gate nobody can audit — which is what `Report::glyphs_without_metrics`
+    /// cost this project for as long as it existed and was never printed.
+    #[must_use]
+    pub fn language_mask(&self) -> (usize, usize) {
+        (
+            self.allowed.iter().filter(|allowed| !**allowed).count(),
+            self.references.entries().len(),
+        )
     }
 
     /// Use different clustering rules.
@@ -274,7 +328,10 @@ impl HammingMatcher {
         let mut best: Option<(u32, char)> = None;
         let mut runner_up: Option<(u32, char)> = None;
 
-        for entry in self.references.entries() {
+        for (index, entry) in self.references.entries().iter().enumerate() {
+            if !self.allowed.is_empty() && !self.allowed[index] {
+                continue;
+            }
             let distance = self
                 .thresholds
                 .distance(features, metrics, mark, aspect, entry);
@@ -461,6 +518,93 @@ mod tests {
             "must not force a match onto the nearest reference"
         );
         assert!(result.distance > MatchThresholds::default().max_distance());
+    }
+
+    #[test]
+    fn a_language_mask_hands_the_glyph_to_the_next_candidate_rather_than_leaving_it_unread() {
+        // #230's whole design in one assertion. The mask is over *entries*, so a masked entry is
+        // never scored and the winner is whatever the remaining set returns -- striking the
+        // character out after the scan would leave the glyph unread, which is a worse answer than
+        // the one below it and is the failure `CLAUDE.md` opens with.
+        let mut acute = FeatureVector::EMPTY;
+        acute.set(0);
+        acute.set(1);
+        let mut bare = FeatureVector::EMPTY;
+        bare.set(0);
+
+        let entries = vec![
+            ReferenceEntry {
+                character: '\u{cd}',
+                style: Style::Regular,
+                features: acute,
+                metrics: LineMetrics::UNKNOWN,
+                mark: MarkSlope::NONE,
+                aspect: InkAspect::UNKNOWN,
+            },
+            ReferenceEntry {
+                character: 'I',
+                style: Style::Regular,
+                features: bare,
+                metrics: LineMetrics::UNKNOWN,
+                mark: MarkSlope::NONE,
+                aspect: InkAspect::UNKNOWN,
+            },
+        ];
+
+        let open = matcher(entries.clone());
+        assert_eq!(
+            open.scan(&acute).character,
+            Some('\u{cd}'),
+            "unmasked, the acute wins outright"
+        );
+
+        let masked = matcher(entries).restricted_to_language("eng");
+        assert_eq!(
+            masked.scan(&acute).character,
+            Some('I'),
+            "English cannot spell it, so the runner-up answers instead of nothing"
+        );
+        assert_eq!(masked.language_mask(), (1, 2));
+    }
+
+    #[test]
+    fn a_language_the_table_does_not_carry_masks_nothing() {
+        // #218's rule, which this gate shares and for the same reason: a wrong refusal costs a
+        // caller an expensive fallback on a track that would have read, and a missed one costs only
+        // what the pipeline already did. Every uncertainty resolves to a pass.
+        let mut acute = FeatureVector::EMPTY;
+        acute.set(0);
+        let entries = vec![ReferenceEntry {
+            character: '\u{cd}',
+            style: Style::Regular,
+            features: acute,
+            metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
+        }];
+        let m = matcher(entries).restricted_to_language("zzz");
+        assert_eq!(m.language_mask(), (0, 1));
+        assert_eq!(m.scan(&acute).character, Some('\u{cd}'));
+    }
+
+    #[test]
+    fn a_mask_that_would_refuse_every_entry_is_not_applied_at_all() {
+        // A set of nothing but Spanish-only letters read as English would mask itself to nothing,
+        // and a matcher that can answer with no character leaves a whole track unread. That is a
+        // state no orthography implies and no caller could act on, so the mask declines instead.
+        let mut v = FeatureVector::EMPTY;
+        v.set(0);
+        let entries = vec![ReferenceEntry {
+            character: '\u{f1}',
+            style: Style::Regular,
+            features: v,
+            metrics: LineMetrics::UNKNOWN,
+            mark: MarkSlope::NONE,
+            aspect: InkAspect::UNKNOWN,
+        }];
+        let m = matcher(entries).restricted_to_language("eng");
+        assert_eq!(m.language_mask(), (0, 1), "not applied, rather than applied to nothing");
+        assert_eq!(m.scan(&v).character, Some('\u{f1}'));
     }
 
     #[test]

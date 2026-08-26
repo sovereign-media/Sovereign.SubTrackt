@@ -187,6 +187,23 @@ pub struct ExtractArgs {
     #[arg(long, overrides_with = "borrow_track_scale")]
     pub no_borrow_track_scale: bool,
 
+    /// Treat the stream as this language, whatever the container declares. An ISO 639-2/B tag.
+    ///
+    /// A bare `.sup` holds one PGS stream and no container to declare anything, so a caller
+    /// extracting one has no other way to say. Also the override for a container that declares the
+    /// wrong tag, which #180 found 16 titles of.
+    #[arg(long, value_name = "TAG")]
+    pub language: Option<String>,
+
+    /// Refuse reference entries the stream's declared language cannot spell. See
+    /// docs/script-guard.md.
+    #[arg(long, overrides_with = "no_restrict_to_language")]
+    pub restrict_to_language: bool,
+
+    /// Let the matcher answer with any character the reference set holds.
+    #[arg(long, overrides_with = "restrict_to_language")]
+    pub no_restrict_to_language: bool,
+
     /// Resolve ambiguous reads from the characters around them. See docs/post-correction.md.
     #[arg(long, overrides_with = "no_post_correct")]
     pub post_correct: bool,
@@ -434,6 +451,22 @@ impl ExtractArgs {
         }
     }
 
+    /// Whether the declared language may refuse a reference entry, resolved the same way.
+    ///
+    /// Off by default, and both flags exist for the reason the pair above them does: #230's
+    /// default is a measurement rather than a fixed property, and a caller who has pinned the
+    /// behaviour it wants should not have to notice when the measurement moves.
+    #[must_use]
+    pub fn restrict_to_language(&self) -> bool {
+        if self.restrict_to_language {
+            true
+        } else if self.no_restrict_to_language {
+            false
+        } else {
+            Config::default().restrict_to_language
+        }
+    }
+
     /// Where a one-height line takes its scale from, resolved the same way and for the same reason.
     ///
     /// The default is `FromTheTrack`, so `--borrow-track-scale` changes nothing today. #184's
@@ -533,6 +566,8 @@ impl ExtractArgs {
             defuse: self.defuse(),
             line_scale: self.line_scale(),
             post_correct: self.post_correct(),
+            restrict_to_language: self.restrict_to_language(),
+            language: self.language.clone(),
             track_vocabulary: self.track_vocabulary(),
             lone_words: self.lone_words(),
             assume_english: self.assume_english,

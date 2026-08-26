@@ -131,7 +131,7 @@ fn the_report_names_the_corrector_that_ran_rather_than_only_counting_it() {
     // arms, and `--no-post-correct`'s equivalent still says `none`.
     let base = Config { unmatched: UnmatchedPolicy::Placeholder, ..Config::default() };
 
-    let shipped = Pipeline::new(base)
+    let shipped = Pipeline::new(base.clone())
         .run(fixture("synthetic.sup"))
         .expect("the fixture extracts");
     assert_eq!(shipped.report.corrector, "context+lone-word");
@@ -140,7 +140,7 @@ fn the_report_names_the_corrector_that_ran_rather_than_only_counting_it() {
         "an unread track offers nothing to correct"
     );
 
-    let off = Pipeline::new(Config { post_correct: false, ..base })
+    let off = Pipeline::new(Config { post_correct: false, ..base.clone() })
         .run(fixture("synthetic.sup"))
         .expect("the fixture extracts");
     assert_eq!(off.report.corrector, "none");
