@@ -20,6 +20,7 @@ mod fixture;
 mod fontid;
 mod gapsweep;
 mod geometry;
+mod greybench;
 mod language;
 mod mark;
 mod overwide;
@@ -173,6 +174,7 @@ fn main() -> anyhow::Result<()> {
         Some("cue-images") => return cueimage::run(&args[1..]),
         Some("gap-sweep") => return gapsweep::run(&args[1..]),
         Some("glyph-geometry") => return geometry::run(&args[1..]),
+        Some("grey-bench") => return greybench::run(&args[1..]),
         Some("language-coverage") => return language::run(&args[1..]),
         Some("unread") => return unread::run(&args[1..]),
         Some("overwide") => return overwide::run(&args[1..]),
