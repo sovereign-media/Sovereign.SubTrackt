@@ -3,6 +3,12 @@
 //! The mask itself and the threshold policy are implemented; classifying palette indices into
 //! fill, outline and anti-aliased edge is #5.
 //!
+//! #5 is closed and that sentence is still true. What #234 changed is that the palettes are now
+//! *counted*: `docs/palette.md` has what nine bench tracks draw, and the headline is that the two
+//! codecs are not the same kind of thing. A VOBSUB track draws **three** colours and no partially
+//! transparent ink at all; a PGS track draws a hundred or more and authors its anti-aliasing as a
+//! luma ramp at full opacity. Any future classification has to hold both.
+//!
 //! The reason to threshold on palette *alpha* rather than on pixel luma: both PGS and VOBSUB
 //! author the glyph fill, its outline and its anti-aliased edge as separate palette entries. That
 //! makes foreground-versus-background a question about the palette — answerable once per image,
@@ -29,7 +35,11 @@ pub struct Threshold {
 impl Default for Threshold {
     /// Fill only, at half alpha and half luma.
     ///
-    /// A starting point, not a measured answer.
+    /// A starting point, not a measured answer — and #234 measured what it implies without
+    /// changing it. On VOBSUB the cut is ideal: three colours, a 131-point empty band at 16..147,
+    /// and 128 inside it. On PGS it is not in any gap — the widest empty band in opaque ink is
+    /// 33..87 on four discs and four points wide on three others, so this cut falls inside a drawn
+    /// ramp rather than between two clusters. `docs/palette.md`.
     fn default() -> Self {
         Self { min_alpha: 128, min_luma: 128, include_outline: false }
     }
