@@ -118,7 +118,7 @@ jobs:
           # out looking like two files stapled together, though both forms verify.
           ( cd dist && sha256sum -b "${name}" > "${name}.sha256" )
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: dist/*
@@ -129,7 +129,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -152,7 +152,7 @@ jobs:
       #
       # A tag carrying a pre-release suffix (`v0.2.0-rc.1`) is marked as one, so it does not become
       # the "latest release" that an install line resolves to.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
