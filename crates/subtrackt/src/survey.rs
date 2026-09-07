@@ -292,7 +292,7 @@ mod tests {
         let survey = GlyphSurvey {
             stream: StreamInfo {
                 index: 0,
-                codec: subtrackt_demux::BitmapCodec::Pgs,
+                codec: subtrackt_demux::Codec::Bitmap(subtrackt_demux::BitmapCodec::Pgs),
                 language: None,
                 title: None,
                 plane_width: 1920,

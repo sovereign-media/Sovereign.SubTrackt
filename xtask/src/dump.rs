@@ -82,12 +82,13 @@ pub fn run(args: &[String]) -> anyhow::Result<()> {
             .clone(),
         None => source
             .streams()
-            .first()
+            .iter()
+            .find(|s| !s.codec.is_text())
             .context("no bitmap subtitle stream found")?
             .clone(),
     };
     anyhow::ensure!(
-        stream.codec == subtrackt_demux::BitmapCodec::Pgs,
+        stream.codec == subtrackt_demux::Codec::Bitmap(subtrackt_demux::BitmapCodec::Pgs),
         "stream {} is {:?}; a .sup holds PGS and nothing else",
         stream.index,
         stream.codec

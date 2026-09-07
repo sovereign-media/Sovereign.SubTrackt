@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, Result};
 
-use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
+use crate::{BitmapCodec, Codec, Packet, StreamInfo, SubtitleSource};
 
 /// One line of the `.idx` index: where a subpicture starts in the `.sub`, and when it appears.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,7 +139,7 @@ impl IdxReader {
 
         let streams = [StreamInfo {
             index: 0,
-            codec: BitmapCodec::VobSub,
+            codec: Codec::Bitmap(BitmapCodec::VobSub),
             language: index.language.clone(),
             title: None,
             plane_width: index.plane_width,

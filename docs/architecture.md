@@ -35,7 +35,7 @@ fan with `subtrackt-core` at the hub. That is what lets an unimplemented stage b
 | Crate | Contains |
 | :--- | :--- |
 | `subtrackt-core` | Types every stage speaks: `Timestamp`, `IndexedBitmap`, `Palette`, `FeatureVector`, `Cue`, `Confidence`, `Error`, and the stage traits |
-| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, native Matroska reader, native MPEG-TS reader; MP4 is a stub |
+| `subtrackt-demux` | `.sup` reader, `.idx`/`.sub` reader, native Matroska reader, native MPEG-TS reader; MP4 is a stub. Names text tracks (`S_TEXT/*`) as well as bitmap ones since #253, and reads neither yet — #251, #254 |
 | `subtrackt-decode` | PGS and VOBSUB packet decoders |
 | `subtrackt-glyph` | Binarization, connected components, diacritic grouping, feature vectoring, the reference set, the matcher and the session cache |
 | `subtrackt-text` | Layout reconstruction, post-correction, SRT and WebVTT writers |
