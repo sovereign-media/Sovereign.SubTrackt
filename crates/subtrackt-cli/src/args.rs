@@ -86,15 +86,6 @@ pub enum Command {
     List {
         /// Input file: a container, a `.sup` dump, or a VOBSUB `.idx`/`.sub` pair.
         input: PathBuf,
-
-        /// Show text subtitle streams as well, and say which kind each stream is.
-        ///
-        /// Off by default because the 1.0 output is frozen: without this flag `list` prints
-        /// exactly the rows and exactly the columns it printed before text tracks were visible
-        /// at all. A text stream cannot be extracted yet -- #251 and #254 -- so this reports what
-        /// a file holds rather than what this tool can currently read.
-        #[arg(long)]
-        all: bool,
     },
 
     /// Extract a subtitle stream to text.
@@ -927,14 +918,6 @@ mod tests {
     #[test]
     fn list_takes_just_an_input() {
         let cli = Cli::try_parse_from(["subtrackt", "list", "movie.mkv"]).unwrap();
-        assert!(matches!(cli.command, Command::List { all: false, .. }));
-    }
-
-    #[test]
-    fn listing_text_streams_is_opt_in() {
-        // The default has to stay false: 1.0's `list` output is frozen, and this flag is the only
-        // thing standing between that guarantee and a new column on every row.
-        let cli = Cli::try_parse_from(["subtrackt", "list", "--all", "in.mkv"]).unwrap();
-        assert!(matches!(cli.command, Command::List { all: true, .. }));
+        assert!(matches!(cli.command, Command::List { .. }));
     }
 }

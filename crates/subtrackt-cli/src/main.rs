@@ -56,7 +56,7 @@ fn main() -> std::process::ExitCode {
 
 fn run(command: Command, ui: Ui, bars: &'static progress::Renderer) -> anyhow::Result<()> {
     match command {
-        Command::List { input, all } => list(&input, all),
+        Command::List { input } => list(&input),
         Command::Extract(args) => extract(&args, ui, bars),
         Command::Fit(args) => fit(&args, ui, bars),
         Command::Glyphs(args) => glyphs(&args, ui, bars),
@@ -86,81 +86,25 @@ fn init_tracing(verbosity: u8, color: bool) {
         .init();
 }
 
-fn list(input: &std::path::Path, all: bool) -> anyhow::Result<()> {
+fn list(input: &std::path::Path) -> anyhow::Result<()> {
     let streams = Pipeline::list(input)
         .with_context(|| format!("listing subtitle streams in {}", input.display()))?;
 
-    // The library reports every stream it can name; the filter is a display decision and belongs
-    // here. `Pipeline::list` telling a caller less than it knows would be the wrong place to spend
-    // the compatibility budget.
-    let text = streams.iter().filter(|s| s.codec.is_text()).count();
-    let shown: Vec<_> = streams
-        .into_iter()
-        .filter(|s| all || !s.codec.is_text())
-        .collect();
-
-    if shown.is_empty() {
-        // A file whose subtitles are all text did not open at all before #253, so this message is
-        // new rather than changed. It names the count because the alternative -- "no bitmap
-        // subtitle streams found", full stop, on a file carrying five SubRip tracks -- withholds
-        // something the reader has just finished learning, which is the habit this project is
-        // built against.
-        let hint = match text {
-            0 => String::new(),
-            1 => " (1 text stream; --all lists it)".to_owned(),
-            n => format!(" ({n} text streams; --all lists them)"),
-        };
-        if all {
-            println!("no subtitle streams found");
-        } else {
-            println!("no bitmap subtitle streams found{hint}");
-        }
+    if streams.is_empty() {
+        println!("no bitmap subtitle streams found");
         return Ok(());
     }
 
-    for stream in shown {
-        // Two layouts, and deliberately so. Without `--all` this prints the 1.0 row byte for byte,
-        // because the surface is frozen and a new column is as much of a break as a new row. With
-        // it, the kind is named rather than left to be inferred from the codec name -- a reader who
-        // does not already know that `subrip` is text and `hdmv_pgs_subtitle` is not is exactly the
-        // reader the flag is for.
-        let title = stream.title.map(|t| format!("  {t}")).unwrap_or_default();
-        if all {
-            // A text track has no subtitle plane, and `0x0` would read as a measurement that came
-            // out zero rather than as one that was never taken.
-            let plane = if stream.codec.is_text() {
-                "--".to_owned()
-            } else {
-                format!("{}x{}", stream.plane_width, stream.plane_height)
-            };
-            // Trimmed, because the plane column is padded so the title lines up and most text
-            // tracks carry no title -- leaving the padding would put trailing blanks on most rows
-            // of the output this flag exists to produce.
-            let row = format!(
-                "{:>3}  {:<5} {:<20} {:<5} {:<9}{}",
-                stream.index,
-                if stream.codec.is_text() {
-                    "text"
-                } else {
-                    "image"
-                },
-                stream.codec.ffmpeg_name(),
-                stream.language.as_deref().unwrap_or("--"),
-                plane,
-                title,
-            );
-            println!("{}", row.trim_end());
-        } else {
-            println!(
-                "{:>3}  {:<20} {:<5} {}x{}{}",
-                stream.index,
-                stream.codec.ffmpeg_name(),
-                stream.language.as_deref().unwrap_or("--"),
-                stream.plane_width,
-                stream.plane_height,
-                title,
-            );
-        }
+    for stream in streams {
+        println!(
+            "{:>3}  {:<20} {:<5} {}x{}{}",
+            stream.index,
+            stream.codec.ffmpeg_name(),
+            stream.language.as_deref().unwrap_or("--"),
+            stream.plane_width,
+            stream.plane_height,
+            stream.title.map(|t| format!("  {t}")).unwrap_or_default(),
+        );
     }
     Ok(())
 }

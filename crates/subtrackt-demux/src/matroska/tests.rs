@@ -166,7 +166,7 @@ fn a_pgs_track_is_found_with_its_metadata() {
     let streams = r.streams();
 
     assert_eq!(streams.len(), 1, "the video track is not a subtitle stream");
-    assert_eq!(streams[0].codec, Codec::Bitmap(BitmapCodec::Pgs));
+    assert_eq!(streams[0].codec, BitmapCodec::Pgs);
     assert_eq!(streams[0].language.as_deref(), Some("eng"));
     assert_eq!(streams[0].title.as_deref(), Some("Full"));
 }
@@ -293,96 +293,13 @@ fn not_selecting_anything_reads_the_first_stream() {
 fn a_vobsub_track_is_recognised_too() {
     let file = build(&[TrackSpec::subtitle(1, "S_VOBSUB")], &[], DEFAULT_TIMESTAMP_SCALE);
     let r = reader(file).unwrap();
-    assert_eq!(r.streams()[0].codec, Codec::Bitmap(BitmapCodec::VobSub));
+    assert_eq!(r.streams()[0].codec, BitmapCodec::VobSub);
 }
 
 #[test]
-fn a_text_subtitle_track_is_named_rather_than_dropped() {
-    // Replaces `text_subtitle_tracks_are_ignored`, which pinned the opposite and justified it with
-    // "SRT and ASS are already handled upstream". #252 is why that stopped being true: the reader
-    // walks these tracks either way, and refusing to name one only meant a caller had to open the
-    // file a second time with a different tool to find out what was in it.
+fn text_subtitle_tracks_are_ignored() {
+    // SRT and ASS are already handled upstream; this tool is only for the bitmap codecs.
     let file = build(&[TrackSpec::subtitle(1, "S_TEXT/UTF8")], &[], DEFAULT_TIMESTAMP_SCALE);
-    let r = reader(file).unwrap();
-    assert_eq!(r.streams().len(), 1);
-    assert_eq!(r.streams()[0].codec, Codec::Text(TextCodec::SubRip));
-}
-
-#[test]
-fn every_text_codec_matroska_spells_is_named() {
-    let file = build(
-        &[
-            TrackSpec::subtitle(1, "S_TEXT/UTF8"),
-            TrackSpec::subtitle(2, "S_TEXT/ASS"),
-            TrackSpec::subtitle(3, "S_TEXT/SSA"),
-            TrackSpec::subtitle(4, "S_TEXT/WEBVTT"),
-        ],
-        &[],
-        DEFAULT_TIMESTAMP_SCALE,
-    );
-    let r = reader(file).unwrap();
-    let codecs: Vec<_> = r.streams().iter().map(|s| s.codec).collect();
-    assert_eq!(
-        codecs,
-        vec![
-            Codec::Text(TextCodec::SubRip),
-            Codec::Text(TextCodec::Ass),
-            Codec::Text(TextCodec::Ssa),
-            Codec::Text(TextCodec::WebVtt),
-        ]
-    );
-}
-
-#[test]
-fn a_text_track_declared_first_does_not_shift_the_index_of_a_bitmap_track() {
-    // The compatibility guarantee of #253, and the one thing about this change that could break a
-    // caller silently. `--stream 1` and every row `list` prints are positions in this numbering,
-    // so a bitmap track that gains an index because a text track was declared ahead of it would
-    // change what an existing command line selects, with nothing failing to say so.
-    let file = build(
-        &[
-            TrackSpec::subtitle(1, "S_TEXT/UTF8"),
-            TrackSpec::subtitle(2, "S_HDMV/PGS"),
-            TrackSpec::subtitle(3, "S_TEXT/ASS"),
-            TrackSpec::subtitle(4, "S_VOBSUB"),
-        ],
-        &[],
-        DEFAULT_TIMESTAMP_SCALE,
-    );
-    let r = reader(file).unwrap();
-    let by_index: Vec<_> = r.streams().iter().map(|s| (s.index, s.codec)).collect();
-    assert_eq!(
-        by_index,
-        vec![
-            (0, Codec::Bitmap(BitmapCodec::Pgs)),
-            (1, Codec::Bitmap(BitmapCodec::VobSub)),
-            (2, Codec::Text(TextCodec::SubRip)),
-            (3, Codec::Text(TextCodec::Ass)),
-        ]
-    );
-}
-
-#[test]
-fn a_subtitle_codec_nobody_has_listed_is_still_dropped() {
-    // Naming text tracks is not naming everything. #250 predicts the library holds at least one
-    // codec nobody here has listed, and until it names one this stays a track the reader skips
-    // rather than a stream it invents a kind for.
-    let file = build(
-        &[
-            TrackSpec::subtitle(1, "S_DVBSUB"),
-            TrackSpec::subtitle(2, "S_HDMV/PGS"),
-        ],
-        &[],
-        DEFAULT_TIMESTAMP_SCALE,
-    );
-    let r = reader(file).unwrap();
-    assert_eq!(r.streams().len(), 1);
-    assert_eq!(r.streams()[0].codec, Codec::Bitmap(BitmapCodec::Pgs));
-}
-
-#[test]
-fn a_file_with_no_subtitle_track_of_either_kind_is_still_rejected() {
-    let file = build(&[], &[], DEFAULT_TIMESTAMP_SCALE);
     let err = reader_err(file);
     assert!(matches!(err, Error::Demux(_)), "got {err:?}");
 }

@@ -1,9 +1,4 @@
-//! Getting subtitle packets out of whatever they arrived in.
-//!
-//! Every stream this can *name* is in [`Codec`]; the ones it can currently *read* are the two in
-//! [`BitmapCodec`]. #253 widened the first without widening the second on purpose — a text track
-//! that a caller cannot see is one they have to open the file a second time to find, and naming it
-//! is a much smaller change than reading it.
+//! Getting bitmap subtitle packets out of whatever they arrived in.
 //!
 //! Two input shapes are supported by design:
 //!
@@ -44,84 +39,13 @@ impl BitmapCodec {
     }
 }
 
-/// Which text subtitle codec a stream carries.
-///
-/// Named but not read. #253 widened [`StreamInfo`] so a text track could be *listed*; turning one
-/// into cues is #251 for `SubRip` and #254 for the two `SubStation` dialects. A caller that reaches
-/// one gets [`Error::Unsupported`] naming the issue, which is the house rule for a stage that does
-/// not exist yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TextCodec {
-    /// `SubRip`, Matroska's `S_TEXT/UTF8`. Timed lines and nothing else.
-    SubRip,
-    /// Advanced `SubStation` Alpha, `S_TEXT/ASS`.
-    Ass,
-    /// `SubStation` Alpha, `S_TEXT/SSA`. Differs from [`Self::Ass`] in field count.
-    Ssa,
-    /// `WebVTT`, `S_TEXT/WEBVTT`.
-    WebVtt,
-}
-
-impl TextCodec {
-    /// The `FFmpeg` codec name, matching [`BitmapCodec::ffmpeg_name`].
-    #[must_use]
-    pub const fn ffmpeg_name(self) -> &'static str {
-        match self {
-            Self::SubRip => "subrip",
-            Self::Ass => "ass",
-            Self::Ssa => "ssa",
-            Self::WebVtt => "webvtt",
-        }
-    }
-}
-
-/// Which subtitle codec a stream carries, of either kind.
-///
-/// The split is the one that decides which pipeline reads the stream, and it is the only
-/// distinction worth putting in the type: a bitmap track goes through decode, segment, match and
-/// assemble, and a text track goes through none of them. Everything downstream that merely wants a
-/// name calls [`Self::ffmpeg_name`] and never asks which variant it has.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Codec {
-    /// A track stored as pictures, which this tool reads.
-    Bitmap(BitmapCodec),
-    /// A track that is already text.
-    Text(TextCodec),
-}
-
-impl Codec {
-    /// The `FFmpeg` codec name, which is how Sovereign already identifies these streams.
-    #[must_use]
-    pub const fn ffmpeg_name(self) -> &'static str {
-        match self {
-            Self::Bitmap(codec) => codec.ffmpeg_name(),
-            Self::Text(codec) => codec.ffmpeg_name(),
-        }
-    }
-
-    /// The bitmap codec, or `None` for a text track.
-    #[must_use]
-    pub const fn bitmap(self) -> Option<BitmapCodec> {
-        match self {
-            Self::Bitmap(codec) => Some(codec),
-            Self::Text(_) => None,
-        }
-    }
-
-    /// Whether the track is already text.
-    #[must_use]
-    pub const fn is_text(self) -> bool {
-        matches!(self, Self::Text(_))
-    }
-}
-
 /// Everything known about a subtitle stream before any of it is decoded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamInfo {
     /// Index of the stream within its container; `0` for a sidecar file.
     pub index: u32,
-    /// The codec carried, of either kind.
-    pub codec: Codec,
+    /// The codec carried.
+    pub codec: BitmapCodec,
     /// BCP 47 or ISO 639 language tag, when declared.
     pub language: Option<String>,
     /// Track title, when declared.
