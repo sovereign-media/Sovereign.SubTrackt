@@ -374,37 +374,17 @@ impl Pipeline {
     /// Pick the configured stream, or the first one.
     pub(crate) fn choose_stream(&self, source: &dyn SubtitleSource) -> Result<StreamInfo> {
         let streams = source.streams();
-        let chosen = match self.config.stream {
+        match self.config.stream {
             Some(index) => streams
                 .iter()
                 .find(|s| s.index == index)
                 .cloned()
                 .ok_or_else(|| Error::Demux(format!("no subtitle stream with index {index}"))),
-            // The *first bitmap* stream, not the first stream. Since #253 a text track is listed
-            // too, and defaulting to one would hand a PGS decoder a line of SubRip on any file
-            // that happens to declare its text tracks first.
             None => streams
-                .iter()
-                .find(|s| !s.codec.is_text())
+                .first()
                 .cloned()
                 .ok_or_else(|| Error::Demux("no bitmap subtitle stream found".into())),
-        }?;
-
-        // A named text stream is a fact the caller can act on, and it says which issue will make it
-        // readable -- the house rule for a stage that does not exist yet. The alternative, letting
-        // it reach `decoder_for` and fail there, reports an unknown codec for a codec this tool
-        // just finished naming in `list`.
-        if chosen.codec.is_text() {
-            return Err(Error::unsupported(
-                format!(
-                    "reading the {} text subtitle stream at index {}",
-                    chosen.codec.ffmpeg_name(),
-                    chosen.index
-                ),
-                251,
-            ));
         }
-        Ok(chosen)
     }
 
     /// Segment, match and assemble every image into cues, applying the unmatched-glyph policy.
@@ -1262,89 +1242,13 @@ mod tests {
     fn stream(language: Option<&str>, title: Option<&str>) -> StreamInfo {
         StreamInfo {
             index: 0,
-            codec: subtrackt_demux::Codec::Bitmap(subtrackt_demux::BitmapCodec::Pgs),
+            codec: subtrackt_demux::BitmapCodec::Pgs,
             language: language.map(str::to_owned),
             title: title.map(str::to_owned),
             plane_width: 1920,
             plane_height: 1080,
             codec_private: Vec::new(),
         }
-    }
-
-    /// A stream of `codec` at `index`, for the selection tests.
-    fn stream_of(index: u32, codec: subtrackt_demux::Codec) -> StreamInfo {
-        StreamInfo { index, codec, ..stream(None, None) }
-    }
-
-    /// A source that declares streams and holds no packets. `choose_stream` reads the table only.
-    struct Declared(Vec<StreamInfo>);
-
-    impl SubtitleSource for Declared {
-        fn streams(&self) -> &[StreamInfo] {
-            &self.0
-        }
-        fn select(&mut self, _index: u32) -> Result<()> {
-            Ok(())
-        }
-        fn next_packet(&mut self) -> Result<Option<subtrackt_demux::Packet>> {
-            Ok(None)
-        }
-    }
-
-    #[test]
-    fn the_default_stream_is_the_first_bitmap_one_not_the_first_one() {
-        use subtrackt_demux::{BitmapCodec, Codec, TextCodec};
-        // Since #253 a text track is listed, so "the first stream" and "the first stream this
-        // pipeline can read" stopped being the same sentence. A disc that declares its text tracks
-        // ahead of its PGS track would otherwise hand a line of SubRip to a PGS decoder.
-        let source = Declared(vec![
-            stream_of(0, Codec::Bitmap(BitmapCodec::Pgs)),
-            stream_of(1, Codec::Text(TextCodec::SubRip)),
-        ]);
-        let chosen = Pipeline::new(Config::default())
-            .choose_stream(&source)
-            .unwrap();
-        assert_eq!(chosen.index, 0);
-
-        let text_first = Declared(vec![
-            stream_of(0, Codec::Text(TextCodec::SubRip)),
-            stream_of(1, Codec::Bitmap(BitmapCodec::Pgs)),
-        ]);
-        let chosen = Pipeline::new(Config::default())
-            .choose_stream(&text_first)
-            .unwrap();
-        assert_eq!(chosen.index, 1);
-    }
-
-    #[test]
-    fn naming_a_text_stream_is_refused_with_the_issue_that_will_read_it() {
-        use subtrackt_demux::{Codec, TextCodec};
-        // The house rule for a stage that does not exist: name the tracking issue, never panic and
-        // never fail as something else. Letting this reach `decoder_for` would report an unknown
-        // codec for a codec `list --all` had just finished naming.
-        let source = Declared(vec![stream_of(0, Codec::Text(TextCodec::Ass))]);
-        let config = Config { stream: Some(0), ..Config::default() };
-        let err = Pipeline::new(config).choose_stream(&source).unwrap_err();
-        match err {
-            Error::Unsupported { issue, what } => {
-                assert_eq!(issue, 251);
-                assert!(what.contains("ass"), "{what}");
-            }
-            other => panic!("got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_file_of_nothing_but_text_streams_reports_no_bitmap_stream() {
-        use subtrackt_demux::{Codec, TextCodec};
-        // Distinct from the refusal above on purpose. A caller who named nothing gets told the file
-        // holds no bitmap track -- which is what is wrong -- rather than an unsupported-stage error
-        // about a stream they never asked for.
-        let source = Declared(vec![stream_of(0, Codec::Text(TextCodec::SubRip))]);
-        let err = Pipeline::new(Config::default())
-            .choose_stream(&source)
-            .unwrap_err();
-        assert!(matches!(err, Error::Demux(_)), "got {err:?}");
     }
 
     /// A reference set holding exactly these characters, with vectors nothing will ever scan.
