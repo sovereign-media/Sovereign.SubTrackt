@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, Result};
 
-use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
+use crate::{BitmapCodec, Codec, Packet, StreamInfo, SubtitleSource};
 
 /// Bytes of `PG` magic plus PTS, DTS, type and length.
 const HEADER_LEN: usize = 13;
@@ -62,7 +62,7 @@ impl SupReader {
             trailing_bytes: 0,
             streams: [StreamInfo {
                 index: 0,
-                codec: BitmapCodec::Pgs,
+                codec: Codec::Bitmap(BitmapCodec::Pgs),
                 // A bare .sup carries no metadata: whatever named the file is all there is, and
                 // guessing a language from the filename is the caller's business, not ours.
                 language: None,
@@ -209,7 +209,7 @@ mod tests {
         let mut reader = SupReader::open(&path).unwrap();
         assert_eq!(reader.streams()[0].plane_width, 1920);
         assert_eq!(reader.streams()[0].plane_height, 1080);
-        assert_eq!(reader.streams()[0].codec, BitmapCodec::Pgs);
+        assert_eq!(reader.streams()[0].codec, Codec::Bitmap(BitmapCodec::Pgs));
 
         let mut kinds = Vec::new();
         while let Some(packet) = reader.next_packet().unwrap() {

@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, Result};
 
-use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
+use crate::{BitmapCodec, Codec, Packet, StreamInfo, SubtitleSource};
 
 /// Bytes in a transport packet.
 const TS_PACKET: usize = 188;
@@ -276,7 +276,7 @@ impl<R: Read + Seek> MpegTsReader<R> {
                         pid: elementary,
                         info: StreamInfo {
                             index,
-                            codec: BitmapCodec::Pgs,
+                            codec: Codec::Bitmap(BitmapCodec::Pgs),
                             // A transport stream carries no language for a Blu-ray subtitle track:
                             // it lives in the playlist beside the stream, not in the stream.
                             language: None,
@@ -582,7 +582,7 @@ mod tests {
     fn a_pgs_track_is_found_through_the_pat_and_the_pmt() {
         let reader = open(stream(0x1220, &[(90_000, vec![1, 2, 3])])).unwrap();
         assert_eq!(reader.streams().len(), 1);
-        assert_eq!(reader.streams()[0].codec, BitmapCodec::Pgs);
+        assert_eq!(reader.streams()[0].codec, Codec::Bitmap(BitmapCodec::Pgs));
         // Neither is in a transport stream, and saying so beats guessing. See `read_tables`.
         assert_eq!(reader.streams()[0].language, None);
         assert_eq!(reader.streams()[0].plane_width, 0);

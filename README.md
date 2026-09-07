@@ -6,11 +6,12 @@ human intervention, and without a general OCR engine.
 A 5.5 GB Blu-ray rip reads in **22 seconds** from a single **1.3–1.9 MB** static binary with no
 runtime, no model files and no system dependencies.
 
-> **Image-based subtitles only.** This reads subtitle tracks that are stored as *pictures* — PGS on
-> Blu-ray, VOBSUB on DVD — and turns them into characters. Tracks that are already text (SubRip,
-> ASS/SSA, WebVTT, MP4 timed text, Matroska's `S_TEXT/*`) are outside its scope entirely: there is
-> nothing to recognise, and `list` will not show them. If a track is text, you want a muxer, not
-> this. **Output** is text either way — SubRip or WebVTT.
+> **Image-based subtitles only, for now.** This reads subtitle tracks that are stored as *pictures*
+> — PGS on Blu-ray, VOBSUB on DVD — and turns them into characters. A track that is already text
+> (SubRip, ASS/SSA, WebVTT, Matroska's `S_TEXT/*`) has nothing to recognise, and **extracting one is
+> not implemented**: `subtrackt list --all` will name it and `extract` will refuse it, naming the
+> issue that will read it. Until then, a text track wants a muxer. MP4 timed text is not read at
+> all — see #86. **Output** is text either way — SubRip or WebVTT.
 
 **Status: 1.0.** The pipeline runs end to end on real media and the command-line surface is frozen:
 flags and output formats change on a major, not before. What it does not carry is a

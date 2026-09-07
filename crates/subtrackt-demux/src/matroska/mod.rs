@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, PTS_HZ, Result};
 
-use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
+use crate::{BitmapCodec, Codec, Packet, StreamInfo, SubtitleSource, TextCodec};
 use ebml::{EbmlReader, ElementHeader, UNKNOWN_SIZE, Walk};
 
 // Element IDs, as the specification quotes them.
@@ -76,11 +76,18 @@ enum Compression {
     HeaderStrip(Vec<u8>),
 }
 
-/// Map a Matroska codec identifier to a bitmap subtitle codec.
-fn bitmap_codec(codec_id: &str) -> Option<BitmapCodec> {
+/// Map a Matroska codec identifier to a subtitle codec of either kind.
+///
+/// `None` is a subtitle track in a codec nobody here has listed, and it stays dropped. #250
+/// predicts the library holds at least one; when it names one, this is where it lands.
+fn codec_for(codec_id: &str) -> Option<Codec> {
     match codec_id {
-        "S_HDMV/PGS" => Some(BitmapCodec::Pgs),
-        "S_VOBSUB" => Some(BitmapCodec::VobSub),
+        "S_HDMV/PGS" => Some(Codec::Bitmap(BitmapCodec::Pgs)),
+        "S_VOBSUB" => Some(Codec::Bitmap(BitmapCodec::VobSub)),
+        "S_TEXT/UTF8" => Some(Codec::Text(TextCodec::SubRip)),
+        "S_TEXT/ASS" => Some(Codec::Text(TextCodec::Ass)),
+        "S_TEXT/SSA" => Some(Codec::Text(TextCodec::Ssa)),
+        "S_TEXT/WEBVTT" => Some(Codec::Text(TextCodec::WebVtt)),
         _ => None,
     }
 }
@@ -183,7 +190,7 @@ impl<R: Read + Seek> MatroskaReader<R> {
 
         if tracks.is_empty() {
             return Err(Error::Demux(format!(
-                "{} declares no PGS or VOBSUB subtitle track",
+                "{} declares no subtitle track this tool can name",
                 reader.path().display()
             )));
         }
@@ -412,18 +419,27 @@ fn read_timestamp_scale<R: Read + Seek>(
     Ok(scale)
 }
 
-/// Read every bitmap subtitle track, and the video dimensions the subtitle plane matches.
+/// Read every subtitle track of either kind, and the video dimensions the subtitle plane matches.
+///
+/// **Bitmap tracks are numbered first, then text tracks**, each group in container order. The
+/// obvious alternative -- one counter over every subtitle track in the order they appear -- shifts
+/// the index of a bitmap track that happens to sit behind a text one, which changes what
+/// `--stream 1` selects and what `list` prints on a file this tool already reads. The 1.0 surface
+/// is frozen and that would break it silently, in the one direction nothing would fail loudly.
+///
+/// The index was never the container's `TrackNumber` anyway -- it has always been a position among
+/// the tracks this tool recognises, skipping the rest -- so ordering it by kind is consistent with
+/// what it already meant rather than a new fiction.
 fn read_tracks<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     tracks: &ElementHeader,
 ) -> Result<(Vec<Track>, (u32, u32))> {
     let mut found = Vec::new();
     let mut plane = (0u32, 0u32);
-    let mut index = 0u32;
 
     reader.children(tracks, |reader, entry| {
         if entry.id == TRACK_ENTRY {
-            if let Some(track) = read_track_entry(reader, entry, &mut index)? {
+            if let Some(track) = read_track_entry(reader, entry)? {
                 found.push(track);
             } else if let Some(video) = video_plane(reader, entry)? {
                 plane = video;
@@ -431,14 +447,24 @@ fn read_tracks<R: Read + Seek>(
         }
         Ok(Walk::Continue)
     })?;
+
+    // `sort_by_key` is stable, which is the half of this that matters: it is what keeps each group
+    // in the order the container declared it. An unstable sort would compile and pass every test
+    // that has one bitmap track.
+    found.sort_by_key(|track| u8::from(track.info.codec.is_text()));
+    for (index, track) in found.iter_mut().enumerate() {
+        track.info.index = u32::try_from(index).unwrap_or(u32::MAX);
+    }
     Ok((found, plane))
 }
 
-/// Read one `TrackEntry`, returning it only if it is a bitmap subtitle track.
+/// Read one `TrackEntry`, returning it only if it is a subtitle track in a codec we can name.
+///
+/// The index is left at zero here and assigned by [`read_tracks`], which needs every track in hand
+/// before it can number them by kind.
 fn read_track_entry<R: Read + Seek>(
     reader: &mut EbmlReader<R>,
     entry: &ElementHeader,
-    index: &mut u32,
 ) -> Result<Option<Track>> {
     let mut number = 0u64;
     let mut track_type = 0u64;
@@ -467,12 +493,12 @@ fn read_track_entry<R: Read + Seek>(
     if track_type != TRACK_TYPE_SUBTITLE {
         return Ok(None);
     }
-    let Some(codec) = bitmap_codec(&codec_id) else {
+    let Some(codec) = codec_for(&codec_id) else {
         return Ok(None);
     };
 
     let info = StreamInfo {
-        index: *index,
+        index: 0,
         codec,
         // "und" is Matroska's default and carries no more information than absence.
         language: language.filter(|l| l != "und"),
@@ -481,7 +507,6 @@ fn read_track_entry<R: Read + Seek>(
         plane_height: 0,
         codec_private,
     };
-    *index += 1;
     Ok(Some(Track { number, info, compression }))
 }
 
