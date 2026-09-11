@@ -14,6 +14,7 @@ mod adaptive;
 mod bigram;
 mod bodybox;
 mod cueimage;
+mod demuxcompare;
 mod disc;
 mod dump;
 mod fit;
@@ -175,6 +176,7 @@ fn main() -> anyhow::Result<()> {
         Some("spacing-margin") => return spacing::run(&args[1..]),
         Some("srt-score") => return disc::run(&args[1..]),
         Some("dump-sup") => return dump::run(&args[1..]),
+        Some("demux-compare") => return demuxcompare::run(&args[1..]),
         Some("cue-images") => return cueimage::run(&args[1..]),
         Some("gap-sweep") => return gapsweep::run(&args[1..]),
         Some("glyph-geometry") => return geometry::run(&args[1..]),
@@ -206,6 +208,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  xtask body-box [font.ttf]");
     eprintln!("  xtask srt-score <extracted.srt> <release.srt> [--compare <other.srt>]");
     eprintln!("  xtask dump-sup <media> <out.sup> [--stream N]");
+    eprintln!("  xtask demux-compare <file.mkv> [--stream N] [--index-only] [--no-hint]");
     eprintln!("  xtask cue-images <media> <out-dir> [--stream N] [--from N] [--count N]");
     eprintln!("  xtask glyph-geometry <media> <reference.subtref> <release.srt> [--pair lI]");
     eprintln!("  xtask language-coverage <regular.ttf> [--italic F] [--bold F] | --emit-alphabets");

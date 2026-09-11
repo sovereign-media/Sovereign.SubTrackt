@@ -394,6 +394,11 @@ pub struct Cost {
     /// Larger than one copy of the glyphs: they are held per image *and* flattened into a second
     /// contiguous list for the grouping pass, so this counts both.
     pub glyph_bytes: u64,
+    /// How the container was read to reach the track, and what that transferred.
+    ///
+    /// Most of [`Self::decode`] on a network mount, and the reason #258 exists: a walk reads the
+    /// whole file, and the index reads a fraction of a percent of it.
+    pub access: subtrackt_demux::Access,
 }
 
 impl Cost {
@@ -414,8 +419,10 @@ impl fmt::Display for Cost {
         };
         write!(
             f,
+            // The container clause goes last: `scripts/bench/run.py` matches the phases from the
+            // front of the line, and appending leaves every recorded run parseable.
             "decode {:.1}s; segment {:.1}s; cluster {:.1}s; read {:.1}s; total {:.1}s; \
-             resident {:.1} MiB images / {:.1} MiB glyphs",
+             resident {:.1} MiB images / {:.1} MiB glyphs; {}",
             self.decode.as_secs_f64(),
             self.segment.as_secs_f64(),
             self.cluster.as_secs_f64(),
@@ -423,6 +430,7 @@ impl fmt::Display for Cost {
             self.total().as_secs_f64(),
             mib(self.image_bytes),
             mib(self.glyph_bytes),
+            self.access,
         )
     }
 }

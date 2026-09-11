@@ -15,6 +15,7 @@ pub mod matroska;
 pub mod mpegts;
 pub mod sup;
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, Result};
@@ -72,6 +73,55 @@ pub struct Packet {
     pub payload: Vec<u8>,
 }
 
+/// How a source reached the selected stream's packets.
+///
+/// A property of the run rather than of the track: two ways of reaching the same packets have to
+/// yield the same packets, and #258 is the comparison that holds the index path to that. What
+/// differs is what it cost, which on a network mount is most of what an extraction costs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Read front to back. `why` names what ruled out anything cheaper.
+    Sequential {
+        /// Why the source could not do better, in a few words a report can print.
+        why: &'static str,
+    },
+    /// Each block was read where the container's own index said it was.
+    Indexed {
+        /// Blocks the index led to.
+        blocks: u64,
+        /// Reads issued, the index's own included. On a network mount this is the cost.
+        reads: u64,
+        /// Bytes transferred by those reads.
+        bytes: u64,
+        /// The presentation time of the entry at which the index stopped describing the file, if
+        /// it did, from which point the rest of the track was read sequentially.
+        walked_from: Option<u64>,
+    },
+}
+
+impl Default for Access {
+    fn default() -> Self {
+        Self::Sequential { why: "the format carries no index" }
+    }
+}
+
+impl fmt::Display for Access {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sequential { why } => write!(f, "container read through ({why})"),
+            Self::Indexed { blocks, reads, bytes, walked_from } => {
+                #[allow(clippy::cast_precision_loss)]
+                let mib = *bytes as f64 / (1024.0 * 1024.0);
+                write!(f, "container indexed: {blocks} blocks in {reads} reads, {mib:.1} MiB")?;
+                if let Some(pts) = walked_from {
+                    write!(f, ", read through from pts {pts}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// An opened source of subtitle packets.
 ///
 /// Implementations are iterators in spirit but not in signature: [`Self::next_packet`] returns a
@@ -88,6 +138,11 @@ pub trait SubtitleSource {
 
     /// Read the next packet from the selected stream, or `None` at end of stream.
     fn next_packet(&mut self) -> Result<Option<Packet>>;
+
+    /// How the selected stream's packets have been reached so far.
+    fn access(&self) -> Access {
+        Access::default()
+    }
 }
 
 /// Open a file, dispatching on its extension.

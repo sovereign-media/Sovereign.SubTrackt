@@ -12,11 +12,20 @@
 //! which ran at 77 MB/s against 177 MB/s for this reader doing the whole pipeline. The full
 //! comparison and the conditions for revisiting it are in `docs/architecture.md`.
 //!
-//! Everything streams. A film is several gigabytes; the subtitle track is a rounding error inside
-//! it. The parser reads the track headers up front, then walks clusters seeking past every block
-//! that is not the track it was asked for.
+//! A film is several gigabytes; the subtitle track is a rounding error inside it. There are two
+//! ways to find it, and the reader takes the cheaper one the file allows:
+//!
+//! * **Through the index.** The `Cues` element usually says where every subtitle block is, to the
+//!   byte. Reading it and then one window per block reads a fraction of a percent of the file.
+//!   `index` has how, and #258 what it measured.
+//! * **By walking.** Every cluster, front to back, stepping past every block that is not the track
+//!   asked for. This reads the whole file, and it is what a file with no usable index gets. It is
+//!   also where the index path goes if an entry stops describing the file, from that cluster on,
+//!   so a damaged index costs time and never a cue.
 
 pub mod ebml;
+mod index;
+mod random;
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -24,8 +33,10 @@ use std::path::{Path, PathBuf};
 
 use subtrackt_core::{Error, PTS_HZ, Result};
 
-use crate::{BitmapCodec, Packet, StreamInfo, SubtitleSource};
+use crate::{Access, BitmapCodec, Packet, StreamInfo, SubtitleSource};
 use ebml::{EbmlReader, ElementHeader, UNKNOWN_SIZE, Walk};
+use index::{ClusterHead, CuePoint, Located};
+use random::RandomReader;
 
 // Element IDs, as the specification quotes them.
 const SEGMENT: u32 = 0x1853_8067;
@@ -94,6 +105,32 @@ struct Track {
     compression: Compression,
 }
 
+/// The largest `SeekHead` read into memory. mkvmerge's is under a hundred bytes.
+const MAX_SEEK_HEAD: u64 = 64 * 1024;
+
+/// What the file's index holds for its subtitle tracks, read once for all of them.
+enum Index {
+    /// Every entry for a bitmap subtitle track, in file order.
+    Points(Vec<CuePoint>),
+    /// There is nothing to follow, and why.
+    Absent(&'static str),
+}
+
+/// How the selected track is being read.
+enum Mode {
+    /// Front to back from `cursor`.
+    Walk,
+    /// Entry by entry from the index.
+    Indexed {
+        /// The selected track's entries, in file order.
+        points: Vec<CuePoint>,
+        /// The next entry to follow.
+        next: usize,
+        /// The cluster last read. A display set and its erase often share one.
+        cluster: Option<ClusterHead>,
+    },
+}
+
 /// Reads bitmap subtitle packets out of a Matroska file.
 pub struct MatroskaReader<R> {
     reader: EbmlReader<R>,
@@ -101,6 +138,32 @@ pub struct MatroskaReader<R> {
     streams: Vec<StreamInfo>,
     /// Nanoseconds per timestamp unit.
     timestamp_scale: u64,
+    /// Absolute offset of the segment's body, which every position in the index counts from.
+    segment_start: u64,
+    /// What the `SeekHead` elements before the first cluster point at, by element ID.
+    seeks: Vec<(u32, u64)>,
+    /// Where the `SeekHead` elements already read begin, so a pointer to one is not followed.
+    seek_heads: Vec<u64>,
+    /// Where `Cues` begins, when it comes before the first cluster rather than at the tail.
+    cues_at: Option<u64>,
+    /// The handle the index path reads through. Separate from the walk's, which is buffered for
+    /// reading straight through and would fetch a megabyte for every block.
+    random: Option<RandomReader>,
+    /// The file's index, once something has asked for it.
+    index: Option<Index>,
+    /// Whether to follow the index when it can be. Off only to compare the two paths.
+    use_index: bool,
+    /// How the selected track is being read.
+    mode: Mode,
+    /// Whether the selected track was started from the index, and why not if it was not.
+    indexed: std::result::Result<(), &'static str>,
+    /// Blocks the index led to on the selected track.
+    indexed_blocks: u64,
+    /// Where the index stopped describing the file, if it did, in 90 kHz ticks.
+    walked_from: Option<u64>,
+    /// The walk yields nothing at or before this offset. Set when it takes over from the index,
+    /// which has already yielded everything up to the block it last read.
+    skip_through: Option<u64>,
     /// Absolute offset of the first cluster, so `select` can rewind.
     clusters_start: u64,
     /// Matroska number of the track currently selected, and how its payloads are compressed.
@@ -129,11 +192,37 @@ impl MatroskaReader<BufReader<File>> {
         let file = File::open(path).map_err(|e| Error::io(path, e))?;
         // A large buffer keeps the read-through skipping in `EbmlReader::seek_to` effective
         // over a network filesystem, where this tool will usually be pointed.
-        Self::from_reader(BufReader::with_capacity(1 << 20, file), path.to_path_buf())
+        let mut reader =
+            Self::from_reader(BufReader::with_capacity(1 << 20, file), path.to_path_buf())?;
+        // Opened with the random-access hint where the platform allows one, which is why it is
+        // opened here rather than handed in: the hint belongs to the handle, and on the walk's
+        // handle it would turn off the readahead the walk depends on.
+        reader.random = Some(RandomReader::open(path)?);
+        Ok(reader)
     }
 }
 
 impl<R: Read + Seek> MatroskaReader<R> {
+    /// Give the index path a handle to read through.
+    ///
+    /// [`Self::open`] does this itself. A reader built with [`Self::from_reader`] and not given
+    /// one walks every track, which is how it behaved before the index path existed.
+    ///
+    /// # Errors
+    /// Returns [`Error::Io`] if the handle cannot report its length.
+    pub fn with_random_access(mut self, handle: impl Read + Seek + Send + 'static) -> Result<Self> {
+        self.random = Some(RandomReader::new(Box::new(handle), self.reader.path().to_path_buf())?);
+        self.index = None;
+        Ok(self)
+    }
+
+    /// Whether [`SubtitleSource::select`] follows the index when the file has a usable one.
+    ///
+    /// On by default. Off exists to read one track both ways and compare what comes out, which is
+    /// the check #258 makes and a library survey would repeat.
+    pub const fn use_index(&mut self, enabled: bool) {
+        self.use_index = enabled;
+    }
     /// Parse track headers from an already-open reader.
     ///
     /// # Errors
@@ -149,12 +238,27 @@ impl<R: Read + Seek> MatroskaReader<R> {
         let mut tracks: Vec<Track> = Vec::new();
         let mut plane = (0u32, 0u32);
         let mut clusters_start = None;
+        let mut seeks = Vec::new();
+        let mut seek_heads = Vec::new();
+        let mut cues_at = None;
 
         // Walk the segment's children until the first cluster. Everything the reader needs is
-        // declared before playback data begins.
+        // declared before playback data begins — except `Cues`, which is usually at the tail and
+        // is found through the `SeekHead` that points at it.
         reader.children_until(segment.body_start, segment_end, |reader, header| {
             match header.id {
                 INFO => timestamp_scale = read_timestamp_scale(reader, header)?,
+                index::SEEK_HEAD if header.size <= MAX_SEEK_HEAD => {
+                    seek_heads.push(header.start);
+                    let body = reader.read_exact(usize::try_from(header.size).unwrap_or(0))?;
+                    // A SeekHead that does not parse costs the index, never the file: the walk
+                    // does not need it.
+                    seeks.extend(
+                        index::parse_seek_head(&body, segment.body_start, reader.path())
+                            .unwrap_or_default(),
+                    );
+                }
+                index::CUES => cues_at = Some(header.start),
                 TRACKS => {
                     let (found, video_plane) = read_tracks(reader, header)?;
                     tracks = found;
@@ -196,6 +300,18 @@ impl<R: Read + Seek> MatroskaReader<R> {
             tracks,
             streams,
             timestamp_scale,
+            segment_start: segment.body_start,
+            seeks,
+            seek_heads,
+            cues_at,
+            random: None,
+            index: None,
+            use_index: true,
+            mode: Mode::Walk,
+            indexed: Err("no track has been selected"),
+            indexed_blocks: 0,
+            walked_from: None,
+            skip_through: None,
             clusters_start,
             selected: None,
             pending: std::collections::VecDeque::new(),
@@ -213,11 +329,180 @@ impl<R: Read + Seek> MatroskaReader<R> {
         u64::try_from(nanos * u128::from(PTS_HZ) / 1_000_000_000).unwrap_or(u64::MAX)
     }
 
+    /// Read the file's index for every bitmap subtitle track, once.
+    fn load_index(&mut self) -> Result<()> {
+        if self.index.is_some() {
+            return Ok(());
+        }
+        let Some(random) = self.random.as_mut() else {
+            self.index = Some(Index::Absent("no handle to read the index through"));
+            return Ok(());
+        };
+
+        let find = |seeks: &[(u32, u64)]| {
+            seeks
+                .iter()
+                .find(|(id, _)| *id == index::CUES)
+                .map(|(_, at)| *at)
+        };
+        let mut cues_at = self.cues_at.or_else(|| find(&self.seeks));
+
+        // A SeekHead may point at a second one rather than at `Cues` itself. mkvmerge writes one
+        // at the tail when the front one has no room. Followed one level, as Trickster does.
+        if cues_at.is_none() {
+            let others: Vec<u64> = self
+                .seeks
+                .iter()
+                .filter(|(id, at)| *id == index::SEEK_HEAD && !self.seek_heads.contains(at))
+                .map(|(_, at)| *at)
+                .collect();
+            for at in others {
+                if let Some(body) = index::read_element(random, at, index::SEEK_HEAD)? {
+                    let path = self.reader.path();
+                    let more = index::parse_seek_head(&body, self.segment_start, path);
+                    self.seeks.extend(more.unwrap_or_default());
+                }
+            }
+            cues_at = find(&self.seeks);
+        }
+
+        let Some(at) = cues_at else {
+            self.index = Some(Index::Absent("the file has no Cues element"));
+            return Ok(());
+        };
+        let Some(body) = index::read_element(random, at, index::CUES)? else {
+            self.index = Some(Index::Absent("the Cues position does not hold a Cues element"));
+            return Ok(());
+        };
+        let numbers: Vec<u64> = self.tracks.iter().map(|t| t.number).collect();
+        self.index = Some(
+            match index::parse_cues(&body, self.segment_start, &numbers, self.reader.path()) {
+                Ok(points) => Index::Points(points),
+                Err(_) => Index::Absent("the Cues element is malformed"),
+            },
+        );
+        Ok(())
+    }
+
+    /// The index's entries for track `number`, or why the track has to be walked.
+    fn entries_for(
+        &mut self,
+        number: u64,
+    ) -> Result<std::result::Result<Vec<CuePoint>, &'static str>> {
+        if !self.use_index {
+            return Ok(Err("the index was not consulted"));
+        }
+        self.load_index()?;
+        let points = match &self.index {
+            Some(Index::Points(points)) => points,
+            Some(Index::Absent(why)) => return Ok(Err(why)),
+            None => return Ok(Err("the index was not read")),
+        };
+        let points: Vec<CuePoint> = points
+            .iter()
+            .filter(|p| p.track == number)
+            .copied()
+            .collect();
+        if points.is_empty() {
+            return Ok(Err("the index has no entries for this track"));
+        }
+        // A pre-2013 file indexes clusters but not blocks. Finding each block would mean walking
+        // its cluster's element headers, which Trickster does; here the walk already exists and
+        // reads those files exactly as it always has.
+        if points.iter().any(|p| p.relative.is_none()) {
+            return Ok(Err("the index gives clusters but not block positions"));
+        }
+        Ok(Ok(points))
+    }
+
+    /// Stop following the index and walk from the cluster of the entry that failed.
+    ///
+    /// Everything the index already yielded lies at or before [`Self::skip_through`], and the walk
+    /// passes over it, so the track comes out whole: the index's failure costs the rest of the
+    /// file's bytes, never a cue.
+    fn walk_from(&mut self, point: &CuePoint) {
+        self.walked_from = Some(self.to_ticks(i64::try_from(point.time).unwrap_or(i64::MAX)));
+        self.mode = Mode::Walk;
+        self.cursor = point.cluster;
+        self.inside_cluster = false;
+        self.cluster_timestamp = 0;
+    }
+
+    /// Fill [`Self::pending`] from the next entry in the index, while the index is being followed.
+    fn fill_indexed(&mut self, selected: u64) -> Result<()> {
+        while self.pending.is_empty() {
+            let Mode::Indexed { points, next, cluster } = &mut self.mode else {
+                return Ok(());
+            };
+            let Some(point) = points.get(*next).copied() else {
+                return Ok(());
+            };
+            *next += 1;
+            let cached = *cluster;
+
+            let Some(random) = self.random.as_mut() else {
+                self.walk_from(&point);
+                return Ok(());
+            };
+            let head = match cached {
+                Some(head) if head.position == point.cluster => Some(head),
+                _ => index::read_cluster_head(random, point.cluster)?,
+            };
+            let located = match &head {
+                Some(head) => {
+                    index::read_block(random, head, point.relative.unwrap_or(0), selected)?
+                }
+                None => Located::Lost,
+            };
+            if let Mode::Indexed { cluster, .. } = &mut self.mode {
+                *cluster = head;
+            }
+
+            match (located, head) {
+                (Located::Block { start, relative, flags, payload }, Some(head)) => {
+                    self.indexed_blocks += 1;
+                    self.skip_through = Some(start);
+                    if flags & 0x06 != 0 {
+                        return Err(self.laced(selected));
+                    }
+                    let pts = self.to_ticks(
+                        i64::try_from(head.timestamp)
+                            .unwrap_or(i64::MAX)
+                            .saturating_add(i64::from(relative)),
+                    );
+                    let payload = self.decompress(&payload, pts)?;
+                    self.pending.push_back(Packet { pts, payload });
+                }
+                (Located::Nothing { start }, _) => {
+                    self.indexed_blocks += 1;
+                    self.skip_through = Some(start);
+                }
+                _ => self.walk_from(&point),
+            }
+        }
+        Ok(())
+    }
+
+    /// The error for a laced block, which neither path decodes.
+    fn laced(&self, track: u64) -> Error {
+        Error::Demux(format!(
+            "{}: laced subtitle block on track {track}, which this reader does not handle",
+            self.reader.path().display()
+        ))
+    }
+
     /// Fill [`Self::pending`] from the next block that belongs to the selected track.
     fn fill(&mut self) -> Result<()> {
         let Some((selected, _)) = self.selected.clone() else {
             return Err(Error::Demux("no subtitle stream selected".into()));
         };
+
+        if matches!(self.mode, Mode::Indexed { .. }) {
+            self.fill_indexed(selected)?;
+            if matches!(self.mode, Mode::Indexed { .. }) {
+                return Ok(());
+            }
+        }
 
         while self.pending.is_empty() {
             if self.inside_cluster && self.cursor >= self.cluster_end {
@@ -267,6 +552,10 @@ impl<R: Read + Seek> MatroskaReader<R> {
     /// full merely to discover it is not the subtitle track meant pulling the entire 5.5 GB
     /// through a fresh allocation per block. Peeking the header first turns that into a seek.
     fn take_block(&mut self, header: &ElementHeader, selected: u64) -> Result<()> {
+        // Taking over from the index: what it already yielded is not yielded twice.
+        if self.skip_through.is_some_and(|last| header.start <= last) {
+            return Ok(());
+        }
         let Some(size) = usize::try_from(header.size).ok().filter(|s| *s > 0) else {
             return Ok(());
         };
@@ -293,10 +582,7 @@ impl<R: Read + Seek> MatroskaReader<R> {
         // Lacing packs several frames into one block. Subtitle tracks do not use it, so rather
         // than implement it speculatively this refuses loudly if it ever turns up.
         if flags & 0x06 != 0 {
-            return Err(Error::Demux(format!(
-                "{}: laced subtitle block on track {track}, which this reader does not handle",
-                self.reader.path().display()
-            )));
+            return Err(self.laced(track));
         }
 
         // Only now, having established this is the track we want, read the payload.
@@ -598,12 +884,36 @@ impl<R: Read + Seek> SubtitleSource for MatroskaReader<R> {
             .find(|t| t.info.index == index)
             .ok_or_else(|| Error::Demux(format!("no subtitle stream with index {index}")))?;
 
-        self.selected = Some((track.number, track.compression.clone()));
+        let number = track.number;
+        self.selected = Some((number, track.compression.clone()));
         self.pending.clear();
         self.cursor = self.clusters_start;
         self.inside_cluster = false;
         self.cluster_timestamp = 0;
+        self.indexed_blocks = 0;
+        self.walked_from = None;
+        self.skip_through = None;
+
+        let entries = self.entries_for(number)?;
+        self.indexed = entries.as_ref().map(|_| ()).map_err(|why| *why);
+        self.mode = match entries {
+            Ok(points) => Mode::Indexed { points, next: 0, cluster: None },
+            Err(_) => Mode::Walk,
+        };
         Ok(())
+    }
+
+    fn access(&self) -> Access {
+        match (self.indexed, &self.random) {
+            (Ok(()), Some(random)) => Access::Indexed {
+                blocks: self.indexed_blocks,
+                reads: random.reads(),
+                bytes: random.bytes(),
+                walked_from: self.walked_from,
+            },
+            (Err(why), _) => Access::Sequential { why },
+            (Ok(()), None) => Access::Sequential { why: "no handle to read the index through" },
+        }
     }
 
     fn next_packet(&mut self) -> Result<Option<Packet>> {
