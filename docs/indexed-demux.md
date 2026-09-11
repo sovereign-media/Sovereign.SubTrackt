@@ -131,13 +131,45 @@ what Trickster measured a need for.
 container's mount reads ahead the way Trickster's NFS mount did is unmeasured, and #260 is that
 measurement.
 
+## Smaller files, VobSub, and the bench
+
+Blade Runner 2049 is the best case: a very large file with a track of ordinary size. #262 measured
+the ordinary cases the same day, over the same share, with `b47c532` against `0a66c82`.
+
+| | Before: walking | After: through the index | What came out |
+| :--- | ---: | ---: | :--- |
+| Dr. No (1962), 5.9 GB, PGS, 1,111 cues | 22.8 s | **4.2 s** | SRT byte-identical |
+| The Karate Kid (1984), 6.4 GB, VobSub, in a bench pass | 26.1 s | **3.2 s** | SRT identical; 1,469 packets identical |
+| Training Day (2001), 5.8 GB, VobSub, in a bench pass | 51.3 s | **3.6 s** | SRT identical; 1,421 packets identical |
+| A full `run.py score` pass, nine tracks | 84.6 s | **14.7 s** | all nine SRTs identical |
+| `run.py dump`, six PGS tracks from 45 GB of containers | 174.1 s | **22.1 s** | all six `.sup` files byte-identical, to each other and to the existing cache |
+
+**The saving scales with the file, and the cost with the track.** Dr. No is 5.4 times faster, where
+Blade Runner was 83. The index path read 113.5 MiB of Dr. No in 3,273 reads, 2% of the file, and
+its 2,222 blocks cost about the same wherever they sit. The walk's cost is the file's size. A small
+file with a long track gains least.
+
+**Dr. No is also where "cold" is stricter.** It had not been read that day, and the index ran first.
+Warm, both paths are cheap: 0.8 s through the index and 1.3 s walking. On a network share what the
+index saves is the network.
+
+**VobSub goes through the same index and reads the same.** The two DVD-sourced tracks were the last
+codec the index had not been measured on. Both produced packets identical to the walk, one block per
+cue: a VobSub packet carries its own end time, where PGS spends a second block on an erase. Training
+Day's walk took 51.3 s in the pass and 21.9 s in `demux-compare` a few minutes later, which is the
+same network variance Blade Runner showed.
+
+The seventh dump entry, Cloverfield, fails both before and after. The library has replaced that
+title's file with a release that carries no PGS track, which is #263 and nothing to do with the
+index.
+
 ## What this has not measured
 
-- **Whether the library's muxers index every subtitle block.** One mkvmerge file entered all 1,948.
-  FFmpeg's muxer indexes every subtitle packet, and Trickster's FFmpeg-muxed fixtures read identically
-  both ways. Other muxers, MakeMKV above all, are unmeasured. `xtask demux-compare` is the
-  instrument: it reads a track both ways and names the first packet they disagree on. #259 is the
-  survey.
+- **Whether the library's muxers index every subtitle block.** Ten files from the library now read
+  identically both ways: three compared packet for packet, six dumped to byte-identical `.sup` files,
+  and Dr. No to a byte-identical SRT. Which muxer wrote each one was not recorded. FFmpeg's muxer
+  indexes every subtitle packet, and Trickster's FFmpeg-muxed fixtures read identically both ways.
+  Other muxers, MakeMKV above all, are unmeasured.
+  `xtask demux-compare` is the instrument: it reads a track both ways and names the first packet
+  they disagree on. #259 is the survey.
 - **Readahead on the Linux container.** See above; #260.
-- **VobSub.** It goes through the same index and the same block reader, but only PGS has been
-  measured on real media.

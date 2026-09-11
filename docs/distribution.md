@@ -14,18 +14,23 @@ it did not exist yet. They do now, and they are lopsided enough that the decisio
 | Release binary | **1.35–1.96 MB**, by platform |
 | Cold start, process spawn to exit | **16.3 ms** |
 | Reference set on disk | **6.3 KB** |
-| Extraction, 5.5 GB film, 1,111 cues | **22 s** |
+| Extraction, 5.5 GB film, 1,111 cues | **4.2 s** through the file's index; 22.8 s reading all of it |
 
-Taken from published artifacts rather than from a development build. The sizes are `v0.0.2-alpha`;
-the other three rows are `v0.0.1-alpha` and have not been re-measured since, because nothing between
-the two tags touched what they measure. Cold start is the mean of three runs of fifty
+Taken from published artifacts rather than from a development build, except the extraction row. The
+sizes are `v0.0.2-alpha`, and spawn and reference size are `v0.0.1-alpha`. The extraction row was
+re-measured on 2026-09-11 over SMB, at `0a66c82` against `b47c532`, because #258 changed what it
+measures: the reader now follows the `Cues` index instead of walking every cluster, and
+[`indexed-demux.md`](indexed-demux.md) has the rest. The film is Dr. No (1962). Cold start is the mean of three runs of fifty
 `subtrackt --version` invocations of the downloaded Windows binary, 16.1–16.4 ms across runs —
 Windows has the slowest process creation of the platforms here, so it is an upper bound on what
 Linux will do rather than an estimate of it.
 
 The comparison that matters is against the 37-track file §4 names as the worst case in the queue.
 Thirty-seven spawns cost **0.6 s**. The extraction those spawns exist to start costs on the order of
-**13 minutes**. Process overhead is 0.07% of the work — three parts in four thousand.
+**2.6 minutes** at the extraction row's 4.2 s a track. Process overhead is 0.4% of the work, four
+parts in a thousand. The index made the work five times cheaper and the overhead five times larger
+in proportion, and it is still a rounding error. Every process reads the file's index for itself, a
+couple of megabytes each, and that is inside the 4.2 s.
 
 ## CLI, not `cdylib`
 
@@ -196,5 +201,5 @@ creation being cheap relative to the work, and on the platform where that argume
 weaker still than assumed.
 
 The extraction figure above is a separate matter and is **not** comparable to the per-track seconds
-in [`alternatives.md`](alternatives.md): 22 s was measured natively on Windows reading a 5.5 GB rip
+in [`alternatives.md`](alternatives.md): 4.2 s was measured natively on Windows reading a 5.5 GB rip
 over SMB, and those were measured in a container reading a flat `.sup` off a local volume.

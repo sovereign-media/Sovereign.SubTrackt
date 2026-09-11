@@ -129,14 +129,15 @@ material. `roster.json` names nine tracks and says what each one covers; `run.py
 scores all of them and diffs two runs.
 
 ```console
-$ scripts/bench/run.py dump  --cache bench-cache            # once, ~30 min and 184 MB
+$ scripts/bench/run.py dump  --cache bench-cache            # once, ~25 s and 184 MB
 $ scripts/bench/run.py score --cache bench-cache --reference arial-ri.subtref --out before.json
 $ scripts/bench/run.py score --cache bench-cache --reference arial-ri.subtref --out after.json
 $ scripts/bench/run.py compare before.json after.json
 ```
 
-Dump first. A pass then costs about twenty seconds against hours of network reads, which is what
-makes running it before *and* after the cheap option rather than the diligent one.
+Dump first. A pass then costs about fifteen seconds, which is what makes running it before *and*
+after the cheap option rather than the diligent one. The dump reads each track through its file's
+`Cues` index (#258): 22 s for the six PGS tracks, where reading the whole of each file took 174.
 
 **Read the `worse` column, not the CER.** #110 gained character error on one disc while making 232
 cues worse on another, and #113 found it only because two more discs were scored.
@@ -199,8 +200,8 @@ Adding a track is cheap; adding one that duplicates another's coverage costs att
 expensive half. #133 has the survey the seven were chosen from: SDH is ~75% of the library and the
 bench had none of it until then. #140 added the eighth and ninth for the same reason — every figure
 this project had published was PGS, and the other codec had shipped unmeasured. Those two are read
-from their containers rather than from the dump cache, because a `.sup` holds PGS and nothing else,
-which takes a pass from about five seconds to fifty-four.
+from their containers rather than from the dump cache, because a `.sup` holds PGS and nothing else.
+Through the index that costs them about three and a half seconds each.
 
 ### The reader
 

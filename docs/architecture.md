@@ -147,8 +147,9 @@ A survey of the 1,328 titles carrying bitmap subtitles, which settled several op
 The track-count figure matters for #16: `MaxConcurrentExtractions` and `TimeoutMinutes` were sized
 against an assumed worst case that is roughly half the real one.
 
-**The pipeline is connected end to end**, and has been run against a real 5.5 GB Blu-ray rip:
-1,111 cues, 35,516 glyphs, a 99% session-cache hit rate, in 22 seconds.
+**The pipeline is connected end to end**, and has been run against a real 5.5 GB Blu-ray rip, Dr. No
+(1962): 1,111 cues and 39,553 glyphs, 99.9% of them read, in 4.2 seconds over SMB through the file's
+own index, or 22.8 reading all of it.
 
 Given a reference set it reads text; without one every glyph comes back unmatched and the default
 floor refuses the track, naming the numbers behind it — which is the designed behaviour, not a

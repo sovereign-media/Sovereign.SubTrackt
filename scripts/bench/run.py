@@ -14,9 +14,10 @@ Three steps:
     score     extract and score every track, into a results file
     compare   two results files, per track, through `xtask srt-score --compare`
 
-Dumping is the slow part and is done once: about 30 minutes and 230 MB over the network for the
-seven tracks. After that a whole bench pass is a few seconds, which is what makes running it before
-*and* after a change the cheap option rather than the diligent one.
+Dumping is done once: about 25 seconds and 184 MB for the seven tracks, because each track is read
+through its file's `Cues` index rather than by reading the whole film (#258). After that a whole
+bench pass is about fifteen seconds, which is what makes running it before *and* after a change the
+cheap option rather than the diligent one.
 
     $ scripts/bench/run.py dump    --cache bench-cache
     $ scripts/bench/run.py score   --cache bench-cache --reference arial-ri.subtref --out before.json
@@ -174,7 +175,7 @@ def do_dump(args, roster):
             continue
         print(f"  {track['key']:15s} dumping...", flush=True)
         # Retried because a read over SMB fails about 1.7% of the time and succeeds next attempt.
-        # #133 measured that; it is not a defect and it is not worth losing a 30-minute pass to.
+        # #133 measured that; it is not a defect and it is not worth failing a dump over.
         for attempt in range(3):
             result = run([args.xtask, "dump-sup", media_path(roster, track), out,
                           "--stream", str(track["stream"])])
