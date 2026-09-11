@@ -85,7 +85,7 @@ function Home() {
       </div>
 
       <p className="mt-12 text-sm text-default-500">
-        v1.0 ·{" "}
+        v1.1 ·{" "}
         <a className="underline" href={site.repo}>
           Source
         </a>{" "}

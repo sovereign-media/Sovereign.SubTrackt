@@ -28,7 +28,7 @@ filename carries the version, so a `latest` URL would have to guess it.
 **Linux**
 
 ```console
-$ tag=v1.0.0
+$ tag=v1.1.0
 $ base=https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag
 $ curl -LO $base/subtrackt-$tag-x86_64-unknown-linux-musl
 $ curl -LO $base/SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
@@ -38,7 +38,7 @@ $ install -m 755 subtrackt-$tag-x86_64-unknown-linux-musl /usr/local/bin/subtrac
 **Windows**, in PowerShell:
 
 ```powershell
-$tag = 'v1.0.0'
+$tag = 'v1.1.0'
 $base = "https://github.com/sovereign-media/Sovereign.SubTrackt/releases/download/$tag"
 Invoke-WebRequest "$base/subtrackt-$tag-x86_64-pc-windows-msvc.exe" -OutFile subtrackt.exe
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
