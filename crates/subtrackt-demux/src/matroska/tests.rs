@@ -730,7 +730,7 @@ fn an_index_missing_an_entry_loses_that_cue_and_nothing_says_so() {
     // Pinned because it is the risk the whole path carries. The walk sees every block; the index
     // sees what the muxer chose to enter, and a block it left out is not read. Nothing in the file
     // says an entry is missing, so nothing here can refuse — the protection is measuring how often
-    // real muxers do this, which is #258's survey, not a check this reader could make.
+    // real muxers do this, which is #259's survey, not a check this reader could make.
     let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
         let first = entries.iter().position(|e| e.track == 2).unwrap();
         entries.remove(first);

@@ -81,8 +81,11 @@ Complete and tested:
   stays one cue rather than becoming twenty.
 - VOBSUB `.idx` index parsing.
 - Alpha-based binarization and row/column projections.
-- **Matroska demuxing, complete**: native EBML parser, streaming, with zlib-compressed block
-  payloads handled. Reads a 5.5 GB Blu-ray rip in 22 seconds over a network filesystem.
+- **Matroska demuxing, complete**: native EBML parser, with zlib-compressed block payloads handled.
+  A track is found through the file's own `Cues` index where it has one, reading one window per
+  block, and by walking every cluster where it does not. Blade Runner 2049's 78.8 GB remux reads in
+  3.7 seconds over a network filesystem rather than 307; `docs/indexed-demux.md` has the
+  measurement.
 - **Text reconstruction, complete**: glyphs ordered by position within their line, word spacing
   derived per line from the median observed gap, unmatched glyphs rendered as a placeholder and
   counted. A leading dash keeps its space so a speaker marker does not read as a hyphen.

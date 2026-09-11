@@ -182,7 +182,8 @@ impl RandomReader {
 /// 96.7 MB, because the kernel fetched its sequential window around every seek. On Windows the
 /// hint is a flag `std` can pass. Elsewhere it is `posix_fadvise`, which needs `unsafe` or a crate,
 /// and the workspace forbids the one and the library crates take neither — so it waits on a
-/// measurement of what readahead costs there (#258).
+/// measurement of what readahead costs there (#260). On Windows over SMB it made no measurable
+/// difference; `docs/indexed-demux.md` has the figures.
 #[cfg(windows)]
 fn open_for_random_access(path: &Path) -> std::io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
