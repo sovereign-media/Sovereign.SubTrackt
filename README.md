@@ -5,7 +5,7 @@ human intervention, and without a general OCR engine.
 
 A 5.5 GB Blu-ray rip reads in **4 seconds** over a network share, and a 78.8 GB 4K remux in under 4,
 because only the subtitle track is read rather than the film around it. It is a single
-**1.3–1.9 MB** static binary with no runtime, no model files and no system dependencies.
+**1.6–2.3 MB** static binary with no runtime, no model files and no system dependencies.
 
 > **Image-based subtitles only.** This reads subtitle tracks that are stored as *pictures* — PGS on
 > Blu-ray, VOBSUB on DVD — and turns them into characters. Tracks that are already text (SubRip,
