@@ -28,8 +28,12 @@ with numbered tracks in it — video, several audio languages, and often a lot o
 be dozens of them; one file in the library this was built against carries seventy.
 [`list`](/usage/list) is the command that shows you them.
 
-Only the track you named is pulled out; every other byte in the file is stepped over rather than
-read. That is why a 5.5 GB rip takes about twenty seconds rather than several minutes.
+Only the track you named is read. Most files carry an index that says where every subtitle
+picture sits, to the byte, so the tool reads the index and then only those pictures. On a 5.5 GB rip
+that is 2% of the file, and the track comes out in about four seconds over a network share; on a
+78.8 GB 4K remux it is a sixth of one percent, in under four. A file with no index is read front to
+back instead, which takes about twenty seconds for the same 5.5 GB. `extract --report` says which of
+the two a file got.
 
 **`decode`** turns those packets into pictures. They are not pictures yet: they are compressed
 runs of colour, palettes that arrive separately from the image they colour, and single images sent

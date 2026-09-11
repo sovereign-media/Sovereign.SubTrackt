@@ -154,6 +154,21 @@ With post-correction on, **every individual correction is listed underneath the 
 corrections is a claim nobody can check; a named substitution in a named word is one anybody can. A
 stage allowed to rewrite text has to leave a trace.
 
+### The second line: what the run cost
+
+The line after the tally is what the run cost rather than what it read: seconds per stage, memory
+held, and, last, how the file itself was read.
+
+```console
+decode 3.1s; segment 0.6s; cluster 0.0s; read 0.0s; total 3.8s; resident 74.9 MiB images / 9.8 MiB glyphs; container indexed: 2222 blocks in 3273 reads, 113.5 MiB
+```
+
+`container indexed` means the file's own index said where every subtitle picture was, and only
+those were read: here 113.5 MiB of a 5.5 GB film. `container read through` means the whole file was
+read, and the reason follows in brackets, most often `(the file has no Cues element)`. A slow
+extraction that says `read through` is a file without an index, not a slow tool. Remuxing it
+with mkvmerge writes one.
+
 ## The accuracy gate
 
 You do not have to read the report yourself for the tool to act on it. `--on-unmatched` says what

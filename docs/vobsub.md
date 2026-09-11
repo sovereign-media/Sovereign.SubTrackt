@@ -114,9 +114,9 @@ collapse. It does not: cache hit rates here are 96–100%.
 and a read good enough to have a signal — 2.5% and 3.1% — and between them they cover plain and SDH.
 
 They cannot use the dump cache: a `.sup` holds PGS and nothing else, so `score` reads them from their
-containers. That takes a pass from about five seconds to **fifty-four**, which is still cheap enough
-to run before *and* after a change, and `run.py dump` now says so rather than retrying three times
-and reporting a failure.
+containers. Through each file's `Cues` index (#258) that costs them 3.2 s and 3.6 s, and a nine-track
+pass takes **14.7 s**. Walking both files took 26.1 s and 51.3 s. `run.py dump` says they are read
+from their containers rather than retrying three times and reporting a failure.
 
 ## What is still not known
 
