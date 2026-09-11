@@ -359,6 +359,420 @@ fn a_laced_block_is_refused_loudly_rather_than_decoded_wrongly() {
     assert!(matches!(err, Error::Demux(_)), "got {err:?}");
 }
 
+// --- The index path -------------------------------------------------------------------------
+//
+// Every test here reads one file both ways and holds the index to the walk's packets. The walk is
+// the reference because it is the reader every published figure in this project came from.
+
+/// One block in an indexed fixture.
+#[derive(Clone)]
+enum Blk {
+    /// A `SimpleBlock`: track, ticks from its cluster, payload.
+    Simple(u64, i16, Vec<u8>),
+    /// A `BlockGroup` carrying a `BlockDuration` after its `Block`, which is how mkvmerge writes
+    /// subtitles.
+    Group(u64, i16, Vec<u8>),
+}
+
+/// One index entry, before it is written.
+#[derive(Clone, Debug)]
+struct Entry {
+    time: u64,
+    track: u64,
+    /// Offset of the cluster's header from the segment body.
+    cluster: u64,
+    relative: Option<u64>,
+}
+
+/// Where the `Cues` element goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// After the last cluster, found through the `SeekHead`, which is where mkvmerge puts it.
+    Tail,
+    /// Before the first cluster, with no `SeekHead` at all.
+    Front,
+    /// After the last cluster, found through a second `SeekHead` that the first points at.
+    TailBehindSecondSeekHead,
+    /// Nowhere: the file has no index.
+    Absent,
+}
+
+/// Element IDs a `SeekHead` names, as the bytes it stores them in.
+const CUES_ID: [u8; 4] = [0x1C, 0x53, 0xBB, 0x6B];
+const SEEK_HEAD_ID: [u8; 4] = [0x11, 0x4D, 0x9B, 0x74];
+
+/// An unsigned-integer element eight bytes wide, so an element's size does not depend on its
+/// value and positions can be computed before the values are known.
+fn uint8(id: &[u8], value: u64) -> Vec<u8> {
+    elem(id, &value.to_be_bytes())
+}
+
+fn block_body(track: u64, relative: i16, data: &[u8]) -> Vec<u8> {
+    let mut body = vint(track, 1);
+    body.extend_from_slice(&relative.to_be_bytes());
+    body.push(0x80);
+    body.extend_from_slice(data);
+    body
+}
+
+fn cues_element(entries: &[Entry], segment_offset: u64) -> Vec<u8> {
+    let mut body = Vec::new();
+    for entry in entries {
+        let mut positions = uint8(&[0xF7], entry.track);
+        positions.extend(uint8(&[0xF1], segment_offset + entry.cluster));
+        if let Some(relative) = entry.relative {
+            positions.extend(uint8(&[0xF0], relative));
+        }
+        let mut point = uint8(&[0xB3], entry.time);
+        point.extend(elem(&[0xB7], &positions));
+        body.extend(elem(&[0xBB], &point));
+    }
+    elem(&[0x1C, 0x53, 0xBB, 0x6B], &body)
+}
+
+/// A file with a video track and two PGS tracks, numbered 2 and 3, with the blocks of `indexed`
+/// tracks entered in its `Cues`. `edit` sees the entries before they are written.
+fn indexed_file(
+    clusters: &[(u64, Vec<Blk>)],
+    indexed: &[u64],
+    place: Place,
+    edit: impl FnOnce(&mut Vec<Entry>),
+) -> Vec<u8> {
+    let video = TrackSpec {
+        number: 1,
+        kind: TRACK_TYPE_VIDEO,
+        codec: "V_MPEGH/ISO/HEVC",
+        language: None,
+        title: None,
+    };
+    let first = TrackSpec { language: Some("eng"), ..TrackSpec::subtitle(2, "S_HDMV/PGS") };
+    let second = TrackSpec { language: Some("fra"), ..TrackSpec::subtitle(3, "S_HDMV/PGS") };
+
+    let info = elem(
+        &[0x15, 0x49, 0xA9, 0x66],
+        &uint(&[0x2A, 0xD7, 0xB1], DEFAULT_TIMESTAMP_SCALE),
+    );
+    let mut track_bodies = video.encode();
+    track_bodies.extend(first.encode());
+    track_bodies.extend(second.encode());
+    let tracks = elem(&[0x16, 0x54, 0xAE, 0x6B], &track_bodies);
+
+    let mut blob = Vec::new();
+    let mut entries = Vec::new();
+    for (timestamp, blocks) in clusters {
+        let mut body = uint(&[0xE7], *timestamp);
+        for block in blocks {
+            let at = body.len() as u64;
+            let (track, relative) = match block {
+                Blk::Simple(track, relative, data) => {
+                    body.extend(elem(&[0xA3], &block_body(*track, *relative, data)));
+                    (*track, *relative)
+                }
+                Blk::Group(track, relative, data) => {
+                    let mut group = elem(&[0xA1], &block_body(*track, *relative, data));
+                    group.extend(uint(&[0x9B], 2_000));
+                    body.extend(elem(&[0xA0], &group));
+                    (*track, *relative)
+                }
+            };
+            if indexed.contains(&track) {
+                entries.push(Entry {
+                    time: timestamp.saturating_add_signed(i64::from(relative)),
+                    track,
+                    cluster: blob.len() as u64,
+                    relative: Some(at),
+                });
+            }
+        }
+        blob.extend(elem(&[0x1F, 0x43, 0xB6, 0x75], &body));
+    }
+    edit(&mut entries);
+
+    let seek_head = |target: [u8; 4], position: u64| {
+        let mut seek = elem(&[0x53, 0xAB], &target);
+        seek.extend(uint8(&[0x53, 0xAC], position));
+        elem(&SEEK_HEAD_ID, &elem(&[0x4D, 0xBB], &seek))
+    };
+    let head_len = (info.len() + tracks.len()) as u64;
+
+    let mut segment = Vec::new();
+    match place {
+        Place::Tail => {
+            let seek_len = seek_head(CUES_ID, 0).len() as u64;
+            let clusters_at = seek_len + head_len;
+            segment.extend(seek_head(CUES_ID, clusters_at + blob.len() as u64));
+            segment.extend(&info);
+            segment.extend(&tracks);
+            segment.extend(&blob);
+            segment.extend(cues_element(&entries, clusters_at));
+        }
+        Place::TailBehindSecondSeekHead => {
+            let seek_len = seek_head(CUES_ID, 0).len() as u64;
+            let clusters_at = seek_len + head_len;
+            let cues_at = clusters_at + blob.len() as u64;
+            let cues = cues_element(&entries, clusters_at);
+            segment.extend(seek_head(SEEK_HEAD_ID, cues_at + cues.len() as u64));
+            segment.extend(&info);
+            segment.extend(&tracks);
+            segment.extend(&blob);
+            segment.extend(&cues);
+            segment.extend(seek_head(CUES_ID, cues_at));
+        }
+        Place::Front => {
+            // Every value in the index is eight bytes wide, so its length is known before the
+            // positions it holds are.
+            let cues_len = cues_element(&entries, 0).len() as u64;
+            segment.extend(&info);
+            segment.extend(&tracks);
+            segment.extend(cues_element(&entries, head_len + cues_len));
+            segment.extend(&blob);
+        }
+        Place::Absent => {
+            segment.extend(&info);
+            segment.extend(&tracks);
+            segment.extend(&blob);
+        }
+    }
+
+    let mut file = elem(&[0x1A, 0x45, 0xDF, 0xA3], &elem(&[0x42, 0x82], b"matroska"));
+    file.extend(elem(&[0x18, 0x53, 0x80, 0x67], &segment));
+    file
+}
+
+/// A film in miniature: every cluster opens with a large video frame, and the subtitle track's
+/// display sets and erases sit among them. Track 3 carries a block in every other cluster.
+fn film() -> Vec<(u64, Vec<Blk>)> {
+    (0..24u64)
+        .map(|n| {
+            let mut blocks = vec![Blk::Simple(1, 0, vec![0x11; 150_000])];
+            if n % 3 == 1 {
+                blocks.push(Blk::Group(2, 120, vec![0x50, u8::try_from(n).unwrap(), 0x01]));
+                blocks.push(Blk::Simple(1, 200, vec![0x22; 30_000]));
+                blocks.push(Blk::Group(2, 700, vec![0x50, u8::try_from(n).unwrap(), 0x00]));
+            }
+            if n % 2 == 0 {
+                blocks.push(Blk::Simple(3, 400, vec![0x60, u8::try_from(n).unwrap()]));
+            }
+            (n * 1_000, blocks)
+        })
+        .collect()
+}
+
+/// Read stream `index` to the end.
+fn drain<R: Read + Seek>(r: &mut MatroskaReader<R>, index: u32) -> Vec<Packet> {
+    r.select(index).unwrap();
+    let mut packets = Vec::new();
+    while let Some(packet) = r.next_packet().unwrap() {
+        packets.push(packet);
+    }
+    packets
+}
+
+/// The file read by walking, which is how every reader was built before #258.
+fn walked(bytes: &[u8], index: u32) -> Vec<Packet> {
+    drain(&mut reader(bytes.to_vec()).unwrap(), index)
+}
+
+/// A reader that can follow the index.
+fn with_index(bytes: &[u8]) -> MatroskaReader<Cursor<Vec<u8>>> {
+    reader(bytes.to_vec())
+        .unwrap()
+        .with_random_access(Cursor::new(bytes.to_vec()))
+        .unwrap()
+}
+
+#[test]
+fn the_index_yields_exactly_the_packets_the_walk_does() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |_| {});
+    for stream in 0..2 {
+        let mut r = with_index(&bytes);
+        let indexed = drain(&mut r, stream);
+        assert!(!indexed.is_empty());
+        assert_eq!(indexed, walked(&bytes, stream), "stream {stream}");
+        assert!(
+            matches!(r.access(), Access::Indexed { walked_from: None, .. }),
+            "stream {stream} was read {:?}",
+            r.access()
+        );
+    }
+}
+
+#[test]
+fn the_index_reads_a_small_fraction_of_the_file() {
+    // The point of it. 24 clusters of video frames around 16 subtitle blocks: the walk passes over
+    // every byte, and the index reads its own element, one cluster head per cluster that holds a
+    // wanted block, and one window per block — with the window, not the file, as the unit.
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |_| {});
+    let mut r = with_index(&bytes);
+    let packets = drain(&mut r, 0);
+    let Access::Indexed { blocks, reads, bytes: read, .. } = r.access() else {
+        panic!("read {:?}", r.access());
+    };
+    assert_eq!(blocks, packets.len() as u64);
+    // The index, then a head and a window for each of eight clusters: both blocks of a cluster
+    // fall inside one window.
+    assert_eq!(reads, 1 + 8 * 2, "read {reads} times");
+    assert!(read < bytes.len() as u64 / 5, "read {read} of {} bytes", bytes.len());
+}
+
+#[test]
+fn an_index_before_the_first_cluster_is_found_without_a_seek_head() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Front, |_| {});
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 1), walked(&bytes, 1));
+    assert!(matches!(r.access(), Access::Indexed { .. }), "read {:?}", r.access());
+}
+
+#[test]
+fn an_index_behind_a_second_seek_head_is_followed_there() {
+    // mkvmerge writes a second SeekHead at the tail when the front one has no room for `Cues`.
+    let bytes = indexed_file(&film(), &[2, 3], Place::TailBehindSecondSeekHead, |_| {});
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert!(matches!(r.access(), Access::Indexed { .. }), "read {:?}", r.access());
+}
+
+#[test]
+fn a_file_with_no_index_is_walked_and_says_why() {
+    let bytes = indexed_file(&film(), &[], Place::Absent, |_| {});
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert_eq!(r.access(), Access::Sequential { why: "the file has no Cues element" });
+}
+
+#[test]
+fn a_track_the_index_does_not_cover_is_walked_while_one_it_does_is_not() {
+    // A muxer can index some tracks and not others. The uncovered track is read the old way; its
+    // neighbour still gets the index.
+    let bytes = indexed_file(&film(), &[2], Place::Tail, |_| {});
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 1), walked(&bytes, 1));
+    assert_eq!(
+        r.access(),
+        Access::Sequential { why: "the index has no entries for this track" }
+    );
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert!(matches!(r.access(), Access::Indexed { .. }), "read {:?}", r.access());
+}
+
+#[test]
+fn an_index_without_block_positions_is_walked_rather_than_searched() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        for entry in entries.iter_mut() {
+            entry.relative = None;
+        }
+    });
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert_eq!(
+        r.access(),
+        Access::Sequential { why: "the index gives clusters but not block positions" }
+    );
+}
+
+#[test]
+fn an_entry_that_leads_elsewhere_hands_the_rest_of_the_track_to_the_walk_without_losing_a_cue() {
+    // The fifth entry is pointed at its cluster's video frame, which follows the cluster's
+    // four-byte timestamp. Everything before it came from the index; the walk takes over at that
+    // cluster, passes over what the index already yielded, and the track comes out whole —
+    // neither short a packet nor carrying one twice.
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        let fifth = entries.iter_mut().filter(|e| e.track == 2).nth(4).unwrap();
+        fifth.relative = Some(4);
+    });
+    let mut r = with_index(&bytes);
+    let packets = drain(&mut r, 0);
+    assert_eq!(packets, walked(&bytes, 0));
+    let Access::Indexed { blocks, walked_from: Some(pts), .. } = r.access() else {
+        panic!("read {:?}", r.access());
+    };
+    assert_eq!(blocks, 4, "four blocks came from the index before the fifth failed");
+    assert_eq!(pts, packets[4].pts, "the report names where the index stopped");
+}
+
+#[test]
+fn an_entry_that_leads_past_the_end_of_the_file_is_walked_rather_than_trusted() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        entries.last_mut().unwrap().relative = Some(u64::from(u32::MAX));
+    });
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 1), walked(&bytes, 1));
+    assert!(
+        matches!(r.access(), Access::Indexed { walked_from: Some(_), .. }),
+        "read {:?}",
+        r.access()
+    );
+}
+
+#[test]
+fn an_entry_pointing_at_another_tracks_block_is_not_yielded_as_this_ones() {
+    // An extra English entry at a French block's position: the block there is on the wrong track,
+    // and the reader has to notice rather than yield a French cue as an English one.
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        let french = entries
+            .iter()
+            .find(|e| e.track == 3 && e.cluster > 0)
+            .cloned()
+            .unwrap();
+        entries.push(Entry { track: 2, ..french });
+    });
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert!(
+        matches!(r.access(), Access::Indexed { walked_from: Some(_), .. }),
+        "read {:?}",
+        r.access()
+    );
+}
+
+#[test]
+fn an_index_missing_an_entry_loses_that_cue_and_nothing_says_so() {
+    // Pinned because it is the risk the whole path carries. The walk sees every block; the index
+    // sees what the muxer chose to enter, and a block it left out is not read. Nothing in the file
+    // says an entry is missing, so nothing here can refuse — the protection is measuring how often
+    // real muxers do this, which is #259's survey, not a check this reader could make.
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        let first = entries.iter().position(|e| e.track == 2).unwrap();
+        entries.remove(first);
+    });
+    let mut r = with_index(&bytes);
+    let indexed = drain(&mut r, 0);
+    let walked = walked(&bytes, 0);
+    assert_eq!(indexed.len() + 1, walked.len());
+    assert_eq!(indexed[..], walked[1..]);
+    assert!(matches!(r.access(), Access::Indexed { walked_from: None, .. }));
+}
+
+#[test]
+fn a_duplicated_entry_yields_its_block_once() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |entries| {
+        let copy = entries[0].clone();
+        entries.insert(1, copy);
+    });
+    let mut r = with_index(&bytes);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+}
+
+#[test]
+fn switching_the_index_off_reads_the_same_file_the_old_way() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |_| {});
+    let mut r = with_index(&bytes);
+    r.use_index(false);
+    assert_eq!(drain(&mut r, 0), walked(&bytes, 0));
+    assert_eq!(r.access(), Access::Sequential { why: "the index was not consulted" });
+}
+
+#[test]
+fn a_reader_given_no_second_handle_walks_as_it_always_did() {
+    let bytes = indexed_file(&film(), &[2, 3], Place::Tail, |_| {});
+    let mut r = reader(bytes).unwrap();
+    drain(&mut r, 0);
+    assert_eq!(
+        r.access(),
+        Access::Sequential { why: "no handle to read the index through" }
+    );
+}
+
 #[test]
 fn an_empty_block_is_skipped_without_erroring() {
     let file = pgs_file(&[(0, vec![(2, 0, vec![]), (2, 100, vec![9])])]);

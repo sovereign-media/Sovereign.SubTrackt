@@ -288,6 +288,7 @@ impl Pipeline {
         // #147: the count existed on both decoders and `decoder_for` erases the type that had it.
         report.unterminated_cues = decoder.unterminated_cues();
         cost.decode = started.elapsed();
+        cost.access = source.access();
         report.images = images.len().try_into().unwrap_or(u64::MAX);
         // Every decoded bitmap is resident at once, because nothing is segmented until the last
         // packet has arrived. Counted rather than estimated: #145 turns on how large this actually
