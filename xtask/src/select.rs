@@ -1523,7 +1523,7 @@ mod tests {
         assert_eq!(aligned_matches("abc", "abc"), vec![true, true, true]);
         assert_eq!(aligned_matches("abc", "abd"), vec![true, true, false]);
         assert_eq!(aligned_matches("abc", ""), vec![false, false, false]);
-        assert!(aligned_matches("", "abc").is_empty());
+        assert_eq!(aligned_matches("", "abc"), Vec::<bool>::new());
     }
 
     #[test]

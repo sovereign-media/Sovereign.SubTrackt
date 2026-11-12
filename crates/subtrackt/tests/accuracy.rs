@@ -144,7 +144,7 @@ fn the_report_names_the_corrector_that_ran_rather_than_only_counting_it() {
         .run(fixture("synthetic.sup"))
         .expect("the fixture extracts");
     assert_eq!(off.report.corrector, "none");
-    assert!(off.corrections.is_empty());
+    assert_eq!(off.corrections, [] as [subtrackt::CorrectionLog; 0]);
 
     assert_eq!(
         shipped.track, off.track,
