@@ -173,6 +173,6 @@ mod tests {
 
     #[test]
     fn an_empty_packet_holds_no_segments_rather_than_failing() {
-        assert!(segments(&[]).unwrap().is_empty());
+        assert_eq!(segments(&[]).unwrap(), [] as [(u8, &[u8]); 0]);
     }
 }
